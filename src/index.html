@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fantasy Map Studio — Александра Шавкунова</title>
+<link rel="icon" href="../build/icon.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="setup">
+  <div class="card">
+    <h2>Fantasy Map<span>Studio</span></h2>
+    <div class="author" style="margin-top:-6px">Александра Шавкунова</div>
+    <p class="hint" data-i18n="setup.hint">Параметры генерации мира. Климат, биомы, течения и реки не настраиваются: они вычисляются из рельефа и положения материков.</p>
+    <label data-i18n="setup.seed">Seed (зерно мира)</label>
+    <div class="row"><input id="seed" type="text" spellcheck="false"><button id="dice" data-i18n-title="setup.dice" title="Случайный seed">🎲</button></div>
+    <label>Континентов: <b id="continentsV"></b></label>
+    <input id="continents" type="range" min="0" max="8" step="1" value="2">
+    <div class="hint" style="font-size:11px;margin-top:-2px" data-i18n="setup.cont.hint">Число отдельных материков (массивов суши ≥3%). Генератор подбирает раскладку плит, пока число не совпадёт; «Пересчитать» плиты сохраняет и число не проверяет. 0 — авто.</div>
+    <label>Островных групп: <b id="islandsV"></b></label>
+    <input id="islands" type="range" min="0" max="8" step="1" value="3">
+    <label>Суши: <b id="landV"></b>%</label>
+    <input id="land" type="range" min="18" max="55" step="1" value="34">
+    <label>Древних эпох: <b id="epochsV"></b></label>
+    <input id="epochs" type="range" min="0" max="3" step="1" value="2">
+    <label style="margin-top:6px"><span data-i18n="setup.cat">Катастрофы</span> <span class="hint" style="font-size:11px" data-i18n="setup.cat.hint">— сколько событий изменит рельеф; 0 — без них (подсказка при наведении)</span></label>
+    <div id="catSetup"></div>
+    <label data-i18n="setup.lang">Язык / Language (письменность названий)</label>
+    <select id="langSel"></select>
+    <label style="margin-top:6px"><span data-i18n="setup.res">Ресурсы мира</span> <span class="hint" style="font-size:11px" data-i18n="setup.res.hint">— наличие и обильность по категориям; виды и места определяются геологией и климатом</span></label>
+    <div id="resSetup"></div>
+    <label data-i18n="setup.size">Размер мира</label>
+    <div class="seg" id="sizeSeg"><button data-s="0" class="on" data-i18n="setup.size.0" title="Размер растёт с числом континентов, чтобы они свободно помещались">Авто</button><button data-s="1" data-i18n="setup.size.1">Обычный</button><button data-s="1.5" data-i18n="setup.size.15">Большой</button><button data-s="2" data-i18n="setup.size.2">Огромный</button><button data-s="3" data-i18n="setup.size.3" title="1440×960: генерация и отрисовка заметно дольше">Гигантский</button></div>
+    <div class="hint" id="sizeHint" style="font-size:11px;margin-top:2px"></div>
+    <div class="row" style="margin-top:10px"><button id="setupGo" class="primary" style="flex:1" data-i18n="setup.go">Создать мир</button><button id="setupLoad" data-i18n="setup.load">Загрузить мир…</button><button id="setupCancel" data-i18n="setup.cancel">Отмена</button></div>
+  </div>
+</div>
+<aside id="side">
+  <h1>Fantasy Map<span>Studio</span></h1>
+  <div class="author">Александра Шавкунова</div>
+  <small id="ver" class="ver"></small>
+
+  <section id="worldBar">
+    <div class="row"><button id="newWorld" class="primary" data-i18n-title="ui.063" title="Параметры генерации нового мира" data-i18n="ui.001">Новый мир…</button></div>
+    <div class="row"><button id="saveWorld" data-i18n-title="ui.064" title="Сохранить мир со всеми правками в файл" data-i18n="ui.002">Сохранить мир</button><button id="loadWorld" data-i18n-title="ui.065" title="Загрузить сохранённый мир" data-i18n="ui.003">Загрузить</button></div>
+    <div id="worldInfo" class="hint"></div>
+  </section>
+
+  <section>
+    <div class="fold-h" data-i18n="ui.005">Вид</div>
+    <div class="seg" id="viewSeg">
+      <span class="seg-l">Обзор</span>
+      <button data-v="map" class="on" data-i18n="ui.006">Карта</button>
+      <button data-v="height" data-i18n="ui.011">Высоты</button>
+      <button data-v="seabed" data-i18n-title="ui.067" title="Карта дна: суша затемнена, видны геология, жизнь и ресурсы океанского дна" data-i18n="ui.012">Дно</button>
+      <span class="seg-l">Правка карты</span>
+      <button data-v="land" title="Добавить или убрать сушу: острова, полуострова, проливы">Суша</button>
+      <button data-v="cat" data-i18n-title="ui.066" title="Катастрофы после генерации: метеориты, расколы, каньоны, кальдеры, провалы — карта пересчитывается" data-i18n="ui.010">Катастрофы</button>
+      <span class="seg-l">Государства и города</span>
+      <button data-v="states" data-i18n="ui.008">Страны</button>
+      <button data-v="cities" data-i18n="ui.009">Города</button>
+    </div>
+  </section>
+
+  <section id="layersSec" class="closed">
+    <div class="fold-h">Слои и стиль</div>
+    <label class="mapLayers" data-i18n="ui.013">Слои</label>
+    <div class="checks mapLayers">
+      <label><input type="checkbox" id="lRivers" checked> <span data-i18n="ui.063">Реки</span></label>
+      <label><input type="checkbox" id="lForests" checked> <span data-i18n="ui.064">Леса</span></label>
+      <label><input type="checkbox" id="lRoads" checked> <span data-i18n="ui.039">Дороги</span></label>
+      <label><input type="checkbox" id="lCurrents"> <span data-i18n="ui.065">Течения</span></label>
+      <label><input type="checkbox" id="lTides"> <span>Приливы</span></label>
+      <label><input type="checkbox" id="lIce" checked> <span data-i18n="ui.066">Полярные льды</span></label>
+      <label><input type="checkbox" id="lCat" checked> <span data-i18n="ui.010">Катастрофы</span></label>
+      <label><input type="checkbox" id="lSeas" checked> <span data-i18n="ui.067">Моря и океаны</span></label>
+      <label><input type="checkbox" id="lRoutes" checked> <span data-i18n="ui.068">Морские пути</span></label>
+      <label><input type="checkbox" id="lBorders" checked> <span data-i18n="ui.069">Границы</span></label>
+      <label><input type="checkbox" id="lNames" checked> <span data-i18n="ui.070">Названия</span></label>
+    </div>
+    <label data-i18n="ui.014">Стиль</label>
+    <div class="seg" id="themeSeg">
+      <button data-t="sepia" class="on" data-i18n="ui.015">Сепия</button>
+      <button data-t="ink" data-i18n="ui.016">Ч/Б</button>
+      <button data-t="color" data-i18n="ui.017">Цветной</button>
+    </div>
+  </section>
+
+  <section id="seabedPanel">
+    <b class="ptitle" data-i18n="ui.018">Карта дна</b>
+    <div class="checks">
+      <label><input type="checkbox" id="sbGeo" checked> <span data-i18n="ui.071">Геология (хребты, жёлоба, разломы, горы)</span></label>
+      <label><input type="checkbox" id="sbBio" checked> <span data-i18n="ui.072">Жизнь (рифы, ламинария, рыбные банки)</span></label>
+      <label><input type="checkbox" id="sbRes" checked> <span data-i18n="ui.073">Ресурсы дна</span></label>
+      <label><input type="checkbox" id="sbNames" checked> <span data-i18n="ui.074">Названия структур</span></label>
+    </div>
+    <div class="hint">Суша затемнена. Структуры размещены по тектонике мира: хребты — на расходящихся границах плит, жёлоба и дуги — на сходящихся, цепи гор — вдоль движения плиты над горячей точкой. Легенда — кнопка внизу.</div>
+  </section>
+
+  <section id="statesPanel">
+    <b class="ptitle" data-i18n="ui.019">Государства</b>
+    <div class="row">
+      <input id="autoN" type="number" min="2" max="14" value="6" data-i18n-title="ui.068" title="Сколько государств">
+      <button id="autoStates" class="primary" data-i18n="ui.020">Авто-расстановка</button>
+    </div>
+    <label data-i18n="ui.021">Инструмент</label>
+    <div class="seg" id="toolSeg">
+      <button data-tool="view" class="on" data-i18n-title="ui.069" title="Клик по государству — справка о нём" data-i18n="ui.022">Справка</button>
+      <button data-tool="capital" data-i18n-title="ui.070" title="Клик — новая столица, перетаскивание — перенос, ПКМ — удалить" data-i18n="ui.023">Столица</button>
+      <button data-tool="border" data-i18n-title="ui.071" title="Клики — точки границы, двойной клик или Enter — готово" data-i18n="ui.024">Граница</button>
+      <button data-tool="brush" data-i18n-title="ui.072" title="Закрасить территорию выбранным государством (Shift — стереть правку)" data-i18n="ui.025">Кисть</button>
+    </div>
+        <div id="stateCard" style="display:none;margin:6px 0;padding:8px 10px;border:1px solid #8a7a5a;border-radius:6px;background:rgba(255,248,225,.08);font-size:12px;line-height:1.5"></div>
+    <label><span data-i18n="ui.079">Прилипание к рельефу</span>: <b id="stickV"></b>%</label>
+    <input id="stick" type="range" min="0" max="100" value="85">
+    <label><span data-i18n="ui.080">Радиус кисти</span>: <b id="brushV"></b></label>
+    <input id="brushR" type="range" min="2" max="14" value="6">
+    <div id="toolHelp" class="hint"></div>
+    <div id="stateList"></div>
+    <div class="row">
+      <button id="undoBorder" data-i18n="ui.026">Убрать границу</button>
+      <button id="clearStates" data-i18n="ui.027">Очистить</button>
+    </div>
+  </section>
+
+  <section id="catPanel">
+    <b class="ptitle" data-i18n="ui.010">Катастрофы</b>
+    <div class="hint" data-i18n="ui.028">Меняют рельеф готовой карты; реки, озёра, биомы, государства и города пересчитываются.</div>
+    <div class="seg wrap" id="catToolSeg">
+      <button data-ct="meteor" class="on" data-i18n="ui.029">Метеорит</button>
+      <button data-ct="rift" data-i18n="ui.030">Раскол</button>
+      <button data-ct="canyon" data-i18n="ui.031">Каньон</button>
+      <button data-ct="caldera" data-i18n="ui.032">Кальдера</button>
+      <button data-ct="subsidence" data-i18n="ui.033">Провал</button>
+    </div>
+    <label><span data-i18n="ui.081">Размер</span>: <b id="catSizeV">50</b></label>
+    <input id="catSize" type="range" min="0" max="100" value="50">
+    <div id="catHelp" class="hint"></div>
+    <div id="catMsg" class="hint" style="color:#ff9a5f"></div>
+    <div class="row">
+      <button id="catRandom" data-i18n-title="ui.073" title="Случайное место выбранного вида" data-i18n="ui.034">Случайно</button>
+      <button id="catUndo" data-i18n="ui.035">Отменить</button>
+      <button id="catClear" data-i18n-title="ui.074" title="Убрать все добавленные вручную" data-i18n="ui.036">Убрать все</button>
+    </div>
+    <div id="catList" class="hint"></div>
+  </section>
+
+  <section id="landPanel">
+    <b class="ptitle">Суша</b>
+    <div class="seg" id="landToolSeg">
+      <button data-lt="add" class="on" title="Мазок добавляет сушу"><i class="lt-ic">＋</i> Добавить</button>
+      <button data-lt="del" title="Мазок убирает сушу (получается залив, пролив или озеро)"><i class="lt-ic">−</i> Убрать</button>
+    </div>
+    <div class="slider-h"><span>Размер кисти</span><b id="landSizeV"></b></div>
+    <input id="landSize" type="range" min="1" max="100" value="40">
+    <div class="ends"><span>остров</span><span>материк</span></div>
+    <div class="slider-h"><span>Берег</span><b id="landRoughV"></b></div>
+    <input id="landRough" type="range" min="0" max="100" value="65">
+    <div class="ends"><span>плавный</span><span>рваный</span></div>
+    <ul class="how">
+      <li><b>Клик</b> — остров или бухта</li>
+      <li><b>Протяжка</b> — полуостров, перешеек, пролив</li>
+      <li><b>Shift</b> — обратное действие на один мазок</li>
+    </ul>
+    <div id="landList" class="queue"></div>
+    <div class="row">
+      <button id="landApply" class="primary" title="Пересчитать только затронутое: остальная карта, государства, города и дороги вне зоны правки не меняются">Применить</button>
+      <button id="landReset" title="Сбросить неприменённые мазки">Сбросить</button>
+    </div>
+    <div class="row">
+      <button id="landUndo" title="Снять последний мазок или последнюю применённую правку">Отменить</button>
+      <button id="landClear" title="Убрать все правки суши">Убрать все</button>
+    </div>
+    <div class="hint kbd">[ ] — размер · Enter — применить · Esc — сбросить · Ctrl+Z — отменить</div>
+  </section>
+
+  <section id="citiesPanel">
+    <b class="ptitle" data-i18n="ui.037">Города и дороги</b>
+    <label><span data-i18n="ui.082">Плотность городов</span>: <b id="densV"></b>%</label>
+    <input id="dens" type="range" min="40" max="220" value="100">
+    <label><span data-i18n="ui.083">Влияние действующих вулканов</span>: <b id="volcV"></b>%</label>
+    <input id="volc" type="range" min="0" max="100" value="60" title="0 — игнорировать; выше — города и дороги обходят вулкан, селятся на плодородном пепле, у склонов появляются сера/обсидиан и погребённые руины">
+    <label class="inl"><input type="checkbox" id="showRes" checked> <span data-i18n="ui.075">Показывать месторождения</span></label>
+    <div class="hint" style="margin:2px 0 4px">Ресурсы задаются при создании мира («Новый мир…»). Кружки — категории, тёмное кольцо — трудная добыча (глубокие шахты).</div>
+    <div id="resLegend" class="hint"></div>
+    <div class="row">
+      <button id="autoCities" class="primary" data-i18n="ui.038">Расставить города</button>
+      <button id="autoRoads" class="primary" data-i18n="ui.039">Дороги</button>
+    </div>
+    <label data-i18n="ui.021">Инструмент</label>
+    <div class="seg" id="ctoolSeg">
+      <button data-ct="city" class="on" data-i18n="ui.040">Город</button>
+      <button data-ct="road" data-i18n="ui.041">Дорога</button>
+    </div>
+    <div id="roadOpts" class="row">
+      <select id="roadCls"><option value="1" data-i18n="ui.042">Тропа</option><option value="2" selected data-i18n="ui.041">Дорога</option><option value="3" data-i18n="ui.043">Тракт</option></select>
+    </div>
+    <div id="cityHelp" class="hint"></div>
+    <div id="cityEd">
+      <input id="cityName" type="text">
+      <select id="cityType">
+        <option value="city" data-i18n="ui.040">Город</option><option value="town" data-i18n="ui.044">Городок</option><option value="village" data-i18n="ui.045">Деревня</option>
+        <option value="port" data-i18n="ui.046">Порт</option><option value="fortress" data-i18n="ui.047">Крепость</option><option value="mine" data-i18n="ui.048">Рудник</option><option value="ruin" data-i18n="ui.049">Руины</option>
+      </select>
+      <button id="cityDel" title="Удалить">×</button>
+      <button id="cityOpen" class="primary" data-i18n-title="ui.075" title="Открыть карту города (или двойной клик по городу)" data-i18n="ui.050">Карта города</button>
+    </div>
+    <div class="row">
+      <button id="clearCities" data-i18n="ui.051">Убрать города</button>
+      <button id="clearRoads" data-i18n="ui.052">Убрать дороги</button>
+    </div>
+  </section>
+
+
+  <section id="calSec" class="closed">
+    <div class="fold-h">Для календаря</div>
+    <div class="hint">Выгрузка мира в файл для приложения-календаря. Доля воды и города с широтами берутся с карты; параметры планеты подбираются под seed и размер мира (с условиями для жизни) и ничего на карте не меняют. Можно править вручную; пустое поле в файл не попадает.</div>
+    <label>Название мира</label>
+    <input id="plName" type="text" spellcheck="false" placeholder="по умолчанию — seed">
+    <label>Радиус планеты, км <span class="hint" style="font-size:11px">(Земля 6371)</span></label>
+    <input id="plRadius" type="text" inputmode="decimal">
+    <label>Плотность, г/см³ <span class="hint" style="font-size:11px">(Земля 5,51)</span></label>
+    <input id="plDensity" type="text" inputmode="decimal">
+    <label>Оборот вокруг оси, земных часов</label>
+    <input id="plRot" type="text" inputmode="decimal">
+    <label>Год, земных суток</label>
+    <input id="plOrbit" type="text" inputmode="decimal">
+    <label>Наклон оси, ° (0–90)</label>
+    <input id="plTilt" type="text" inputmode="decimal">
+    <label>Луны: название и период обращения, земных суток</label>
+    <div id="plMoons"></div>
+    <div class="row"><button id="plAddMoon">+ Луна</button><button id="plAuto" title="Заново подобрать планету под текущие seed и размер мира">Подобрать по карте</button></div>
+    <div id="calInfo" class="hint"></div>
+    <div class="row"><button id="calExport" class="primary" style="flex:1">Выгрузить для календаря</button></div>
+  </section>
+
+  <div id="stats"></div>
+  <section id="actions">
+    <button id="export" class="primary" data-i18n="ui.055">Экспорт PNG</button>
+    <label style="font-size:11px;display:block;margin-top:2px"><input type="checkbox" id="exLegend" checked> <span data-i18n="ui.076">Легенда в PNG</span></label>
+  </section>
+</aside>
+
+<main id="stage">
+  <canvas id="cv"></canvas>
+  <div id="mapSbH" class="msb h"><i></i></div><div id="mapSbV" class="msb v"><i></i></div><canvas id="mapMini" width="168" height="112"></canvas>
+  <button id="legendBtn" data-i18n-title="ui.076" title="Легенда карты (окно)" data-i18n="ui.056">Легенда</button>
+  <div id="legendWin"><div class="lh"><span data-i18n="ui.056">Легенда</span><button id="legendClose" title="Закрыть">×</button></div><div id="legendBody"></div></div>
+  <div id="zoomBar" title="Колесо — масштаб; перетаскивание — пробел+мышь или средняя кнопка"><button id="zoomOut">−</button><span id="zoomVal">100%</span><button id="zoomIn">+</button><button id="zoomFit" title="Вписать (0)">⤢</button></div>
+  <div id="busy" data-i18n="ui.057">Генерация…</div>
+  <div id="gen"><div class="gen-card">
+    <div class="gen-art"><i class="gp gp1"></i><i class="gp gp2"></i><i class="gp gp3"></i><i class="gm"></i><i class="gs s1"></i><i class="gs s2"></i><i class="gs s3"></i><i class="gs s4"></i><i class="gs s5"></i></div>
+    <div id="genPhrase" class="gen-phrase"></div>
+    <div class="gen-bar"><i id="genBar"></i></div>
+    <div class="gen-row"><span id="genFlavor" class="gen-flavor"></span><span id="genPct" class="gen-pct"></span></div>
+  </div></div>
+</main>
+
+<div id="cityModal">
+  <div class="cm-box">
+    <div class="cm-bar">
+      <b id="cmTitle"></b>
+      <span class="cm-tools" id="cmTools"></span>
+      <button id="cmZout" title="Отдалить (−)">−</button><span id="cmZoom" style="color:#eee;min-width:42px;text-align:center">100%</span><button id="cmZin" title="Приблизить (+, колесо мыши)">+</button><button id="cmFit" title="Вписать (0)">⤢</button><button id="cmTilt" data-i18n-title="ui.077" title="Наклон камеры: объёмные здания" data-i18n="ui.058">Наклон</button><button id="cmLab" title="Подписи улиц и районов: при увеличении / всегда / скрыть" data-i18n="ui.059">Подписи: при зуме</button><button id="cmLeg" data-i18n-title="ui.078" title="Показать/скрыть легенду (L)" data-i18n="ui.056">Легенда</button>
+      <button id="cmNew" title="Другая планировка (расставленные вручную объекты сохраняются)" data-i18n="ui.060">Новая планировка</button>
+      <button id="cmClear" title="Убрать расставленные вручную объекты" data-i18n="ui.061">Очистить свои</button>
+      <button id="cmExport">PNG</button>
+      <button id="cmClose" data-i18n="ui.062">Закрыть ✕</button>
+    </div>
+    <div class="cm-wrap"><div class="cm-view"><canvas id="cmCv"></canvas><div id="cmSbH" class="cm-sb h"><i></i></div><div id="cmSbV" class="cm-sb v"><i></i></div><canvas id="cmMini" width="168" height="120"></canvas><div id="cmLegend" class="cm-legend" hidden><b data-i18n="ui.056">Легенда</b><div><svg width="30" height="20" viewBox="0 0 30 20" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M2 15 L28 15"/><circle cx="4" cy="15" r="3" fill="#d9cfb8"/><circle cx="26" cy="15" r="3" fill="#d9cfb8"/></svg><span>Крепостная стена, башни</span></div><div><svg width="30" height="20" viewBox="0 0 30 20" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M2 14h26"/><circle cx="10" cy="14" r="3" fill="#d9cfb8"/><circle cx="20" cy="14" r="3" fill="#d9cfb8"/></svg><span>Ворота</span></div><div><svg width="30" height="20" viewBox="0 0 30 20" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M2 4h26M2 16h26" stroke-width="2.4"/><path d="M4 7h22v6H4z" fill="#d9cfb8"/></svg><span>Мост</span></div><div><svg width="30" height="20" viewBox="0 0 30 20" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M2 10h14M5 7v6M9 7v6M13 7v6"/><path d="M18 12q5 4 10 0q-5-4-10 0z" fill="#d9cfb8"/></svg><span>Причал, лодка</span></div><div><svg width="30" height="20" viewBox="0 0 30 20" fill="none" stroke="currentColor" stroke-width="1.2"><circle cx="15" cy="12" r="3" fill="#d9cfb8"/><path d="M15 12l-9-6M15 12l9 6M15 12l6-9M15 12l-6 9"/></svg><span>Ветряная мельница</span></div><div><svg width="30" height="20" viewBox="0 0 30 20" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M3 3h24v14H3z" fill="#d9cfb8"/><path d="M3 7h24M3 11h24M3 15h24"/></svg><span>Поле, огород</span></div><div><svg width="30" height="20" viewBox="0 0 30 20" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="3" y="3" width="24" height="14" stroke-dasharray="3 2"/><circle cx="9" cy="9" r="2"/><circle cx="17" cy="12" r="2"/><circle cx="22" cy="7" r="2"/></svg><span>Сад, усадьба</span></div><div><svg width="30" height="20" viewBox="0 0 30 20" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="3" y="3" width="24" height="14" stroke-dasharray="3 2"/><path d="M9 14V8M7 10h4M19 14V8M17 10h4"/></svg><span>Кладбище</span></div><div><svg width="30" height="20" viewBox="0 0 30 20" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="4" y="9" width="16" height="8" fill="#d9cfb8"/><circle cx="23" cy="10" r="3" fill="#d9cfb8"/></svg><span>Храм, часовня</span></div><div><svg width="30" height="20" viewBox="0 0 30 20" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="6" y="4" width="18" height="12" fill="#d9cfb8"/><circle cx="6" cy="4" r="2.5"/><circle cx="24" cy="4" r="2.5"/><circle cx="6" cy="16" r="2.5"/><circle cx="24" cy="16" r="2.5"/></svg><span>Замок, цитадель</span></div><div><svg width="30" height="20" viewBox="0 0 30 20" fill="none" stroke="currentColor" stroke-width="1.2"><ellipse cx="15" cy="10" rx="13" ry="8" stroke-dasharray="3 2"/><circle cx="15" cy="10" r="3" fill="#d9cfb8"/></svg><span>Площадь, фонтан</span></div><div><svg width="30" height="20" viewBox="0 0 30 20" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M4 12q2-9 11-8q10 0 11 8q-9 6-22 0z" fill="#d9cfb8"/><path d="M9 11q6-5 12 0"/></svg><span>Холм, скальный выход</span></div><div><svg width="30" height="20" viewBox="0 0 30 20" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M4 13q2-9 11-9q9 0 11 9z" fill="#d9cfb8"/><path d="M11 13v-4h8v4" fill="currentColor"/></svg><span>Штольня (шахта)</span></div><div><svg width="30" height="20" viewBox="0 0 30 20" fill="none" stroke="currentColor" stroke-width="1.2"><circle cx="15" cy="10" r="5" fill="#d9cfb8"/><path d="M12 7h6M15 5v2"/></svg><span>Сторожевая башня</span></div><div><svg width="30" height="20" viewBox="0 0 30 20" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M2 7h26M2 13h26" stroke-width="1.6"/><path d="M13 13v5M17 13v5" stroke-width="1"/></svg><span>Улица, переулок</span></div><div><svg width="30" height="20" viewBox="0 0 30 20" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="3" y="3" width="24" height="14" fill="#d9cfb8" stroke-dasharray="2 2"/><rect x="5" y="5" width="6" height="4"/><rect x="13" y="5" width="6" height="4"/><rect x="5" y="11" width="6" height="4"/><rect x="13" y="11" width="6" height="4"/></svg><span>Квартал (застройка)</span></div></div></div></div>
+    <div class="cm-hint">Колесо мыши — масштаб, перетаскивание — сдвиг (при приближении). Выберите объект и кликните по карте: он ляжет вдоль ближайшей улицы (R — повернуть, Shift+клик — крупнее). ПКМ — удалить свой объект. Масштаб: колесо мыши или +/−. Прокрутка: перетаскивание, полосы справа и снизу, стрелки/WASD, клик по миникарте. Планировка строится по дорогам, рекам и морю мировой карты: ворота стоят там, где в город входят дороги.</div>
+  </div>
+</div>
+<script src="version.js"></script>
+  <script src="rng.js"></script>
+<script src="generator.js"></script>
+<script src="catastrophes.js"></script>
+<script src="landedit.js"></script>
+<script src="exchange.js"></script>
+<script src="tides.js"></script>
+<script src="coast_forms.js"></script>
+<script src="i18n.js"></script>
+<script src="i18n_en.js"></script>
+<script src="names.js"></script>
+<script src="politics.js"></script>
+<script src="resources.js"></script>
+<script src="settlements.js"></script>
+<script src="seas.js"></script>
+<script src="seafloor.js"></script>
+<script src="seafloor_life.js"></script>
+<script src="currents_solver.js"></script>
+<script src="currents_lines.js"></script>
+<script src="currents.js"></script>
+<script src="render.js"></script>
+<script src="render_symbols.js"></script>
+<script src="render_game.js"></script>
+<script src="render_overlays.js"></script>
+<script src="render_cat.js"></script>
+<script src="render_seabed.js"></script>
+<script src="render_political.js"></script>
+<script src="render_editor.js"></script>
+<script src="citymap.js"></script>
+<script src="citymap_plan.js"></script>
+<script src="citymap_render.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

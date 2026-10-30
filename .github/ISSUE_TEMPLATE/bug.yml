@@ -1,0 +1,43 @@
+name: Ошибка
+description: Что-то работает не так, как ожидалось
+title: "Ошибка: "
+labels: ["ошибка"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Версия программы
+      description: Номер указан в заголовке окна и в файле CHANGELOG.txt
+      placeholder: "0.89.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: system
+    attributes:
+      label: Система
+      options:
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Windows 10
+        - Windows 11
+        - Linux
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Что сделали
+      description: Шаги по порядку, начиная с создания мира
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Что ожидали и что получилось
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Скриншот, seed и параметры мира
+      description: Перетащите изображение в это поле. Если ошибка видна на конкретной карте, укажите seed, число материков и размер мира, либо приложите сохранённый файл мира.

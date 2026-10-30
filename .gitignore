@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.DS_Store
+*.tmp
+
+CLAUDE.md
+CODEMAP.md
+PROJECT_STATUS.md
+docs/

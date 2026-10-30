@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="sea" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2b8fb8"/><stop offset=".55" stop-color="#16567f"/><stop offset="1" stop-color="#0c2d4f"/></linearGradient>
+    <linearGradient id="land" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9fcf6a"/><stop offset=".55" stop-color="#5fa046"/><stop offset="1" stop-color="#3b7a3a"/></linearGradient>
+    <linearGradient id="rock" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#f4efe2"/><stop offset=".5" stop-color="#cfc6b0"/><stop offset="1" stop-color="#8a7f6a"/></linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffe29a"/><stop offset=".5" stop-color="#e2ae45"/><stop offset="1" stop-color="#a8741f"/></linearGradient>
+    <radialGradient id="shine" cx="30%" cy="18%" r="70%"><stop offset="0" stop-color="#fff" stop-opacity=".28"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+    <clipPath id="sq"><rect x="56" y="56" width="912" height="912" rx="215"/></clipPath>
+  </defs>
+  <rect x="56" y="56" width="912" height="912" rx="215" fill="url(#sea)"/>
+  <g clip-path="url(#sq)">
+    <g fill="none" stroke="#bfe6f5" stroke-opacity=".22" stroke-width="10" stroke-linecap="round"><path d="M120 800 q70 -34 140 0 t140 0"/><path d="M640 880 q70 -34 140 0 t120 0"/><path d="M110 250 q60 -28 120 0 t120 0"/></g>
+    <!-- мелководье вокруг суши -->
+    <path d="M232 520 C196 380 330 262 468 300 C520 196 680 206 724 312 C838 306 902 420 860 520 C912 610 850 730 740 744 C724 840 580 880 508 810 C430 884 286 838 296 724 C208 706 188 600 232 520 Z" fill="#6cc4d8" fill-opacity=".45"/>
+    <path d="M262 520 C230 396 344 294 470 330 C520 238 664 244 702 336 C802 336 862 428 826 514 C872 594 820 700 724 716 C706 800 584 836 520 776 C448 840 326 804 332 706 C246 690 224 594 262 520 Z" fill="url(#land)" stroke="#f3ecd2" stroke-width="12" stroke-linejoin="round"/>
+    <!-- горы -->
+    <path d="M360 600 L452 430 L520 540 L586 392 L700 600 Z" fill="url(#rock)" stroke="#4a3f2c" stroke-width="10" stroke-linejoin="round"/>
+    <path d="M452 430 L478 480 L452 470 L428 488 Z M586 392 L620 452 L588 442 L560 462 Z" fill="#fff"/>
+    <path d="M586 392 L700 600 L610 600 L596 520 Z" fill="#000" fill-opacity=".18"/>
+    <!-- река -->
+    <path d="M600 600 C630 650 560 690 600 760" fill="none" stroke="#4fb4e8" stroke-width="16" stroke-linecap="round"/>
+    <!-- деревья -->
+    <g fill="#2a6a35"><path d="M330 640 l22 -44 l22 44 z"/><path d="M372 668 l18 -38 l18 38 z"/><path d="M720 540 l20 -40 l20 40 z"/></g>
+  </g>
+  <!-- компас-звезда в углу -->
+  <g transform="translate(770 262)">
+    <circle r="118" fill="#0c2d4f" fill-opacity=".72" stroke="url(#gold)" stroke-width="12"/>
+    <path d="M0 -100 L22 -22 L100 0 L22 22 L0 100 L-22 22 L-100 0 L-22 -22 Z" fill="url(#gold)" stroke="#6b4a12" stroke-width="5" stroke-linejoin="round"/>
+    <path d="M0 -100 L22 -22 L-22 -22 Z" fill="#fff0c4"/>
+    <circle r="12" fill="#0c2d4f"/>
+  </g>
+  <rect x="56" y="56" width="912" height="912" rx="215" fill="url(#shine)"/>
+  <rect x="68" y="68" width="888" height="888" rx="203" fill="none" stroke="url(#gold)" stroke-width="20"/>
+</svg>
