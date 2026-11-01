@@ -1,0 +1,28 @@
+name: Natural World v3 checks
+on:
+  push:
+    branches: ['feature/natural-world-v3']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  natural-world:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node scripts/enable-natural-v3.cjs
+      - run: npm run check
+      - run: node tools/natural-v3-test.cjs > natural-world-report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: natural-world-v3-report
+          path: natural-world-report.json
+          if-no-files-found: ignore

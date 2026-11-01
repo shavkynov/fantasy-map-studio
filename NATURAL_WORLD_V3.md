@@ -1,0 +1,9 @@
+# Natural World v3 (experimental)
+
+V2 remains the default. Run `node scripts/enable-natural-v3.cjs` once in this branch, then use the existing `npm start`. Choose v3 in the new World model selector. API: `FM.generate({...params, genVersion:3})`; async is also supported. Preparation is required before browser use and before packaging; it modifies the local working tree. It validates original Git blob hashes, checks all files before writes, is idempotent, and rejects unknown source changes. Review the generated edits before committing or packaging them.
+
+Implemented: existing silhouette prototype; crust independent of plate IDs; deterministic planar velocities and shared pairwise boundary types; regional relief; bounded flow-guided incision; reuse of the existing climate/lake/river finalizer; global derivative recomputation after v3 land edits. V3 seafloor shares boundary types and canyon tracing follows increasing positive depth. V2 retains its old behaviour.
+
+Limitations: experimental only; original-app v3 save/load and browser visuals are not verified. Use disposable worlds and PNG export; keep v2 for old worlds. No full geological history/sphere model, deposition, glacial fjords or SST-climate rewrite. Legacy distance-guided inlet carving is disabled for v3. Exact final continent count after lakes/catastrophes is not guaranteed; placement can undershoot target land fraction.
+
+Local validation covered the unit algorithms on 60 random terrains / 114958 cell checks with extracted RNG/blur/Heap helpers: acyclic drainage, runoff conservation, determinism, coastline signs and preparation integrity. This compact committed integration suite will run in GitHub Actions against the actual sources, including v2 regression and v3 sync/async equality; its CI result is pending. No local full-app, save/load, visual, installer or performance result is claimed. Do not merge/release until those checks pass.
