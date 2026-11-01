@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "referenceCommit": "5c31643ea943e481627aa2417ccb665103abff48",
+  "coreGitBlob": "6cd6ab743be0b3e93fc8e2f8013ac1fa320f291d",
+  "note": "Reference of current behaviour, not an approval of geographic quality. Geometry-only comparisons; pixel-area metrics on the existing planar grid.",
+  "cases": [
+    {"id":"vondoran-227-k2-480","params":{"seed":"vondoran-227","continents":2,"W":480,"H":320,"landRatio":0.34},"expected":{"source":"f23e23e7c1bee7b68328dcc692bdded595e6c664862cb879109d9fbc6b0f6453","owner":"87874ac9de23d030b2cc8acd1713e41ac9b146ffd0a949fa4f50b88b53172b0f"}},
+    {"id":"vondoran-227-k3-480","params":{"seed":"vondoran-227","continents":3,"W":480,"H":320,"landRatio":0.34},"expected":{"source":"0420bead69edf8f8342031d5b57bb4601b922914c1f6bede05dc3035b055812d","owner":"85eedf732d37cd5c56f4fe64db743d8135f547fb9808d0ceb8b315403a562679"}},
+    {"id":"vondoran-227-k4-480","params":{"seed":"vondoran-227","continents":4,"W":480,"H":320,"landRatio":0.34},"expected":{"source":"1bb053646f0b6746767ae2d1a93c90098cff17944126c76b6bcabb20952c31a6","owner":"2e377330ef53339a4878f616c07568ab773a9fd034758f2a5d0e3aeae117afb4"}},
+    {"id":"talsaor-287-k4-480","params":{"seed":"talsaor-287","continents":4,"W":480,"H":320,"landRatio":0.34},"expected":{"source":"bd06c00c51636247fbc2c91a19b35ea10ba9b2b0a1109a7f757e5dd8ccc26dd0","owner":"e8bdd79d7e2104130979e637cd63d8718088e68e3b448dbf8f1d73cb464d87fe"}},
+    {"id":"vondoran-227-k6-480","params":{"seed":"vondoran-227","continents":6,"W":480,"H":320,"landRatio":0.34},"expected":{"source":"d4faef01c8ab64447c04171c36211426374b9728a257c72e3cfc137f73b58947","owner":"26a016f94c093b37f209db7cf172d27034c5c582de50032b592be10031e8c4b2"}},
+    {"id":"vondoran-227-k4-1440","params":{"seed":"vondoran-227","continents":4,"W":1440,"H":960,"landRatio":0.34},"expected":{"source":"1bb053646f0b6746767ae2d1a93c90098cff17944126c76b6bcabb20952c31a6","owner":"a4cd09477fc41b3cc0194e66137fe2e4fa9f19dcc9637a55a166c0ae28bee65a"}}
+  ]
+}
