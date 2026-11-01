@@ -1,0 +1,28 @@
+name: v4 atlas rendering checks
+on:
+  push:
+    branches: ['feature/natural-world-v3']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  atlas:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node --check src/world-v4-atlas.js
+      - run: node tools/world-v4-atlas-test.cjs
+      - run: npm install --prefix "$RUNNER_TEMP/v4-browser" playwright
+      - run: '"$RUNNER_TEMP/v4-browser/node_modules/.bin/playwright" install --with-deps chromium'
+      - run: PLAYWRIGHT_MODULE="$RUNNER_TEMP/v4-browser/node_modules/playwright" node tools/world-v4-atlas-browser.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v4-atlas-browser-results
+          path: artifacts/
+          if-no-files-found: ignore
