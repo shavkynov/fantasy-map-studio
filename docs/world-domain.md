@@ -1,0 +1,16 @@
+# Task 2: spherical world domain, separate from the map frame
+
+Decision: global movement uses a sphere, not the rectangular display and not a cylinder with artificial polar edges. Unit Cartesian directions are authoritative. Longitude/latitude and u/v are views of those directions. This module is standalone: world-v4.js, its reference fingerprints, climate, renderer and controls are NOT changed or connected to it in this task.
+
+API: `const sphere = require('../src/world-domain.js').createSphere({radiusKm:6371})`. Browser scripts expose `WorldDomain.createSphere`. Radius is a model parameter, not a new UI setting. Angles are radians, distances km, areas km^2. Axes: x at lon=0/lat=0; y at east lon=pi/2; z at north pole. Input vectors and quaternions may be non-unit but must be finite/nonzero; outputs are normalized and inputs are not mutated.
+
+- fromLonLat / toLonLat: longitude is canonical [-pi,pi), latitude [-pi/2,pi/2]. At an exact pole longitude is canonical zero, because the direction has no unique longitude.
+- project / unproject: full-sphere equirectangular point coordinates. u wraps in [0,1); v lies in [0,1] and is NOT periodically wrapped. Moving over a pole happens by 3D rotation, not by wrapping a latitude index. Raster aspect ratio is a display choice, not world extent.
+- axisRotation / apply / rotatePoints: right-handed rigid quaternion rotation. inverse undoes it; compose(a,b) applies b, then a. No image-frame bounds enter movement.
+- angle / distanceKm: minor great-circle separation computed with atan2(cross length,dot).
+- triangleAreaKm2: area of a spherical triangle whose edges are unambiguous minor great-circle arcs; antipodal edges and ambiguous great-circle triangles are rejected. This is NOT a general concave-continent polygon-area routine.
+- cellAreaKm2: area weight for one cell in a full-sphere lon/lat raster, same for each longitude in a row. It does NOT define raster neighbours, polygon clipping or a spherical terrain mesh.
+
+Integration boundary: the next task must embed existing source fragments on the sphere, rotate their geometry/provenance, handle polygons crossing the display seam, and rasterize ownership on a chosen spherical discretization. Merely adding this module or wrapping x coordinates does not make the old generator spherical. Point projection alone is not a seam-splitting polygon renderer. Reference gallery quality is unchanged; no claim of improved oceans is made here.
+
+Validation: run `node tools/world-domain-test.cjs` (no packages). Local Node 20 execution passed 5,000 deterministic randomized rotations, preserving angular distances and spherical triangle area; inverse and coordinate round trips; +179 to -177 degree seam crossing; motion over the north pole; quaternion composition order; sphere-area sum and equal subdivision of raster cells; invalid-input rejection, no input mutation and Node/browser-namespace export checks. Browser namespace is tested in a Node VM, not an actual browser. Tests cover the math domain, not continent collision/rasterization or geological accuracy. Test output reports maximum numerical errors on a unit-radius model separately from total-area error for the default-radius model.
