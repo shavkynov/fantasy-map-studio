@@ -16,9 +16,15 @@ assert(relativeAngle(turn,turn)<1e-12);
 assert(relativeAngle(turn,turn.map(x=>-x))<1e-12);
 assert(Math.abs(relativeAngle(identity,turn)-0.25)<1e-12);
 assert.throws(()=>relativeAngle(identity,[NaN,0,0,0]));
+const earlySchedule=[0,...Array.from({length:9},(_,i)=>2**(i-16)),...Array.from({length:64},(_,i)=>(i+1)/128)];
+assert.equal(earlySchedule.length,74);
+assert.equal(new Set(earlySchedule).size,74);
+assert.equal(earlySchedule[0],0);assert.equal(earlySchedule[1],1/65536);assert.equal(earlySchedule[73],0.5);
+assert(earlySchedule.every((t,i)=>Number.isFinite(t)&&t>=0&&t<=0.5&&(i===0||t>earlySchedule[i-1])));
+const earlyFrames=process.argv.includes('--early-frames'),times=earlyFrames?earlySchedule:[0,0.5,1,2,4];
 const display={width:360,height:180,centralMeridian:0},frames=[];
 let roundTrips=0,maxAreaError=0;
-for(const time of [0,0.5,1,2,4]){
+for(const time of times){
  const snapshot=world.snapshot(time,display),result=assess(snapshot),pairs=[];
  for(let a=0;a<4;a++)for(let b=a+1;b<4;b++){
   const angle=relativeAngle(snapshot.poses[a],snapshot.poses[b]);
@@ -49,9 +55,9 @@ for(const time of [0,0.5,1,2,4]){
    assert.equal(world.sourceIndex(back),i);roundTrips++;
   }
  }
- frames.push({time,relativePairs:pairs,overlapCells,overlapAreaFraction:snapshot.diagnostics.overlapAreaFraction,...result});
+ frames.push({time,...(earlyFrames?{minRelativeRotationRadians:Math.min(...pairs.map(p=>p.relativeRotationRadians))}:{relativePairs:pairs}),overlapCells,overlapAreaFraction:snapshot.diagnostics.overlapAreaFraction,...result});
 }
 assert(frames.some(f=>!f.validSampledGeometry),'Expected explicit rejection cases');
 assert.equal(hash(source),before);
 assert(!Object.keys(require.cache).some(file=>file.endsWith(path.sep+'world-v4.js')));
-console.log(JSON.stringify({unitChecksPassed:true,integrationRun:true,source:'vondoran-227-k4',sources:1,K:4,motionMode:'original-source-per-fragment',motions:world.fragments.map(({id,axis,rate,spin})=>({id,axis,rate,spin})),display,snapshots:frames.length,relativePairChecks:frames.length*6,provenanceRoundTrips:roundTrips,maxRasterRelativeAreaError:maxAreaError,validFrames:frames.filter(f=>f.validSampledGeometry).length,rejectedFrames:frames.filter(f=>!f.validSampledGeometry).length,sourceInputsUnchanged:true,generatorImported:false,frames,scope:'Original K4 motion, all six relative rotations and sampled overlap diagnostics. No speed search, frame selection, new water metric, collision resolution, visual acceptance or app integration.'},null,2));
+console.log(JSON.stringify({unitChecksPassed:true,scheduleChecksPassed:true,integrationRun:true,source:'vondoran-227-k4',sources:1,K:4,motionMode:'original-source-per-fragment',diagnosticMode:earlyFrames?'early-fixed-schedule':'original-five-times',motions:world.fragments.map(({id,axis,rate,spin})=>({id,axis,rate,spin})),display,snapshots:frames.length,relativePairChecks:frames.length*6,provenanceRoundTrips:roundTrips,maxRasterRelativeAreaError:maxAreaError,validFrames:frames.filter(f=>f.validSampledGeometry).length,positiveValidFrames:frames.filter(f=>f.time>0&&f.validSampledGeometry).length,rejectedFrames:frames.filter(f=>!f.validSampledGeometry).length,sourceInputsUnchanged:true,generatorImported:false,frames,scope:'Original K4 motion, all six relative rotations and sampled overlap diagnostics. Fixed times only; no continuous safety, speed search, frame selection, new water metric, collision resolution, visual acceptance or app integration.'},null,2));
