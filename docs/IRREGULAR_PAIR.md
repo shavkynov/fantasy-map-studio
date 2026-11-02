@@ -1,0 +1,19 @@
+# Irregular outline with separable meridian cut
+
+Run node tools/world-irregular-pair.cjs; echo "exit_code=$?". Optional --unit-only. One JSON and one compact four-panel HTML, timestamped exclusive creation. No screenshot series. Existing world-separable-pair.cjs is unchanged and remains the circular control.
+
+This is a separate analytic model, not a frozen source, production K4/K6, natural-geography acceptance, world-drift.fromSource integration or app UI. frozenFixtureIntegrationRun=false intentionally. No canonical mask/fixture/baseline is created, regenerated, smoothed or eroded; no initial clearance is cut out.
+
+Use polar coordinates around+x: angular distance psi, azimuth phi=atan2(z,y). Outer radius is r(phi)=alpha*(0.8+0.12*sin(3*phi)+0.08*cos(5*phi)), alpha0.65. Membership is x>=cos(r(phi)). Cut by y=0 using the same half-open ownership as the cap example; both pieces are rigid. Outline is nonconstant, periodic and asymmetric; each half has its own area reference. This is a designed wavy test outline, not a claim of realistic coastline generation.
+
+Coefficient bounds give 0.6*alpha<=r<=alpha, so the outline lies inside the original cap. Reuse its validated alpha/rate/maxTime and poses, with rate0.25 and times in[0,1]. The same longitude supports[-alpha-theta,-theta] and[theta,alpha+theta], theta=rate*t, stay disjoint for positive times under the original no-wrap condition. Changing the external outline inside this envelope does not remove the meridian-cut separation argument. This argument applies to this analytic construction, not arbitrary jagged source cuts or a general collision detector.
+
+Area per half is the integral of 1-cos(r(phi)) over azimuth intervals pi/2..3pi/2 for piece0 and -pi/2..pi/2 for piece1. Composite Simpson with8192 panels is compared to4096, requiring absolute difference<1e-10. This is an independent numerical reference with a stability check, not an exact closed form or rigorous quadrature error bound. Raster areas must agree with each half's own reference within the existing3% tolerance.
+
+Six opening snapshots: grids360x180 and720x360 at0,0.5,1, meridian0. Negative control reverses motion at0.25 on360x180 and must be rejected. Units also run the existing cap units; check noncircular/asymmetric shape and areas, radial envelope, periodicity, inner/outer area bounds, round trips, membership, interval separation, ownership, reverse overlap, unchanged parameters, invalid integration panel count and rejection coloring in overview. Tiny synthetic rendering data are not new source fixtures.
+
+Assistant isolated Node unit-only and full analytic runs passed exit0. Copied domain module matched blob71ee09ed451bca803ab0150594c1cc2cc6dcb352; cap create/unit exports and assess copied from current code. Observed snapshots7,openingValidFrames6,negativeControlOverlapCells449,maxRasterRelativeReferenceAreaError0.019443303240093357,maxQuadratureDifference1.1435297153639112e-14. JSON/HTML nonempty. Values are observations, not fixed baseline expectations. No full checkout, frozen-fixture run, CI, user execution or browser acceptance claimed.
+
+Previous circular example7a49ffa77b5a09756cb607b8078d2864289b35ab: user2026-11-02 17:13 MSK exit0,units/integration passed,geometryMode=analytic-half-cap,frozenFixtureIntegrationRun=false,snapshots7,openingValidFrames6,negativeControlOverlapCells592,maxRasterRelativeAreaError0.014069632419527078,generatorImported=false,visualAccepted=false,appIntegrated=false. This supersedes SEPARABLE_PAIR.md's old user-pending status.
+
+After user confirmation of this model, the next design must extend admissible cut/support bookkeeping to multiple fragments and test K=4/K=6 without pretending they are the unchanged frozen K4/K6 sources. No terrain, climate, crust/fracture simulation, automatic frame selection or app integration in this package.
