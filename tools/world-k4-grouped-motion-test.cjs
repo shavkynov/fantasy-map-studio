@@ -4,6 +4,16 @@ const F=require('./world-source-fixture.cjs'),D=require('../src/world-drift.js')
 const hashes={2:'f23e23e7c1bee7b68328dcc692bdded595e6c664862cb879109d9fbc6b0f6453',4:'1bb053646f0b6746767ae2d1a93c90098cff17944126c76b6bcabb20952c31a6'};
 const hash=x=>crypto.createHash('sha256').update(JSON.stringify(x)).digest('hex');
 const load=k=>F.load(path.join(__dirname,'fixtures/world-source/vondoran-227-k'+k+'.json'),hashes[k]);
+function assertPoseEqual(actual,expected){
+ assert.equal(actual.length,4);assert.equal(expected.length,4);
+ for(let i=0;i<4;i++)assert(Number.isFinite(actual[i])&&Number.isFinite(expected[i])&&actual[i]===expected[i],'Pose component mismatch at '+i);
+}
+assert.throws(()=>assert.deepEqual([1,0,-0,0],[1,0,0,0]));
+assertPoseEqual([1,0,-0,0],[1,-0,0,-0]);
+assert.throws(()=>assertPoseEqual([1,0,1e-12,0],[1,0,0,0]));
+assert.throws(()=>assertPoseEqual([1,0,NaN,0],[1,0,NaN,0]));
+assert.throws(()=>assertPoseEqual([1,0,Infinity,0],[1,0,Infinity,0]));
+assert.throws(()=>assertPoseEqual([1,0,0],[1,0,0,0]));
 const parent=load(2),child=load(4),before=[hash(parent),hash(child)];
 assert.equal(parent.regions.length,2);assert.equal(child.regions.length,4);
 assert.equal(parent.W,child.W);assert.equal(parent.H,child.H);
@@ -45,7 +55,7 @@ for(const opening of [true,false]){
    else assert.equal(id,ps.owner[i]);
   }
   for(let id=0;id<4;id++){
-   assert.deepEqual(c.pose(id,time),p.pose(parentByChild[id],time));
+   assertPoseEqual(c.pose(id,time),p.pose(parentByChild[id],time));
    const cells=child.regions[id].cells;
    for(const j of [0,Math.floor(cells.length/2),cells.length-1]){
     const index=cells[j],u=(index%child.W+0.5)/child.W,v=(Math.floor(index/child.W)+0.5)/child.H;
@@ -60,4 +70,4 @@ for(const opening of [true,false]){
 }
 assert.deepEqual([hash(parent),hash(child)],before);
 assert(!Object.keys(require.cache).some(file=>file.endsWith(path.sep+'world-v4.js')));
-console.log(JSON.stringify({checksPassed:true,integrationRun:true,sources:2,K:4,motionGroups:2,parentByChild,display,comparisons:frames.length,snapshots:frames.length*2,provenanceRoundTrips:roundTrips,groupedCoverageEqual:true,sourceInputsUnchanged:true,motionInputsUnchanged:true,generatorImported:false,frames,scope:'K4 subdivision control under two inherited K2 motions. Not independent four-fragment motion, frame selection, continuous collision detection, visual acceptance or app integration.'},null,2));
+console.log(JSON.stringify({checksPassed:true,poseComparisonUnitChecksPassed:true,integrationRun:true,sources:2,K:4,motionGroups:2,parentByChild,display,comparisons:frames.length,snapshots:frames.length*2,provenanceRoundTrips:roundTrips,groupedCoverageEqual:true,sourceInputsUnchanged:true,motionInputsUnchanged:true,generatorImported:false,frames,scope:'K4 subdivision control under two inherited K2 motions. Not independent four-fragment motion, frame selection, continuous collision detection, visual acceptance or app integration.'},null,2));
