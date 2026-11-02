@@ -1,0 +1,17 @@
+# K4 single-pair experiment
+
+Status: code and isolated Node unit-only checks passed with exit code 0; full fixture experiment and user run pending. No improvement in validity is claimed yet.
+
+Run from the downloaded ZIP: node tools/world-k4-split-02.cjs, then echo "exit_code=$?". Optional --unit-only. Stdout is short; attach the generated JSON instead of pasting the full result or many screenshots. One HTML overview has three scenario rows and five times per row. Both artifacts use timestamp names and exclusive creation, never overwrite fixtures/baselines.
+
+Control is the previously checked grouped K2 opening motion inherited by K4 mapping [0,1,0,1]. Mapping is verified cell by cell using existing checksummed K2/K4 sources. Spins are zero. This is NOT the original independent K4 motion; that remains unchanged in its own tools.
+
+Let omega be axis*rate. From K4 source centers of fragments 0 and 2, take n=normalize(cross(center0,center2)). Delta is fixed at 0.02 radians per unit time, not searched or fitted. Cases: grouped-control (sign=0); split-02-plus (omega0=baseOmega0-delta*n, omega2=baseOmega2+delta*n); split-02-minus (opposite signs). Motions of 1/3 are unchanged and remain locked; mean omega of 0/2 is preserved. Each omega is converted back to a constant axis/rate. These are sums of angular-velocity vectors, NOT sequential composition of parent and split rotations.
+
+The plus sign is required to increase center separation at a small probe time 1e-4; minus decreases it. Initial center angle, probe changes, split axis and all motion definitions are saved in JSON. This local direction check proves neither separation at all times nor non-overlap of irregular fragments.
+
+Times are fixed at 0,0.25,0.5,0.75,1, grid 360x180 and meridian 0. All six overlap pairs are checked through the existing reconstruct/summarize module; cell multiplicity and spherical overlap totals must match snapshot diagnostics. Control and all initial snapshots must be sampled-valid. Experimental frames may be rejected; no assertion demands a winner or improvement. JSON pairCells order is [01,02,03,12,13,23]. New conflicts in any pair remain visible. Structural totals if completed: sources=2, scenarios=3, snapshots=15. No new water metric, collision resolution, frame selection, app UI or integration. This is three motion groups in experimental cases, not four independent fragments.
+
+Unit checks cover perturbation vectors, reverse signs, control equivalence, unchanged inputs, unchanged 1/3, preserved mean omega, invalid axis/sign, direction convention and overview rejection coloring. Units use vectors and a tiny diagnostic snapshot, not new source fixtures. Only these units were executed by the assistant, using a copy of world-domain.js; no full fixture run or browser visual acceptance yet.
+
+Prior pair diagnostic user run, 2026-11-02 16:10 MSK, code 5294faa93d0e27ab4e09eeaab8e4321a51893ef9: exit_code=0, unitChecksPassed=true, integrationRun=true, artifactsWritten=true, sources=1, snapshots=8, sourceInputsUnchanged=true, generatorImported=false. Counts matched the prior assistant run, including time=4 union=3419, pair incidences=4169, triple=375, quadruple=0. Pair maps supplied at 16:15 show extended overlaps in 0–2/1–3 at 0.5,1,2. No frame is selected or geography accepted. This supersedes the old user-pending pair status in K4_GROUPED_MOTION.md; detailed earlier specification remains there.
