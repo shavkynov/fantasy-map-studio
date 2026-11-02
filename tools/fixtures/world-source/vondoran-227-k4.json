@@ -1,0 +1,17 @@
+{
+  "schema":1,
+  "id":"vondoran-227-k4",
+  "params":{"seed":"vondoran-227","continents":4,"W":480,"H":320,"landRatio":0.34},
+  "provenance":{"commit":"90e8a4c49bf317e0d507304c3c75eed290e2c425","coreGitBlob":"6cd6ab743be0b3e93fc8e2f8013ac1fa320f291d","sourceSeed":"vondoran-227|try1"},
+  "grid":{"W":256,"H":171},
+  "encoding":"zlib-base64-u8-plus-one",
+  "labelsSha256":"1bb053646f0b6746767ae2d1a93c90098cff17944126c76b6bcabb20952c31a6",
+  "regionsSha256":"69b8344ca3da1e88c7632f90cfdc5db9ad41e325cffde30518947b08022e2c48",
+  "regions":[
+    {"id":0,"tx":0.05372441806266038,"ty":0.038852927290381485,"angle":0.050304739759303635,"cx":0.5784712551465245,"cy":0.4237992704044563,"depth":2,"cellCount":4129},
+    {"id":1,"tx":-0.06679687981310596,"ty":0.011431530680521763,"angle":0.009985585795948281,"cx":0.3668075903990025,"cy":0.4046310006234414,"depth":2,"cellCount":4010},
+    {"id":2,"tx":0.08189200318464525,"ty":-0.018130965367479806,"angle":0.0031000688730273406,"cx":0.690506489936017,"cy":0.2524368501732871,"depth":2,"cellCount":3751},
+    {"id":3,"tx":-0.08722429461448701,"ty":-0.04617732923094879,"angle":0.0024627762380987407,"cx":0.32968671718436876,"cy":0.22156291750167,"depth":2,"cellCount":2994}
+  ],
+  "maskBase64":"eNrt29t22zAMRNEByP//5q62aetGN1ICKQKY8yo/eI+U5VhRAMYYY4wxxhhjjDHGGGOMMcYYY4yxi+rvUqI3Jaan2KA2llsfc4LaW259pAXq3XLr7y1QdnPK71qgXOVQ3zhCacwpv9a6ffPlVo79NvnkuxygLukvLvmG/uKR726AhfkzBniG1V+N8xcH+v8XKMXRANXK/3eB4shfDflfC5TiZwBjvuoI/Th/NfaXQbngl4Et+qk/ST/GXw39pWT0z9IPGcDs9JeS2l98+n2d/pL89JcF+Z791e7D7/q9i0hgv1zrnw+w8O8+5zb5U9TT/3MAueaH8+un/4Anny3kNz39xwOIH//mDmbPN999oIidf/Tlv72F2XXfYw8o6/rPNLfuem2FIo78ql0D6LbvRLH1j738decebg/+n/8LKfu5OP2nA+hR0tKi/j1PF364H9P92sf37D8idehD+j8XULXwyyLf/dB+Ztv0gy+AoX61aaAfYfyynl+n+mUJ/ucAqqtfAEP9OtnfvwCc+G0G2Lxg7B/+9QW/XN4rneZXXWqAnRcMfe5HdaUBdo+PfO5L9a0Brm4VT3nuT9/zy8WdYpnz4Oc6AxwcHv3Y7yo/AQeHxz/3vMQFcHgYgQc458u0f3x4+wI4Pgp4HECkZ4GTY5jWS/zzMLPsfrMFvPJtFhDH/OcbiHv+kwUkBP/mAiJh+DcWkFj8vgVE4vE7BojJbx1AovKRnN82QHJ/ZH7LAJH1LQPE5k/2Y71SfOFZ4QLAok3xY90m+AHHfg2tH+7H8g31I7UfyOwHMvuB1H7k9iO3H4gzQHS+vR+5/Yjl1+B8Yz/C+TU233IAILUfQf0aWW80ABDZr5H5BgMgvF8D858OAGQYIDL/yQBAkgFC828OgEB1+xGrPj7i1e5HzBr5CFxu/dEEWej7E2SSM8YYY4wxxhhjjL3eD1hyijM="
+}
