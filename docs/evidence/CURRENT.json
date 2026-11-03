@@ -220,6 +220,24 @@
           "purpose": "lossless-native-result-decoder-no-measurement"
         }
       ]
+    },
+    "k6CapPairedFrame9Reverse720": {
+      "path": "docs/evidence/k6-cap-pair-frame9-720-reverse-20261103.json",
+      "sha256": "4e65e776dfe9de6308547ff04e161ba22efdff94e38d66ac8aa2b434f4b1fe21",
+      "sourceCommit": "9889483ce908b44eb594e4b66f8d3a61387313be",
+      "frameIndex": 9,
+      "purpose": "stored-cap-vs-new-unculled-equivalence",
+      "scope": "single-frame",
+      "pairedEquivalenceVerified": true,
+      "validatesWholeSchedule": false,
+      "acceleratedEvidence": {
+        "path": "docs/evidence/frame-9-cap-20261103.json",
+        "sha256": "7697c39781c68a5bcccd67620ecb3812fff8e17686dfcfdb82b55ce5a734471a",
+        "measuredSourceCommit": "bf4a8328c34db0c58ce793073cde1de7d20577e3",
+        "reusedWithoutMeasurement": true
+      },
+      "newlyMeasuredSlowFrames": 1,
+      "newlyMeasuredAcceleratedFrames": 0
     }
   },
   "unavailable": {
@@ -228,5 +246,5 @@
       "useForDefaultComparison": false
     }
   },
-  "nextStep": "AREA-only exported-function assembly passed for ten saved frames/60 piece-frame cases. Full standalone CLI/fresh whole-tree verification not run in this package. No more AREA measurements by default. Review bounded additional slow/cap equivalence and unchanged collision stage separately; frozen-source/visual/app acceptance still pending. Historical frame0 remains unavailable."
+  "nextStep": "Bounded frame9 reverse720 stored-cap/new-slow comparison passed exact areas,hit counts,weights and classification. Paired equivalence evidence covers indices1 and9 only,not all schedule cases. Existing AREA assembly completeness remains true; collision/moving/visual/app acceptance remain false. Next: review unchanged collision-stage implementation and one bounded validation package; no automatic full run or confirmed reruns."
 }
