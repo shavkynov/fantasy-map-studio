@@ -1,0 +1,17 @@
+BASIN SPILL HIERARCHY CANDIDATE
+
+Base commit: 9bfa24fc3b5a878c2d3ba77e8aaf5df3c0ccdf28.
+API: BasinSpillHierarchy.build(sphericalField, drainageResult).
+
+Computes minimum saddle edges between natural terminal catchments, local spill level, minimax level to any existing water boundary, a deterministic Kruskal merge forest, relative storage estimates and a hypothetical fill-to-water-spill depth envelope. Original heights, masks, receiver graph and basin labels are not modified.
+
+Local spill and escape-to-water levels are distinct. A low saddle can join two depressions while the joined pool still needs a higher saddle to reach existing water. Escape parents form an acyclic minimax path; they are NOT an actual river route. Local lowest-neighbor choices may be reciprocal and must not be treated as a directed drainage graph.
+
+Capacity units are relative-height times steradian, not cubic meters. Per-basin escape capacities partition the hypothetical envelope; they are not independent complete lake volumes after merging. Potential filled area is not lake area. No rainfall, evaporation, dynamic fill or overflow discharge is simulated. No water-budget decision about persistent closed lakes is made.
+
+All existing water cells share the same external zero-level boundary, matching the current drainage convention. No separate lake levels or water-body connectivity model. Unreachable basins keep Infinity spill/escape levels and NaN capacities/depths where undefined. Equal saddle levels have a deterministic binary merge order, not a physical time sequence.
+
+Executed tests: production drainage verified against its Git blob; 150 synthetic random graphs compared with an independent cell-level minimax search; explicit nested depressions (local spill 2, escape 5), alternative exits, no-water, all-water, flat surfaces, no input changes, deterministic output, acyclic escape parents and merge-forest consistency. Not yet run on real A/B spill fields or in browser/Electron.
+
+Run: node tools/basin-spill-hierarchy-test.cjs .
+No UI, version, installer or main changes.
