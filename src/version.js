@@ -1,7 +1,7 @@
 window.FM = window.FM || {};
-FM.VERSION = '0.89.0-test.4blocks.2';
+FM.VERSION = '0.89.0-test.4blocks.3';
 FM.BUILD_CHANNEL = 'TEST';
-FM.BUILD_ID = '4blocks-ui2';
+FM.BUILD_ID = '4blocks-hires3';
 (function () {
   'use strict';
   function applyTestUI() {
