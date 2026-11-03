@@ -1,0 +1,208 @@
+{
+  "schema": "analytic-k6-collision-frame-v1",
+  "reviewedBaseCommit": "70280b27a81a72ddac54729f25471bb0c1162ea3",
+  "index": 6,
+  "sourceManifest": {
+    "src/world-domain.js": {
+      "gitBlob": "71ee09ed451bca803ab0150594c1cc2cc6dcb352",
+      "sha256": "630b5d4cece73f42e982fa99a18d829a6730cd82103389c888a5ede13e544f41"
+    },
+    "tools/world-irregular-k4-static.cjs": {
+      "gitBlob": "a5ff8740180b06df54c82df3aaf4f802d986d57c",
+      "sha256": "14d121e6e471902bba60fc0f2c55dc36dc93fbe5c36c412858ea2acffe65c88e"
+    },
+    "tools/world-irregular-k6-static.cjs": {
+      "gitBlob": "c5c765c1351187dca359f5938fee67d4ae55a329",
+      "sha256": "e53e08a127031b160073b43a2f82ee937206e0fb1f061bfe8fb2413044f59254"
+    },
+    "tools/world-irregular-k6-poses.cjs": {
+      "gitBlob": "423e6816c6ffc4b4943ac064853a4f910090c9c8",
+      "sha256": "cf9e28c9fe86e8015180f32a3792aefbd7560b229ffd3d628a05d7fec05c47f9"
+    },
+    "tools/world-frame-validity.cjs": {
+      "gitBlob": "b271fc3a2e9c07bda5f5c75370cf53c045d08769",
+      "sha256": "a9bad1b28f699479611e4cb44071237e9045e24ed2614ccf4b81fddaa969f6a3"
+    },
+    "tools/world-irregular-k6-area-policy.cjs": {
+      "gitBlob": "61dcba212ef81dd1c1c14c28f8aefc88cea5f0cc",
+      "sha256": "285432f334d65917d646add045c95b70ef368b167055395328f97936fd3398d8"
+    },
+    "tools/world-irregular-k6-collision.cjs": {
+      "gitBlob": "1950876e94c69643ce44bcb635b7b9602125cb4c",
+      "sha256": "43c035b3490e825df7509162fff76408181220cd63449118042abee5b82edf0e"
+    }
+  },
+  "nodeVersion": "v20.20.1",
+  "completed": true,
+  "collisionChecksPerformed": true,
+  "areaMeasurementsPerformed": false,
+  "areaGatePerformed": false,
+  "fullScheduleMeasured": false,
+  "fullCollisionScheduleMeasured": false,
+  "movingK6StageAccepted": false,
+  "integrationRun": false,
+  "frozenFixtureIntegrationRun": false,
+  "visualAccepted": false,
+  "appIntegrated": false,
+  "scope": "One unculled cell-centre collision snapshot only. Incidental weighted areas are collision accounting,not AREA acceptance or Gauss measurements. No continuous collision detection or full-stage acceptance.",
+  "snapshot": {
+    "index": 6,
+    "frame": {
+      "width": 720,
+      "height": 360,
+      "time": 0.25,
+      "direction": 1
+    },
+    "centralMeridian": 0,
+    "pairOrder": [
+      [
+        0,
+        1
+      ],
+      [
+        0,
+        2
+      ],
+      [
+        0,
+        3
+      ],
+      [
+        0,
+        4
+      ],
+      [
+        0,
+        5
+      ],
+      [
+        1,
+        2
+      ],
+      [
+        1,
+        3
+      ],
+      [
+        1,
+        4
+      ],
+      [
+        1,
+        5
+      ],
+      [
+        2,
+        3
+      ],
+      [
+        2,
+        4
+      ],
+      [
+        2,
+        5
+      ],
+      [
+        3,
+        4
+      ],
+      [
+        3,
+        5
+      ],
+      [
+        4,
+        5
+      ]
+    ],
+    "coverageHistogram": [
+      247560,
+      11640,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "areaByCoverage": [
+      11.72278569024997,
+      0.8435849241101971,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "pieceCells": [
+      1594,
+      2433,
+      1493,
+      2166,
+      1623,
+      2331
+    ],
+    "rasterPieceAreas": [
+      0.11850499767202821,
+      0.16635790564453007,
+      0.11145052375034459,
+      0.16073453602210644,
+      0.11464247196980783,
+      0.1718944890513719
+    ],
+    "pairOverlapCells": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "pairOverlapAreas": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "pairIncidences": 0,
+    "zeroTimeOwnerMismatchCells": 0,
+    "roundTrips": 18,
+    "maxRoundTripAngle": 7.88106850030428e-17,
+    "diagnostics": {
+      "overlapCells": 0,
+      "overlapAreaFraction": 0,
+      "validSampledGeometry": true
+    },
+    "classification": {
+      "validSampledGeometry": true,
+      "reasons": [],
+      "scope": "Sampled overlap only; not continuous collision detection or ocean-quality acceptance."
+    },
+    "expectedRole": "opening",
+    "expectationMatched": true,
+    "membershipEvaluations": 1555200,
+    "culling": false,
+    "elapsedMilliseconds": 1560.63112
+  },
+  "inputsUnchanged": true
+}
