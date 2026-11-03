@@ -58,6 +58,19 @@
       "revisedAreaGatePassed": true,
       "serialization": "Compact JSON; parsed native record unchanged",
       "nativeFileSHA256": "4c643e86fa408729798a05d510d1c96cfc95cd7a7558ea6880a98baa83e77986"
+    },
+    "k6CapFrame5": {
+      "path": "docs/evidence/frame-5-cap-20261103.json",
+      "sha256": "8ecb3cac3e9e2b5a59f3ec833b7d74582c2625cf0fd940e0d161ee2714c8503a",
+      "sourceCommit": "a3d6de914ed6271a591b9bef74642e791db28eb5",
+      "frameIndex": 5,
+      "purpose": "experimental-accelerated-area-measurement",
+      "scope": "single-frame",
+      "role": "first 720x360 cost observation; t=0, no motion-validation claim",
+      "pairedEquivalenceVerified": false,
+      "validatesWholeSchedule": false,
+      "serialization": "Compact JSON; parsed native record unchanged",
+      "nativeFileSHA256": "f71ebc5bbbbf0a9eb0511d72e7b55fe4e320ff50331901a3e8632a014e654523"
     }
   },
   "unavailable": {
@@ -66,5 +79,5 @@
       "useForDefaultComparison": false
     }
   },
-  "nextStep": "Review one bounded 720x360 experimental frame; no full schedule or old-pilot rerun."
+  "nextStep": "Review one 720x360 moving experimental frame; no automatic full schedule or control reruns."
 }
