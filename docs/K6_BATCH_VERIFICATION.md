@@ -1,0 +1,11 @@
+# K6 batch verification and parent-dependency fix
+
+2026-11-02. Tested base ce60862ff17f0ea047a77e5dcd12c2a223af3741. Nine complete source files were reconstructed from connector contents and matched their Git blob SHA, including K4 parent, K6 dependencies, pilot, batch runner and batch test. Native Node imports, no module mocks. This is a verified dependency slice, NOT a full repository checkout, app test or CI.
+
+Original batch-test and plan exited0 with actual modules. Diagnostic comparison against an independent per-piece direct integration loop used explicitly NONCANONICAL 16x8 and32x16 grids, retaining the ten schedule time/direction combinations and centre/G4/G8.30 method-frame comparisons,180 piece-method comparisons,3110400 membership evaluations across both implementations: exact area differences0 and identical hit counts. No diagnostic result enters the canonical schedule,fixtures or baseline. The full pilot was NOT rerun.
+
+Found and reproduced: K6 membership imports world-irregular-k4-static.cjs, but the original runner omitted that parent from fingerprints/pins. A comment-only parent edit incorrectly allowed plan exit0. Fix adds the parent path and original blob a5ff8740180b06df54c82df3aaf4f802d986d57c; no geometry or criterion changes.
+
+New world-irregular-k6-area-batch-io-test.cjs runs native CLI subprocesses in an isolated temporary source copy. Parent edits now rejected; plan passes after restoration. Synthetic complete collections save successfully; repeated assembly preserves existing files; partial/duplicate collections produce no success summary; complete failed-area report survives exit1. Synthetic pilot import performs zero measurements and mixed9+pilot assembly passes. Invalid/default/all-frame commands rejected. Test exit0. Temporary data removed; no committed measurement artifacts or baseline changes.
+
+Canonical frames newly measured0,fullScheduleMeasured=false,collisionChecksPerformed=false,movingK6StageAccepted=false. Actual Mac pilot21:05 MSK exit0 remains confirmed and must not be repeated or requested again. Next: bounded canonical work only after cost review; remaining area evidence and unchanged collisions/coverage/round trips are not complete. Runner fingerprint changes intentionally prevent mixing pre-fix batch records; do not silently convert or discard any existing evidence.
