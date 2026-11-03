@@ -25,11 +25,16 @@
   },
   "license": "UNLICENSED",
   "build": {
-    "appId": "com.shavkunov.fantasymapstudio",
-    "productName": "Fantasy Map Studio",
+    "appId": "com.shavkunov.fantasymapstudio.test",
+    "productName": "Fantasy Map Studio TEST",
+    "extraMetadata": {
+      "version": "0.89.0-test.4blocks.2",
+      "buildChannel": "TEST",
+      "buildId": "4blocks-ui2"
+    },
     "copyright": "© Александр Шавкунов",
     "directories": {
-      "output": "dist",
+      "output": "dist-test",
       "buildResources": "build"
     },
     "files": [
@@ -56,7 +61,7 @@
       "hardenedRuntime": false
     },
     "dmg": {
-      "title": "Fantasy Map Studio ${version}"
+      "title": "Fantasy Map Studio TEST 0.89.0-test.4blocks.2"
     },
     "win": {
       "target": [
@@ -76,8 +81,8 @@
       "createDesktopShortcut": true,
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
-      "shortcutName": "Fantasy Map Studio",
-      "artifactName": "FantasyMapStudio-Setup-${version}.${ext}"
+      "shortcutName": "Fantasy Map Studio TEST",
+      "artifactName": "FantasyMapStudio-TEST-4blocks-ui2-Setup-${version}.${ext}"
     },
     "linux": {
       "target": [
@@ -90,8 +95,8 @@
       ],
       "icon": "build/icon.png",
       "category": "Graphics",
-      "artifactName": "FantasyMapStudio-${version}-linux-x64.${ext}"
+      "artifactName": "FantasyMapStudio-TEST-4blocks-ui2-${version}-linux-x64.${ext}"
     },
-    "artifactName": "FantasyMapStudio-${version}.${ext}"
+    "artifactName": "FantasyMapStudio-TEST-4blocks-ui2-${version}.${ext}"
   }
 }
