@@ -1,0 +1,14 @@
+SPILL DIAGNOSTICS ON REAL A/B
+Base commit: e2635529d317163662afc79b0adc3878f9b06967.
+
+Adds spill-diagnostic-layer.js and spill-ab-test.cjs; extends existing drainage-candidate.html instead of adding another viewer. Existing network/basin layers are dispatched through DrainageOverlay; diagnostic layers share its model-frame wrappers so both callbacks retain pane indices. No version, packaging, main-window entry or main changes.
+
+Potential fill uses the hypothetical envelope up to access to any existing zero-level water boundary, not actual lake depth/area. Purple intensity: 0 to .1 relative height, saturated above .1. Yellow markers are both raster cells of each closed minimum's lowest local saddle, enlarged with land-only crosses; not drawn river paths. Terrain/mask remain unchanged.
+
+Executed Node tests: exact Git-blob copies of A/B core, regional terrain, spherical-field renderer, drainage and spill hierarchy. sourceUV and base compose/palettes extracted verbatim (not whole viewer modules). Full 720x360 real A/B terrain. Basin-graph minimax result compared at every land cell with an independent cell activation/union sweep; zero differences and zero maximum depth error for both maps. Full historical fields were not recalculated; a synthetic, visibly rendered history marker tested with production compose plus all-water-pixel equality. Browser/Electron/PNG IPC not executed.
+
+A: 4864 positive-depth cells, .3464563469049156 sr = 8.1108034668% of land; max relative depth .26337987184524536. B: 4942 cells, .3477848975054514 sr = 8.1377649340% of land; max depth .26291990280151367. Zero unreachable basins in both. Existing land-mask SHA-256 references match; owner, gap and heights unchanged.
+
+The earlier 42.4/42.9% describes contributing land in closed catchments, not potential inundated area; it is not contradicted by 8.11/8.14%. Neither quantity is actual lake area. No rainfall, evaporation, persistent-lake selection or overflow discharge model added.
+
+Run: node tools/spill-ab-test.cjs .
