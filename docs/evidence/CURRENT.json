@@ -190,6 +190,36 @@
       "purpose": "native-single-frame-cli-execution",
       "scope": "single-frame",
       "validatesWholeSchedule": false
+    },
+    "k6CapAreaAssembly": {
+      "path": "docs/evidence/k6-area-assembly-20261103.json",
+      "sha256": "83dc2396c84101c450a3c6f115f871e8741db2e6c20ad99dba562e7247fc09eb",
+      "sourceCommit": "a0906b361691430e259ed9be3f39a91bcdcf0d06",
+      "purpose": "native-exported-assembler-area-schedule",
+      "scope": "area-only",
+      "encoding": "external-json-pointers-v1",
+      "decodedNativeSHA256": "90fb6038a48af808c3e3ce4f9baf6386ea8591fbd8ca9cc53f206bf784bf9d3a",
+      "decodedNativeBytes": 84520,
+      "frames": 10,
+      "pieceFrameChecks": 60,
+      "revisedAreaChecksPassed": true,
+      "originalRasterAreaGatePassed": false,
+      "fullScheduleMeasured": true,
+      "validatesWholeSchedule": false,
+      "validatesWholeAreaSchedule": true,
+      "movingK6StageAccepted": false,
+      "relatedArtifacts": [
+        {
+          "path": "docs/evidence/frame-1-cap-imported-20261103.json",
+          "sha256": "b4a348de1d6f8ec5eb6da8ee51d286300439db0bc7b6b427d2dd8368dc85c797",
+          "purpose": "paired-import-no-new-measurement"
+        },
+        {
+          "path": "docs/evidence/k6-area-assembly-restore-20261103.cjs",
+          "sha256": "1f0fb8964168799901a576ac99d29f5d681a85e4a35b36c12edf4cc472f323d8",
+          "purpose": "lossless-native-result-decoder-no-measurement"
+        }
+      ]
     }
   },
   "unavailable": {
@@ -198,5 +228,5 @@
       "useForDefaultComparison": false
     }
   },
-  "nextStep": "Review and preserve new accelerated frame0, then validate/assemble exactly ten saved AREA frames without new measurements. Original historical frame0 remains unavailable; no historical recovery or slow equivalence claim. No full-schedule verdict before actual assembly; collision/moving/visual/app acceptance remain separate."
+  "nextStep": "AREA-only exported-function assembly passed for ten saved frames/60 piece-frame cases. Full standalone CLI/fresh whole-tree verification not run in this package. No more AREA measurements by default. Review bounded additional slow/cap equivalence and unchanged collision stage separately; frozen-source/visual/app acceptance still pending. Historical frame0 remains unavailable."
 }
