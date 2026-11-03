@@ -1,0 +1,5 @@
+const assert=require('node:assert/strict'),path=require('node:path');
+(async()=>{const b=await require(path.resolve(process.argv[2])).create(),m=require(path.resolve(process.argv[3])).create(b);let newCount=0,kept=0,lost=0,oldOccupants=0;for(let i=0;i<360*180;i++){const p=b.pointAt(360,180,i),k=b.materialState(p,2).owner,r=b.history(p,k,2,64);if(r.kind!=='new')continue;newCount++;const end=m.state(p,2).owner,rec=m.history(p,end,2,64);if(end===k+1){kept++;assert.equal(rec.birthEpisode,1);assert.equal(rec.birthAngle,r.birthAngle);}else{lost++;assert.equal(rec.kind,'old');oldOccupants++;}}
+assert.deepEqual([newCount,kept,lost,oldOccupants],[245,229,16,16]);const frames=[];for(const t of [0,.05,.25,.5,1,2]){const f=m.frame(360,180,t);frames.push({angle:t,gapCount:f.gapCount});}
+await assert.rejects(()=>m.historyField(m.frame(64,32,2),{cancelled:()=>true}),/Cancelled/);
+console.log(JSON.stringify({passed:true,newCount,kept,lost,oldOccupants,frames,cancellation:true}));})().catch(e=>{console.error(e);process.exitCode=1;});

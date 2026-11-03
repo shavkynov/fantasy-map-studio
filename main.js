@@ -33,6 +33,19 @@ function openThreeBlockPrototype() {
   win.loadFile(path.join(__dirname, 'src', 'three-block-prototype.html'));
 }
 
+function openFourBlockPrototype() {
+  const win = new BrowserWindow({
+    width: 1280, height: 900, minWidth: 900, minHeight: 650,
+    title: 'Fantasy Map Studio — четыре блока, два эпизода',
+    backgroundColor: '#122633',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true, nodeIntegration: false
+    }
+  });
+  win.loadFile(path.join(__dirname, 'src', 'four-block-prototype.html'));
+}
+
 ipcMain.handle('save-png', async (event, arrayBuffer, suggestedName) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   const { canceled, filePath } = await dialog.showSaveDialog(win, {
@@ -76,7 +89,10 @@ app.whenReady().then(() => {
     ...(process.platform === 'darwin' ? [{ role: 'appMenu' }] : []),
     { label: 'Файл', submenu: [{ role: 'close' }] },
     { role: 'editMenu' }, { role: 'viewMenu' },
-    { label: 'Прототип', submenu: [{ label: 'Три блока (эксперимент)', accelerator: 'CmdOrCtrl+Shift+3', click: openThreeBlockPrototype }] },
+    { label: 'Прототип', submenu: [
+      { label: 'Три блока (эксперимент)', accelerator: 'CmdOrCtrl+Shift+3', click: openThreeBlockPrototype },
+      { label: 'Четыре блока — два эпизода', accelerator: 'CmdOrCtrl+Shift+4', click: openFourBlockPrototype }
+    ] },
     { role: 'windowMenu' }
   ]));
   createWindow();
