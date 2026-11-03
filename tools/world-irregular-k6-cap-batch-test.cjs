@@ -1,0 +1,27 @@
+'use strict';
+const assert=require('assert/strict'),fs=require('fs'),path=require('path'),os=require('os'),crypto=require('crypto');
+const {spawnSync}=require('child_process'),R=require('./world-irregular-k6-cap-batch.cjs'),C=require('./world-irregular-k6-area-policy.cjs');
+const root=path.resolve(__dirname,'..'),file='docs/evidence/k6-cap-pair-frame1-20261103.json',bytes=fs.readFileSync(path.join(root,file)),sha=crypto.createHash('sha256').update(bytes).digest('hex');
+assert.equal(sha,'76ea4245b61911ca04919431f01fa251481d33a9365dc656efc04daf3cc4def9');const data=JSON.parse(bytes),clone=v=>JSON.parse(JSON.stringify(v));
+const capFiles=['src/world-domain.js','tools/world-irregular-k4-static.cjs','tools/world-irregular-k6-static.cjs','tools/world-irregular-k6-poses.cjs','tools/world-irregular-k6-area.cjs'];
+const ctx={references:data.references,sourceHashes:Object.fromEntries(R.dependencies.map(f=>[f,f.endsWith('k6-cap.cjs')?data.capImplementationSHA256:'a'.repeat(64)])),capImplementationSHA256:data.capImplementationSHA256,capSourceBlobs:Object.fromEntries(capFiles.map(f=>[f,data.sourceManifest[f].gitBlob])),pairedMeasurements:data.accelerated,controlEvidence:{path:file,sha256:sha,evidenceCommit:'94e2c6885315990f1c3c3dbc84bee7d8e67ecdb4',sourceCommit:data.sourceCommit}};
+function fresh(){return C.schedule.map((frame,index)=>{
+ if(index===1)return R.fromPaired(ctx);
+ const phases=Object.fromEntries(R.methods.map(([key,order])=>{const n=frame.width*frame.height*6*(order==='centre'?1:order*order);return [key,{schema:'analytic-k6-cap-experiment-v1',frame:clone(frame),order,culling:true,margin:1e-10,areas:clone(ctx.references),hitSamples:Array(6).fill(1),totalDomainWeight:4*Math.PI,boundingTests:n,exactMembershipEvaluations:n,culledMembershipEvaluations:0,naiveMembershipEvaluations:n,elapsedMilliseconds:0,implementationSHA256:ctx.capImplementationSHA256,sourceBlobs:ctx.capSourceBlobs,fullScheduleMeasured:false,collisionChecksPerformed:false,movingK6StageAccepted:false,integrationRun:false}];}));
+ return R.make(index,phases,ctx,{kind:'cap-measurement'});
+});}
+const pair=R.fromPaired(ctx);assert.deepEqual(pair.classification,data.classification);for(const [key] of R.methods)for(const field of ['areas','hitSamples','totalDomainWeight','exactMembershipEvaluations','elapsedMilliseconds'])assert.deepEqual(pair.measurements[key][field],data.accelerated[key][field]);
+assert.equal(pair.measurements.gauss8.exactMembershipEvaluations,1707536);assert.equal(pair.pairedEquivalenceVerifiedForFrame,true);
+const good=fresh(),before=JSON.stringify(good),summary=R.assemble(good,ctx);assert(summary.classification.revisedAreaChecksPassed);assert.equal(summary.classification.pieceFrameChecks,60);assert.equal(summary.fullScheduleMeasured,true);assert.equal(summary.allFramesPairedEquivalenceVerified,false);assert.equal(summary.movingK6StageAccepted,false);assert.equal(JSON.stringify(good),before);
+let invalidCollectionsRejected=0;
+for(const edit of [r=>r.pop(),r=>r.push(r[0]),r=>{r[9]=r[0]},r=>{r[0].completed=false},r=>{r[0].schema='k6-fixed-area-batch-v3'},r=>{r[0].sourceHashes={}},r=>{r[0].controlEvidence.sha256='0'.repeat(64)},r=>{r[0].references[0]*=2},r=>{r[0].frame.time=0.75},r=>{delete r[0].measurements.gauss8},r=>{r[0].measurements.gauss8.areas[0]=NaN},r=>{r[0].measurements.gauss4.culling=false},r=>{r[0].measurements.centre.margin=1e-3},r=>{r[0].measurements.centre.exactMembershipEvaluations--},r=>{r[0].measurements.gauss8.boundingTests--},r=>{r[0].measurements.gauss4.sourceBlobs={}},r=>{r[0].measurements.centre.membershipEvaluations=1},r=>{r[0].classification.revisedAreaGatePassed=false},r=>{r[0].interOrderAbsoluteAreaDifferences[0]=1},r=>{r[0].pairedEquivalenceVerifiedForFrame=true},r=>{r[0].fullScheduleMeasured=true},r=>{r[0].measurements.gauss4.elapsedMilliseconds=-1},r=>{r[1].measurements.gauss8.elapsedMilliseconds++},r=>{r[1].origin.kind='cap-measurement'}]){
+ const records=clone(fresh());edit(records);assert.throws(()=>R.assemble(records,ctx));invalidCollectionsRejected++;
+}
+const oldFail=fresh();oldFail[4].measurements.centre.areas[2]*=1.04;R.finish(oldFail[4]);const retained=R.assemble(oldFail,ctx).classification;assert(!retained.originalRasterAreaGatePassed&&retained.revisedAreaChecksPassed);
+for(const key of ['gauss4','gauss8']){const failed=fresh();failed[9].measurements[key].areas[5]*=1.04;R.finish(failed[9]);assert(!R.assemble(failed,ctx).classification.revisedAreaChecksPassed);}
+const temp=fs.mkdtempSync(path.join(os.tmpdir(),'k6-cap-batch-contract-'));
+try{
+ const a=R.write(temp,'frame-1-imported',pair),original=fs.readFileSync(a),b=R.write(temp,'frame-1-imported',pair);assert.notEqual(a,b);assert.deepEqual(fs.readFileSync(a),original);assert.equal(fs.readdirSync(temp).length,2);
+ for(const args of [['frame','1',temp,'--experimental'],['frame','all',temp,'--experimental'],['frame','2',temp],['all']]){const run=spawnSync(process.execPath,[path.join(__dirname,'world-irregular-k6-cap-batch.cjs'),...args],{encoding:'utf8',timeout:3000});assert.equal(run.status,1);}
+}finally{fs.rmSync(temp,{recursive:true,force:true});}
+console.log(JSON.stringify({unitChecksPassed:true,realStoredPairImportedWithoutMeasurement:true,syntheticScheduleFrames:10,syntheticPieceFrameChecks:60,invalidCollectionsRejected,oldCentreFailureRetained:true,eitherGaussFailureRejectedAsSuccess:true,exclusiveFilesPreserved:true,defaultHeavyRunAbsent:true,canonicalFramesNewlyMeasured:0,fullCheckoutCliRun:false,acceleratedBackendExperimental:true,movingK6StageAccepted:false}));
