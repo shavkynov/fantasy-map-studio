@@ -19,6 +19,18 @@
       "purpose": "native-plan-import-serialization-check",
       "scope": "no-measurement",
       "validatesWholeSchedule": false
+    },
+    "k6CapFrame2": {
+      "path": "docs/evidence/frame-2-cap-20261103.json",
+      "sha256": "a078b473bdfc723b8834b4f27c65364a379a906805218ff05ae38bace4aa213a",
+      "sourceCommit": "f9f8f5a1dc7bdeabef56b84aec9859b5c3d2372a",
+      "frameIndex": 2,
+      "purpose": "experimental-accelerated-area-measurement",
+      "scope": "single-frame",
+      "pairedEquivalenceVerified": false,
+      "validatesWholeSchedule": false,
+      "serialization": "Compact JSON; parsed native record unchanged",
+      "nativeFileSHA256": "244170ebcf341af1824c61c4f60107fc56b2f3ad4e57a214c9836754a3043243"
     }
   },
   "unavailable": {
@@ -27,5 +39,5 @@
       "useForDefaultComparison": false
     }
   },
-  "nextStep": "Review one explicit experimental frame; no automatic schedule or paired-frame rerun."
+  "nextStep": "Review the next single experimental frame; no automatic schedule or control reruns."
 }
