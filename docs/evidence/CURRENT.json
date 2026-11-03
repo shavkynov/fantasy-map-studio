@@ -1,0 +1,23 @@
+{
+  "schema": "fantasy-map-studio-evidence-index-v1",
+  "updated": "2026-11-03",
+  "reports": {
+    "k6CapPairedFrame1": {
+      "path": "docs/evidence/k6-cap-pair-frame1-20261103.json",
+      "sha256": "76ea4245b61911ca04919431f01fa251481d33a9365dc656efc04daf3cc4def9",
+      "evidenceCommit": "94e2c6885315990f1c3c3dbc84bee7d8e67ecdb4",
+      "sourceCommit": "32b8c9a1e7e034b81a0df31c63e4bc86625703ed",
+      "frameIndex": 1,
+      "purpose": "paired-culling-equivalence",
+      "scope": "single-frame",
+      "validatesWholeSchedule": false
+    }
+  },
+  "unavailable": {
+    "frame0Original": {
+      "status": "original-chat-artifact-unavailable",
+      "useForDefaultComparison": false
+    }
+  },
+  "nextStep": "Review accelerated batch adapter; do not rerun saved controls."
+}
