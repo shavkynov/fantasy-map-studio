@@ -1,0 +1,17 @@
+BASIN WATER BUDGET CANDIDATE
+Base commit: 822ebda704e480175adfc93fb8ae85325fcf9765.
+API: BasinWaterBudget.create(sphericalField, spillHierarchy) -> stage(basinIndex, volume), advance(storageArray, forcing, dt).
+
+Forcing is mandatory prescribed input, NOT generated climate. precipitation, evaporation and runoffCoefficient are scalars or arrays over all raster cells; seepage is optional (default zero). runoffCoefficient must be in [0,1]. externalInflow is an optional array of nonnegative volume/time rates over basin indices. dt must be positive. Rates of precipitation, evaporation and seepage use relative height/model time; volume is relative height*steradian. No meters, years, radius or planet-age changes.
+
+Initial-state wet cells receive direct precipitation. Dry cells contribute precipitation*runoffCoefficient. These are mutually exclusive, so precipitation is not double counted. The runoff coefficient represents effective delivery; non-delivered rain on dry cells is outside this storage budget. Evaporation and seepage apply only to the initial wetted area. If losses exceed available water after inflow, both losses are reduced proportionally.
+
+Storage-area-elevation curves use the current raster cells, capped at FIRST LOCAL spill. Dry stage returns basin-floor elevation and zero water area, not a physical water surface. Water-outlet catchments store no water and return effective inflow as boundaryOutflow. Closed basins keep at most local capacity; excess is returned as pendingSpill, not sent to the ocean. No basin merging or interbasin spill routing.
+
+advance returns fresh storage, levels, waterAreaSteradians, input volumes, actual evaporation/seepage losses, pendingSpill and boundaryOutflow. These flux arrays are PER STEP, not cumulative. The caller must retain/reroute pendingSpill; it is not automatically included in the next step. For each step: initial storage + input = new storage + evaporation + seepage + pending spill + boundary outflow.
+
+This is an explicit initial-area discretization; results depend on timestep. It is not a continuous event-driven fill solver, equilibrium analysis, persistent-lake selector or calibrated rainfall/evaporation model. Neither an output water area nor a short prescribed-forcing experiment establishes real lakes on the planet. Original heights, masks and hierarchy are not modified.
+
+Executed Node tests on synthetic geometry: dry fill, local-cap overflow, direct-rain/runoff separation, evaporation/seepage drying limits, external inflow, vector forcing, invalid inputs, equal-height cells, unbounded basin, input immutability, 1000 randomized conservative steps and 100 random storage curves checked by independent volume reconstruction. Not run on real A/B budgets, in browser or Electron.
+Run: node tools/basin-water-budget-test.cjs .
+No UI, version, packaging or main changes.
