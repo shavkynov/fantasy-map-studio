@@ -137,6 +137,28 @@
       "purpose": "native-single-frame-cli-execution",
       "scope": "single-frame",
       "validatesWholeSchedule": false
+    },
+    "k6CapFrame9": {
+      "path": "docs/evidence/frame-9-cap-20261103.json",
+      "sha256": "7697c39781c68a5bcccd67620ecb3812fff8e17686dfcfdb82b55ce5a734471a",
+      "sourceCommit": "bf4a8328c34db0c58ce793073cde1de7d20577e3",
+      "frameIndex": 9,
+      "purpose": "experimental-accelerated-area-measurement",
+      "scope": "single-frame",
+      "role": "720x360 reverse-control; t=0.25,-1; area-only, no collision verdict",
+      "pairedEquivalenceVerified": false,
+      "validatesWholeSchedule": false,
+      "serialization": "Compact JSON; parsed native record unchanged",
+      "nativeFileSHA256": "b7a694334bf030c5db169cb136ad1fbf47b9bf7094f2cd86003418e9f3ac1a18"
+    },
+    "k6CapFrame9CliExecution": {
+      "path": "docs/evidence/frame-9-cap-cli-20261103.json",
+      "sha256": "4ff24d7eb3baa719c24ea5159ef6b5ceccfe077f751c3095d1a1e53e8cac0001",
+      "sourceCommit": "bf4a8328c34db0c58ce793073cde1de7d20577e3",
+      "frameIndex": 9,
+      "purpose": "native-single-frame-cli-execution",
+      "scope": "single-frame",
+      "validatesWholeSchedule": false
     }
   },
   "unavailable": {
@@ -145,5 +167,5 @@
       "useForDefaultComparison": false
     }
   },
-  "nextStep": "Review frame 8 evidence; next candidate is one explicit experimental frame 9 (720x360,t=0.25,-1). No automatic run, control reruns, collision or moving-K6 acceptance. Frame0 raw remains unavailable; no full-schedule completeness claim."
+  "nextStep": "Review frame 9 evidence; audit saved records and frame0 availability without measurement reruns. Frame0 raw remains unavailable; no ten-frame assembly or full-schedule completeness claim. No collision or moving-K6 acceptance; no automatic control reruns."
 }
