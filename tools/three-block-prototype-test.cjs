@@ -1,0 +1,3 @@
+const assert=require('node:assert/strict');
+const {create}=require('../src/three-block-prototype.js');
+(async()=>{const p=await create();let frames=0;for(let i=0;i<=40;i++){assert(p.frame(360,180,i/20).valid);frames++;}const fine=[0,.05,.25,1,2].map(a=>{const f=p.frame(720,360,a);return {angle:a,valid:f.valid,gapArea:f.gapArea,removed:f.removed};});const reverse=p.frame(720,360,-2,false);assert(!reverse.valid);assert.throws(()=>p.frame(720,360,-2));console.log(JSON.stringify({displayFrames:frames,fine,reverseCollisions:reverse.collisions,labelsSha256:p.labelsSha256}));})().catch(e=>{console.error(e);process.exitCode=1;});

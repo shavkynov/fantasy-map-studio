@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -18,6 +18,19 @@ function createWindow() {
     }
   });
   win.loadFile(path.join(__dirname, 'src', 'index.html'));
+}
+
+function openThreeBlockPrototype() {
+  const win = new BrowserWindow({
+    width: 1280, height: 900, minWidth: 900, minHeight: 650,
+    title: 'Fantasy Map Studio — три блока (эксперимент)',
+    backgroundColor: '#122633',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true, nodeIntegration: false
+    }
+  });
+  win.loadFile(path.join(__dirname, 'src', 'three-block-prototype.html'));
 }
 
 ipcMain.handle('save-png', async (event, arrayBuffer, suggestedName) => {
@@ -59,6 +72,13 @@ app.setAboutPanelOptions({ applicationName: 'Fantasy Map Studio', applicationVer
 
 app.whenReady().then(() => {
   if (process.platform === 'darwin' && app.dock) { try { app.dock.setIcon(path.join(__dirname, 'build', 'icon.png')); } catch (e) {} }
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    ...(process.platform === 'darwin' ? [{ role: 'appMenu' }] : []),
+    { label: 'Файл', submenu: [{ role: 'close' }] },
+    { role: 'editMenu' }, { role: 'viewMenu' },
+    { label: 'Прототип', submenu: [{ label: 'Три блока (эксперимент)', accelerator: 'CmdOrCtrl+Shift+3', click: openThreeBlockPrototype }] },
+    { role: 'windowMenu' }
+  ]));
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
