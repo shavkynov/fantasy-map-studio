@@ -167,6 +167,29 @@
       "purpose": "bounded-evidence-availability-audit",
       "scope": "metadata-and-provenance-only",
       "validatesWholeSchedule": false
+    },
+    "k6CapFrame0New": {
+      "path": "docs/evidence/frame-0-cap-new-20261103.json",
+      "sha256": "6cb8066c0eb63848201a50f5498979187356f0ac65699c21b89a666fe8cbf938",
+      "sourceCommit": "40c907b38a6bedf8fc4c74be9f92213c7ced1e50",
+      "frameIndex": 0,
+      "purpose": "experimental-accelerated-area-measurement",
+      "scope": "single-frame",
+      "role": "Separately authorized new accelerated frame0; not historical recovery or slow equivalence.",
+      "historicalOriginalRecovered": false,
+      "pairedEquivalenceVerified": false,
+      "validatesWholeSchedule": false,
+      "serialization": "Compact JSON; parsed native record unchanged",
+      "nativeFileSHA256": "730b943be9f8b45f7ba06c7b6c89bb50d98de1daa84661bc741e3e6aedf9ab7f"
+    },
+    "k6CapFrame0NewCliExecution": {
+      "path": "docs/evidence/frame-0-cap-new-cli-20261103.json",
+      "sha256": "6f57ad1d84494a849507e9cb0866ddb72d49836051c5b6f9c2a5b4b88bc6ac7d",
+      "sourceCommit": "40c907b38a6bedf8fc4c74be9f92213c7ced1e50",
+      "frameIndex": 0,
+      "purpose": "native-single-frame-cli-execution",
+      "scope": "single-frame",
+      "validatesWholeSchedule": false
     }
   },
   "unavailable": {
@@ -175,5 +198,5 @@
       "useForDefaultComparison": false
     }
   },
-  "nextStep": "Review bounded availability audit. Frames 1-9 are archived; original frame0 not recovered in checked scope. No reruns, ten-frame assembly, completeness relaxation, collision or acceptance promotion. A new accelerated frame0 observation requires separate explicit authorization and must not be labelled historical recovery."
+  "nextStep": "Review and preserve new accelerated frame0, then validate/assemble exactly ten saved AREA frames without new measurements. Original historical frame0 remains unavailable; no historical recovery or slow equivalence claim. No full-schedule verdict before actual assembly; collision/moving/visual/app acceptance remain separate."
 }
