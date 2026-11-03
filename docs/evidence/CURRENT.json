@@ -43,6 +43,21 @@
       "validatesWholeSchedule": false,
       "serialization": "Compact JSON; parsed native record unchanged",
       "nativeFileSHA256": "4fee944a3cd955279f690df79b522236f5f196ca60ea10392d3beadff6441aa9"
+    },
+    "k6CapFrame4": {
+      "path": "docs/evidence/frame-4-cap-20261103.json",
+      "sha256": "55d0a30e83cb9bf32f31ede9bb37c45e2a8c0e38da3140df6d95fc9492e59ef4",
+      "sourceCommit": "45ca3ce4c0da4ecfda7362d610d175283f0239ef",
+      "frameIndex": 4,
+      "purpose": "experimental-accelerated-area-measurement",
+      "scope": "single-frame",
+      "role": "reverse-control; area-only, no collision verdict",
+      "pairedEquivalenceVerified": false,
+      "validatesWholeSchedule": false,
+      "originalAreaGatePassed": false,
+      "revisedAreaGatePassed": true,
+      "serialization": "Compact JSON; parsed native record unchanged",
+      "nativeFileSHA256": "4c643e86fa408729798a05d510d1c96cfc95cd7a7558ea6880a98baa83e77986"
     }
   },
   "unavailable": {
@@ -51,5 +66,5 @@
       "useForDefaultComparison": false
     }
   },
-  "nextStep": "Review the next missing experimental case; no automatic schedule or paired-control rerun."
+  "nextStep": "Review one bounded 720x360 experimental frame; no full schedule or old-pilot rerun."
 }
