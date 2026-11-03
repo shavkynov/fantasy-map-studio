@@ -11,6 +11,14 @@
       "purpose": "paired-culling-equivalence",
       "scope": "single-frame",
       "validatesWholeSchedule": false
+    },
+    "k6CapBatchCliCheck": {
+      "path": "docs/evidence/k6-cap-batch-cli-check-20261103.json",
+      "sha256": "49577536829aaef4d39138009fc7b774f12020476230423d417e17c91277253f",
+      "sourceCommit": "c6d52232af19ab460cbd7dc963cb8472c868d836",
+      "purpose": "native-plan-import-serialization-check",
+      "scope": "no-measurement",
+      "validatesWholeSchedule": false
     }
   },
   "unavailable": {
@@ -19,5 +27,5 @@
       "useForDefaultComparison": false
     }
   },
-  "nextStep": "Review accelerated batch adapter; do not rerun saved controls."
+  "nextStep": "Review one explicit experimental frame; no automatic schedule or paired-frame rerun."
 }
