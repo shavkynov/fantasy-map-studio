@@ -159,6 +159,14 @@
       "purpose": "native-single-frame-cli-execution",
       "scope": "single-frame",
       "validatesWholeSchedule": false
+    },
+    "k6AvailabilityAudit20261103": {
+      "path": "docs/evidence/k6-availability-audit-20261103.json",
+      "sha256": "240d92ccee15c12e1af925ce1e6b0a6fa927daa4ae50693f0242815e1b5723de",
+      "sourceCommit": "2d22e4ffbd365baee54a9109a974b66ad7336ba5",
+      "purpose": "bounded-evidence-availability-audit",
+      "scope": "metadata-and-provenance-only",
+      "validatesWholeSchedule": false
     }
   },
   "unavailable": {
@@ -167,5 +175,5 @@
       "useForDefaultComparison": false
     }
   },
-  "nextStep": "Review frame 9 evidence; audit saved records and frame0 availability without measurement reruns. Frame0 raw remains unavailable; no ten-frame assembly or full-schedule completeness claim. No collision or moving-K6 acceptance; no automatic control reruns."
+  "nextStep": "Review bounded availability audit. Frames 1-9 are archived; original frame0 not recovered in checked scope. No reruns, ten-frame assembly, completeness relaxation, collision or acceptance promotion. A new accelerated frame0 observation requires separate explicit authorization and must not be labelled historical recovery."
 }
