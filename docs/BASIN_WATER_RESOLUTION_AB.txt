@@ -1,0 +1,22 @@
+BASIN FILL/SPILL RESOLUTION ON REAL A/B
+Base commit: 16adf7e2c35efac3abe6407ececc8931091a63f0.
+API: BasinWaterResolution.resolve(field, hierarchy, localExperimentSnapshot, BasinFillSpill).
+
+The adapter adds in-basin storage and pending inventory once, validates the source ledger, invokes redistribution and returns a NEW merged-pool state plus a cumulative ledger with pendingTotal=0. Previous boundary exports remain accounted for but are not reintroduced as water. Old snapshots are not mutated; callers must replace the live inventory and must not replay the same pending source. This pure function does not enforce global once-only consumption across arbitrary callers.
+
+IMPORTANT: output is {redistribution,ledger,metadata}, deliberately not an old local-budget snapshot. Merged storage may exceed first-local-spill capacities and must not go directly into BasinWaterBudget.advance. No coupled precipitation/evaporation timestep over merged pools is implemented here.
+
+Executed Node tests on actual A/B 720x360 terrain. Exact blob-verified full A/B core, regional terrain, drainage, spill hierarchy, local water budget and fill/spill modules. SourceUV and spherical build extracted verbatim; experiment runner copied from approved source. No history, renderer, browser/Electron or climate run.
+
+Prescribed initial experiment: P=.02,E=.001,C=.5, 100 steps dt=.05, from dry basins. These are synthetic forcing values in relative-height/model-time units, not planet climate. Redistribution is one instantaneous snapshot operation after that local-only experiment, not a simulation of rainfall and routing concurrently.
+
+A: supplied .004328754111019469 stored + .09618754052961956 pending = .100516294640639. After redistribution .0060642505515579054 stored and .09445204408908112 newly exported to existing water. 26 merge operations, 290 transfers, 485 processing operations. Previous exports .12300106213269853 retained; cumulative exports .21745310622177966.
+B: supplied .004320632865187413 stored + .09745643010380642 pending = .10177706296899386. After .006054805900655794 stored and .09572225706833803 newly exported. 20 merge operations, 212 transfers, 385 processing operations. Previous exports .12195615204240924 retained; cumulative exports .21767840911074726.
+
+Volumes are relative height*steradian, not m3. Operation/transfer/merge counts are not river or lake counts. All current water shares the existing zero-level external-boundary assumption.
+
+Global ledger residuals below 1.3e-15. Reapplying only returned basinStorage changes depth by at most 1.3e-14, with additional outflow below 8e-17. Saturated stress test (one model volume per original basin) matches prior minimax fill envelope within 1.1e-11; tolerance is 1e-10, not exact equality. This high-volume test is not a physical scenario. Original masks/owner/gap and heights remain unchanged and mask SHA-256 references match.
+
+Current fill/spill code needed no change, and the 200000-operation bound was not raised. Recorded solver times depend on this Node environment, not Mac/browser guarantees.
+Run: node tools/basin-water-resolution-ab-test.cjs .
+No UI, version, packaging, main-window entry or main changes.

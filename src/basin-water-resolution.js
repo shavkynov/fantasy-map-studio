@@ -1,0 +1,11 @@
+(function(root){'use strict';
+function resolve(field,hierarchy,snapshot,fillAPI){
+ const B=hierarchy.basins.length,s=snapshot&&snapshot.stats;if(!s||!snapshot.storage||snapshot.storage.length!==B||!snapshot.pendingSpill||snapshot.pendingSpill.length!==B||!fillAPI||typeof fillAPI.redistribute!=='function')throw Error('Invalid resolution snapshot');
+ for(const k of ['initialTotal','inputTotal','boundaryTotal','evapTotal','seepTotal'])if(!Number.isFinite(s[k])||s[k]<0)throw Error('Invalid source ledger');
+ const supplied=new Float64Array(B);let sourceStorage=0,sourcePending=0;for(let b=0;b<B;b++){const a=snapshot.storage[b],p=snapshot.pendingSpill[b];if(!Number.isFinite(a)||a<0||!Number.isFinite(p)||p<0||!Number.isFinite(a+p))throw Error('Invalid source inventory');sourceStorage+=a;sourcePending+=p;supplied[b]=a+p;}
+ const scale=Math.max(1,s.initialTotal+s.inputTotal),sourceResidual=s.initialTotal+s.inputTotal-sourceStorage-sourcePending-s.boundaryTotal-s.evapTotal-s.seepTotal;if(!Number.isFinite(sourceResidual)||Math.abs(sourceResidual)>1e-10*scale)throw Error('Unbalanced source snapshot');
+ const redistribution=fillAPI.redistribute(field,hierarchy,supplied),ledger={initialTotal:s.initialTotal,inputTotal:s.inputTotal,storedTotal:redistribution.stats.storedTotal,pendingTotal:0,boundaryTotal:s.boundaryTotal+redistribution.boundaryOutflow,evapTotal:s.evapTotal,seepTotal:s.seepTotal,exportedThisResolution:redistribution.boundaryOutflow};ledger.residual=ledger.initialTotal+ledger.inputTotal-ledger.storedTotal-ledger.boundaryTotal-ledger.evapTotal-ledger.seepTotal;if(!Number.isFinite(ledger.residual)||Math.abs(ledger.residual)>1e-10*scale)throw Error('Unbalanced resolved snapshot');
+ return {redistribution,ledger,metadata:Object.freeze({state:'redistributed pools, not a local-budget storage snapshot',pending:'source storage and pending supplied once; output pending is zero',boundary:'previous exports retained in ledger, not reintroduced as water',continuation:'replace old inventory; do not replay pending or feed merged storage to local-only advance',forcing:'none during instantaneous redistribution',climate:false})};
+}
+const api={resolve};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.BasinWaterResolution=api;
+})(typeof globalThis!=='undefined'?globalThis:this);
