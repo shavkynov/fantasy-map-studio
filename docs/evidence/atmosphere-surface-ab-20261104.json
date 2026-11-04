@@ -1,0 +1,138 @@
+{
+  "sourceCommit": "ff6f55616079f7917bc4f91c8ea787936a4b79fd",
+  "passed": true,
+  "scenario": {
+    "geometry": "real A/B 720x360, 2/2 and 8/8 endpoints",
+    "steps": 20,
+    "dt": 0.1,
+    "time": 2,
+    "initial": "zero atmosphere, zero surface water",
+    "wind": "east face +/-0.25*cos(cell latitude), radians per model time; south=0",
+    "oceanEvaporation": 0.03,
+    "rainRate": 0.3,
+    "surfaceEvaporation": 0.001,
+    "runoffCoefficient": 0.5,
+    "seepage": 0,
+    "normalization": "none; no extra prescribed spatial rainfall",
+    "atmosphereSubstepsEachStep": 4,
+    "maxCourant": 0.7161995164831028
+  },
+  "results": [
+    {
+      "end": 2,
+      "direction": "eastward",
+      "ledger": {
+        "initialTotal": 0,
+        "oceanSourceTotal": 0.49768973884431694,
+        "atmosphereStored": 0.37285133711030244,
+        "surfaceStored": 0.0006314886454837584,
+        "rainOceanTotal": 0.11719696313996904,
+        "nonRunoffTotal": 0.0036901833897590016,
+        "boundaryTotal": 0.0031858698346313307,
+        "surfaceEvapTotal": 0.00013389672378667664,
+        "surfaceSeepTotal": 0,
+        "residual": 3.8469390433587547e-13
+      },
+      "rainLand": 0.007641438593660708,
+      "surfaceInput": 0.00395125520390175,
+      "maxResidual": 3.8469390433587547e-13,
+      "maxRainTransferError": 4.423544863740858e-17,
+      "wetPercentLand": 3.3618682410865586,
+      "maxDepth": 0.025753539201425285
+    },
+    {
+      "end": 2,
+      "direction": "westward",
+      "ledger": {
+        "initialTotal": 0,
+        "oceanSourceTotal": 0.49768973884431694,
+        "atmosphereStored": 0.37285133711030166,
+        "surfaceStored": 0.0003044788848061161,
+        "rainOceanTotal": 0.11719696313996893,
+        "nonRunoffTotal": 0.003746803262924751,
+        "boundaryTotal": 0.003484214093393384,
+        "surfaceEvapTotal": 0.00010594235253655325,
+        "surfaceSeepTotal": 0,
+        "residual": 3.855518470674904e-13
+      },
+      "rainLand": 0.007641438593660719,
+      "surfaceInput": 0.0038946353307359976,
+      "maxResidual": 3.855518470674904e-13,
+      "maxRainTransferError": 2.949029909160572e-17,
+      "wetPercentLand": 2.627579992206646,
+      "maxDepth": 0.02055090781528096
+    },
+    {
+      "end": 8,
+      "direction": "eastward",
+      "ledger": {
+        "initialTotal": 0,
+        "oceanSourceTotal": 0.4975593244338895,
+        "atmosphereStored": 0.37275363530232924,
+        "surfaceStored": 0.0007605853231589008,
+        "rainOceanTotal": 0.11558252813853545,
+        "nonRunoffTotal": 0.004450250571040414,
+        "boundaryTotal": 0.003866814379417022,
+        "surfaceEvapTotal": 0.00014551071905723867,
+        "surfaceSeepTotal": 0,
+        "residual": 3.512378647478609e-13
+      },
+      "rainLand": 0.009223160992673497,
+      "surfaceInput": 0.004772910421633112,
+      "maxResidual": 3.512378647478609e-13,
+      "maxRainTransferError": 4.336808689942018e-17,
+      "wetPercentLand": 3.782796938647045,
+      "maxDepth": 0.025976967564855735
+    },
+    {
+      "end": 8,
+      "direction": "westward",
+      "ledger": {
+        "initialTotal": 0,
+        "oceanSourceTotal": 0.4975593244338895,
+        "atmosphereStored": 0.37275363530233246,
+        "surfaceStored": 0.00040557037453117767,
+        "rainOceanTotal": 0.11558252813853526,
+        "nonRunoffTotal": 0.004505723027694129,
+        "boundaryTotal": 0.004197191526670044,
+        "surfaceEvapTotal": 0.00011467606377820426,
+        "surfaceSeepTotal": 0,
+        "residual": 3.4822925792932224e-13
+      },
+      "rainLand": 0.009223160992673476,
+      "surfaceInput": 0.004717437964979395,
+      "maxResidual": 3.4822925792932224e-13,
+      "maxRainTransferError": 5.2909066017292616e-17,
+      "wetPercentLand": 2.9216673163944384,
+      "maxDepth": 0.027656731412796065
+    }
+  ],
+  "spatialDifferences": [
+    {
+      "end": 2,
+      "rainRateL1OverLand": 0.016371593113030762,
+      "depthL1Volume": 0.0007462299742042906
+    },
+    {
+      "end": 8,
+      "rainRateL1OverLand": 0.01770288029533817,
+      "depthL1Volume": 0.0009107489422864193
+    }
+  ],
+  "verifiedFullModuleBlobs": {
+    "regional-material-terrain.js": "5da90d0b177ea0ec4cfc2bf44813f913d436487d",
+    "spherical-drainage.js": "1c32b09899705827a873ad18364ac3e1d0893b05",
+    "basin-spill-hierarchy.js": "f5870911f9de99ab211e9f76146e32bb48d851c3",
+    "spherical-moisture-transport.js": "13e4214c80c8b42d71df347cdcbc36a2076c919c",
+    "basin-fill-spill.js": "aee23792f8c564513305afcd3c8b6db67fa29fa5",
+    "coupled-basin-water.js": "be674c31e844d8586d683ae5495d20e46f1d3244",
+    "atmosphere-surface-water.js": "03230acbac6b32855122c0e3a6457fa86394a948"
+  },
+  "localScope": "Source labels inflated and SHA256 verified. Geometry, sourceUV and spherical field build copied from source functions with unused history/renderer omitted. Seven full numerical modules Git-blob verified. Real fields and drainage/spill hierarchy prepared once per variant and passed losslessly as binary arrays/serialized basin/edge inventory. New evaluate() executed all four cases. Repository main() launcher syntax-checked only, not run as a single end-to-end CLI. No Electron or native PNG IPC test.",
+  "checks": "global balance, rainLand=surfaceInput+nonRunoff, independent ocean-source integral, zero surface pending, CFL<=.8, finite nonnegative amounts/depths at each step, geometry and wind arrays and hierarchy edges unchanged; known A/B land masks and height fingerprints matched",
+  "limitations": "One dt and finite time, not convergence, climate or equilibrium. Winds and rain removal prescribed. Ocean reservoir external/infinite; surface evaporation/seepage and nonRunoff are external sinks. No evaporation feedback, groundwater storage, temperature, pressure, seasons or mountain rain. Relative-depth*steradian volumes, not m3; model time not years. Wet mask cutoff 1e-9 diagnostic only. This T=2 transport case is not earlier spatial-P T=1. No A/B winner chosen.",
+  "reproduce": "node tools/atmosphere-surface-ab-test.cjs . <2|8> <eastward|westward>",
+  "appChanged": false,
+  "installerRequired": false,
+  "next": "one coherent UI package for atmospheric transport scenarios and diagnostics"
+}
