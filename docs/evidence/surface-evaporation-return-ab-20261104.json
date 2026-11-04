@@ -1,0 +1,85 @@
+{
+  "sourceCommit": "3ff3a9bc1fc398b8c95fe0a28832f63fb1b611b7",
+  "passed": true,
+  "scenario": "real A/B 720x360, eastward .25*cos(latitude), zero initial vapor/water; 20 steps dt=.1, T=2; ocean evaporation .03, rain removal .3, surface E=.001 C=.5 seep=0; returnEvaporation=true; no rainfall normalization or additional P",
+  "offControl": {
+    "reusedNotRerun": true,
+    "path": "docs/evidence/atmosphere-surface-ab-20261104.json",
+    "evidenceCommit": "82b2b9a98e4a2d89190bded9227709fa70382608",
+    "blob": "f002f098b2b35095bcb892444600db69d24fee68",
+    "measuredSourceCommit": "ff6f55616079f7917bc4f91c8ea787936a4b79fd",
+    "selection": "eastward, endpoints 2 and 8, identical forcing and initial state; known land/height fingerprints verified"
+  },
+  "results": [
+    {
+      "end": 2,
+      "ledger": {
+        "initialTotal": 0,
+        "oceanSourceTotal": 0.49768973884431694,
+        "atmosphereStored": 0.3729664154095064,
+        "surfaceStored": 0.0006362376853651327,
+        "rainOceanTotal": 0.11719743048584039,
+        "nonRunoffTotal": 0.0036974135408494478,
+        "boundaryTotal": 0.0031922417223711748,
+        "surfaceEvapTotal": 0.0001347189621621036,
+        "surfaceSeepTotal": 0,
+        "returnedEvapTotal": 0.00013471896216210482,
+        "surfaceEvapSinkTotal": 0,
+        "residual": 3.8437092050869204e-13
+      },
+      "rainLand": 0.007660611910747831,
+      "surfaceInput": 0.0039631983698983925,
+      "maxResidual": 3.8437092050869204e-13,
+      "maxReturnError": 1.2197274440461925e-18,
+      "maxRainError": 3.165870343657673e-17,
+      "offStoredReference": 0.0006314886454837584,
+      "storedChangePercent": 0.7520388395481303,
+      "offAtmosphereReference": 0.37285133711030244,
+      "offRainLandReference": 0.007641438593660708
+    },
+    {
+      "end": 8,
+      "ledger": {
+        "initialTotal": 0,
+        "oceanSourceTotal": 0.4975593244338895,
+        "atmosphereStored": 0.3728791968410131,
+        "surfaceStored": 0.0007660972916663333,
+        "rainOceanTotal": 0.11558348156303719,
+        "nonRunoffTotal": 0.004457498804808278,
+        "boundaryTotal": 0.003873049933012148,
+        "surfaceEvapTotal": 0.00014632391057261824,
+        "surfaceSeepTotal": 0,
+        "returnedEvapTotal": 0.00014632391057261933,
+        "surfaceEvapSinkTotal": 0,
+        "residual": 3.52437263401173e-13
+      },
+      "rainLand": 0.009242969940059317,
+      "surfaceInput": 0.004785471135251048,
+      "maxResidual": 3.52437263401173e-13,
+      "maxReturnError": 1.0842021724855044e-18,
+      "maxRainError": 2.3418766925686896e-17,
+      "offStoredReference": 0.0007605853231589008,
+      "storedChangePercent": 0.7247008770219221,
+      "offAtmosphereReference": 0.37275363530232924,
+      "offRainLandReference": 0.009223160992673497
+    }
+  ],
+  "fullModuleBlobs": {
+    "regional-material-terrain.js": "5da90d0b177ea0ec4cfc2bf44813f913d436487d",
+    "spherical-drainage.js": "1c32b09899705827a873ad18364ac3e1d0893b05",
+    "basin-spill-hierarchy.js": "f5870911f9de99ab211e9f76146e32bb48d851c3",
+    "coupled-basin-water.js": "a783c73dad89a8aaf31b130fb54246a4f9974be5",
+    "basin-fill-spill.js": "aee23792f8c564513305afcd3c8b6db67fa29fa5",
+    "spherical-moisture-transport.js": "7e781f2c3bbbf31a948e0fc0bd38de2eb846b186",
+    "atmosphere-surface-water.js": "3190dce0a06fe63b82cc2d461a75cc8b217cf666"
+  },
+  "scope": "source labels inflated and verified; geometry/sourceUV and field area/neighbors/angular distance extracted from source with history/gradients/rendering omitted. Seven numerical modules matched current Git blobs. Real fields and drainage/spill hierarchy prepared once per A/B, passed losslessly as binary arrays and basin/edge inventory; evaluate() executed for two feedback-ON cases. Minimal OFF values extracted from the fetched saved report; no new OFF calculation. CLI main syntax-checked, not run end-to-end here. No Electron/UI/native PNG/performance validation.",
+  "checks": "total mass residual <1e-10, cumulative returned vapor equals surface evaporation, no external evaporation sink in ON mode, rainLand=input+nonRunoff, zero pending, finite nonnegative amounts/depths, unchanged geometry/forcing arrays/edges, matching ocean source with historical control",
+  "limitations": "eastward only; no new westward feedback test, dt sensitivity, equilibrium, stable lakes or full climate. Frozen-step wet-area loss attribution and end-step vapor injection remain approximations. Ocean source external/infinite; non-runoff and seepage not groundwater. Relative-depth*steradian, not m3; time not years. Historical OFF reference is not a fresh default-mode A/B regression.",
+  "appChanged": false,
+  "installerRequired": false,
+  "reproduce": [
+    "node tools/surface-evaporation-return-ab-test.cjs . 2",
+    "node tools/surface-evaporation-return-ab-test.cjs . 8"
+  ]
+}
