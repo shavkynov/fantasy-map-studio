@@ -1,0 +1,27 @@
+WATER STEP TRACE — standalone foundation, not connected to UI
+
+Baseline: 0b811dc632c442304dbd63ab6a60708d350fb07f.
+New module src/water-step-trace.js; browser global WaterStepTrace, CommonJS create.
+No page scripts, version, recipe schema, ENGINE, forcing defaults or solvers changed.
+
+API
+create(field) copies land and area and owns private trace snapshots in a WeakMap.
+advance(frame,model,before,forcing,dt,combined=false) returns {state,trace}.
+It snapshots PRE-STEP depths and actual runoff coefficients, calls model.advance exactly once, then checks effectiveSurfaceInput*dt against actual water.stepStats.inputTotal.
+Prescribed precipitation is copied before advance. Combined precipitation is copied from returned state.atmosphere.precipitation; combined acceptedSurfaceInput is checked too.
+Wet means initialDepth>0, not the display cutoff. Ocean samples are ignored. External inflow is unsupported and explicitly rejected for standalone steps.
+Trace has exact frame/result/surface identities and scalar dt/rate/inventory. Arrays remain private.
+diagnose(trace,frame,result,routing,drainage) accepts only same-context traces and exact frame/result identities. It calls routing.build with fresh copies and checks effectiveSurfaceInput rate. Returned routing arrays belong to caller.
+
+CALLER CONTRACT / STILL TO IMPLEMENT
+Caller must supply model, drainage and frame from the SAME field. Dimensions and identities do not independently prove numerical provenance. Do not mutate field neighbors or solver states.
+Use one context per prepared geometry. Keep only last local trace during a run; publish it together with successfully completed water result. The helper does NOT manage live records, cancellation, locks, reset, rollback, or controller publication.
+Wire both coupled-water-ui and recipe replay through this API before claiming last-step diagnostic integration. Carry trace/context through ab-project-water stage/rollback. Empty/reset/new geometry must clear them.
+Do not serialize WeakMap/WeakSet state or arrays in recipe v1. Reconstruct derived trace during replay, or explicitly report trace unavailable. No current UI/replay wiring exists in this commit.
+No extra advance is needed. A solver exception or validation failure returns no new trace. Caller retains old completed result; this does not make a mutating third-party solver transactional.
+
+EVIDENCE
+node tools/water-step-trace-test.cjs: 11 groups passed in local Node.
+Tests use synthetic 4x2 geometry, mocked solver and routing APIs: single advance, pre-step acceptance, copied arrays, combined feedback-shaped result, zero rain, micro wet cells, input mismatch, exact identities, solver failure with retained trace, invalid inputs, combined mismatch, routing mismatch.
+NOT production Surface/Fill/Moisture/Runoff execution; NOT real A/B geometry, controller cancellation, replay/rollback integration, Electron, PNG or performance acceptance.
+No new river layer, persistent river physics, lake stability, spill routing or UI build is claimed.
