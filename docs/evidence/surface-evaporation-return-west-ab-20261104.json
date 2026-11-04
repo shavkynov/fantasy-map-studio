@@ -1,0 +1,76 @@
+{
+  "sourceCommit": "6dad1d78add55ddee691e16c9aa31ca2ad704074",
+  "passed": true,
+  "scenario": "Real A/B 720x360; westward -0.25*cos(latitude); zero initial water/vapor; 20 steps dt=0.1; ocean evaporation=0.03, rainRate=0.3, surface E=0.001 C=0.5 seepage=0; feedback ON. No added rainfall or normalization.",
+  "testBlob": "e7567f10682e1d3b65d146e91101719d218979ff",
+  "offControl": {
+    "reusedNotRerun": true,
+    "path": "docs/evidence/atmosphere-surface-ab-20261104.json",
+    "evidenceCommit": "82b2b9a98e4a2d89190bded9227709fa70382608",
+    "blob": "f002f098b2b35095bcb892444600db69d24fee68",
+    "measuredSourceCommit": "ff6f55616079f7917bc4f91c8ea787936a4b79fd",
+    "localInput": "Only scenario and required westward oceanSourceTotal/surfaceStored fields transcribed from fetched report; not a byte-identical local report."
+  },
+  "verifiedFullModuleBlobs": {
+    "regional-material-terrain.js": "5da90d0b177ea0ec4cfc2bf44813f913d436487d",
+    "spherical-drainage.js": "1c32b09899705827a873ad18364ac3e1d0893b05",
+    "basin-spill-hierarchy.js": "f5870911f9de99ab211e9f76146e32bb48d851c3",
+    "basin-fill-spill.js": "aee23792f8c564513305afcd3c8b6db67fa29fa5",
+    "coupled-basin-water.js": "a783c73dad89a8aaf31b130fb54246a4f9974be5",
+    "spherical-moisture-transport.js": "7e781f2c3bbbf31a948e0fc0bd38de2eb846b186",
+    "atmosphere-surface-water.js": "3190dce0a06fe63b82cc2d461a75cc8b217cf666"
+  },
+  "results": [
+    {
+      "end": 2,
+      "ledger": {
+        "initialTotal": 0,
+        "oceanSourceTotal": 0.49768973884431694,
+        "atmosphereStored": 0.3729425266100131,
+        "surfaceStored": 0.00030725611085554317,
+        "rainOceanTotal": 0.11719760008815944,
+        "nonRunoffTotal": 0.003752788465508574,
+        "boundaryTotal": 0.0034895675693972705,
+        "surfaceEvapTotal": 0.00010669168593965554,
+        "surfaceSeepTotal": 0,
+        "returnedEvapTotal": 0.00010669168593965613,
+        "surfaceEvapSinkTotal": 0,
+        "residual": 3.8302997926176197e-13
+      },
+      "rainLand": 0.007656303831700998,
+      "maxResidual": 3.8302997926176197e-13,
+      "maxReturnError": 5.963111948670274e-19,
+      "maxRainError": 1.3444106938820255e-17,
+      "offStoredReference": 0.0003044788848061161,
+      "storedChangePercent": 0.9121243501649001
+    },
+    {
+      "end": 8,
+      "ledger": {
+        "initialTotal": 0,
+        "oceanSourceTotal": 0.4975593244338895,
+        "atmosphereStored": 0.3728523680460955,
+        "surfaceStored": 0.0004084930540762995,
+        "rainOceanTotal": 0.11558335150834609,
+        "nonRunoffTotal": 0.004511878645248937,
+        "boundaryTotal": 0.004203233179774859,
+        "surfaceEvapTotal": 0.00011532938815011598,
+        "surfaceSeepTotal": 0,
+        "returnedEvapTotal": 0.00011532938815011636,
+        "surfaceEvapSinkTotal": 0,
+        "residual": 3.478198631889917e-13
+      },
+      "rainLand": 0.00923893426725014,
+      "maxResidual": 3.478198631889917e-13,
+      "maxReturnError": 3.7947076036992655e-19,
+      "maxRainError": 5.898059818321144e-17,
+      "offStoredReference": 0.00040557037453117767,
+      "storedChangePercent": 0.7206343778192181
+    }
+  ],
+  "scope": "Saved test matched Git blob and executed as CLI for both endpoints with base JSON. Seven complete numerical modules byte-verified by Git blob. Source labels inflated and SHA256 checked. Geometry/sourceUV extracted from fetched source; history/renderers omitted. Field area/positions/neighbors/angular distance copied; gradient computation and renderer omitted. Known land and height fingerprints matched. This is NOT an unmodified full-repository CLI run.",
+  "checks": "All 20 steps: global balance, returned vapor equals surface evaporation, rainLand=input+nonRunoff, no evaporation external sink, zero pending, finite nonnegative atmospheric inventories and land depths; unchanged input arrays/edges and matching historical ocean source.",
+  "limitations": "Single dt and finite T=2; no convergence, equilibrium, stable lakes, climate, Electron, native PNG or Mac performance acceptance. OFF reused, not rerun. External infinite ocean source and unmodelled other sinks remain. Relative-depth*steradian, not m3; arbitrary model time, not years.",
+  "appChanged": false,
+  "installerRequired": false
+}
