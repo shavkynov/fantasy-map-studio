@@ -1,0 +1,16 @@
+AB PROJECT SESSION — isolated orchestration foundation
+Base reviewed: ba47b7a763f6d8fc124763a2dc1aa518f5369cf2.
+This module is NOT loaded by drainage-candidate.html. No Save/Open UI, version or build change.
+
+API: ABProjectSession.create(dependencies) -> open(), save(), cancel(), busy getter.
+Dependencies: recipe.decode/encode (ABProjectRecipe), api.openWorld/saveWorld, capture(), replay(value,control), stage(candidate), setLocked(boolean), optional onStatus(event).
+Caller adapts recipe.replay dependencies and forwards control.cancelled/onProgress. capture must use actual completed records/view. This test does not exercise the real recipe.
+
+open locks before the dialog, decodes before replay, stages only a completed candidate, checks cancellation before publication and requires synchronous commit. Parallel open/save returns status busy. Cancellation invalidates the operation but keeps the lock until outstanding dialog/replay/staging resolves. It does not close the native dialog or interrupt synchronous numerical work. Save cannot be cancelled by cancel(): native save may already write the file.
+
+stage must be detached and must clean up its own partial work if it throws. It returns {commit,rollback}. commit publishes BOTH panes synchronously; rollback must synchronously restore ALL prior state, pixels, controls and caches if commit throws, or discard staging if cancelled before commit. The session only invokes this contract; a real viewer adapter is NOT implemented here. Async commit is rejected, but the session cannot stop side effects scheduled by an invalid adapter. setLocked must reliably lock conflicting controls and restore readiness on unlock; unlock/rollback failures propagate and are not proof of old-scene preservation. Observer exceptions are ignored and cannot change transaction success.
+
+open returns status opened/cancelled/busy. save returns saved/cancelled/busy. Errors propagate; lock release is attempted in finally. save captures/encodes completed state before awaiting the save dialog.
+
+Fresh local Node test: node tools/ab-project-session-test.cjs — passed, 16 cases. Covers success, dialog cancel, invalid decode, overlapping operations, cancellation while dialog/replay/stage is pending, rollback after partial mock publication, replay/stage errors, save content/name/cancel/capture/disk errors, observer failure, lock acquisition failure and async commit rejection.
+Scope: mocked recipe, replay, dialogs, publication and lock adapter. No production numerical rerun, actual viewer adoption, real A/B restoration, native disk/dialog, Electron, PNG or Mac performance acceptance. No progress percentage increase. Next: implement/test detached scene preparation and a real synchronous two-pane publication/rollback adapter, then integrate one complete UI package.

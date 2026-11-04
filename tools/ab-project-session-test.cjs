@@ -1,0 +1,24 @@
+'use strict';
+const assert=require('node:assert/strict'),Session=require('../src/ab-project-session');
+const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return {promise,resolve,reject};};
+function setup(overrides={}){const log=[],live={value:'old'},d={recipe:{decode:t=>{if(t==='bad')throw Error('invalid');return {text:t};},encode:JSON.stringify},api:{openWorld:async()=>'good',saveWorld:async()=>'/mock/path'},capture:()=>({completed:true}),setLocked:x=>log.push(['lock',x]),replay:async(v,control)=>{control.onProgress({completed:1,total:1});return v;},stage:async candidate=>{const old=live.value;return {commit(){live.value=candidate.text;},rollback(){live.value=old;log.push(['rollback']);}};},...overrides};return {session:Session.create(d),d,log,live};}
+(async()=>{
+ let count=0;
+ {const x=setup();assert.deepEqual(await x.session.open(),{status:'opened'});assert.equal(x.live.value,'good');assert.equal(x.session.busy,false);assert.deepEqual(x.log,[['lock',true],['lock',false]]);count++;}
+ {const x=setup();x.d.api.openWorld=async()=>null;x.d.replay=()=>{throw Error('unexpected replay');};assert.equal((await x.session.open()).status,'cancelled');assert.equal(x.live.value,'old');count++;}
+ {const x=setup();x.d.api.openWorld=async()=>'bad';x.d.stage=()=>{throw Error('unexpected stage');};await assert.rejects(x.session.open(),/invalid/);assert.equal(x.live.value,'old');assert.equal(x.session.busy,false);count++;}
+ {const gate=deferred(),x=setup();x.d.api.openWorld=()=>gate.promise;const task=x.session.open();assert.equal((await x.session.open()).status,'busy');assert.equal((await x.session.save()).status,'busy');assert.equal(x.session.cancel(),true);assert.equal(x.session.busy,true);gate.resolve('good');assert.equal((await task).status,'cancelled');assert.equal(x.live.value,'old');count++;}
+ {const gate=deferred(),entered=deferred(),x=setup();let control;x.d.replay=async(v,c)=>{control=c;entered.resolve();await gate.promise;return v;};const task=x.session.open();await entered.promise;x.session.cancel();assert.equal(control.cancelled(),true);gate.resolve();assert.equal((await task).status,'cancelled');assert.equal(x.live.value,'old');count++;}
+ {const gate=deferred(),entered=deferred(),x=setup();let rollbacks=0;x.d.stage=async()=>{entered.resolve();await gate.promise;return {commit(){x.live.value='wrong';},rollback(){rollbacks++;}};};const task=x.session.open();await entered.promise;x.session.cancel();gate.resolve();assert.equal((await task).status,'cancelled');assert.equal(rollbacks,1);assert.equal(x.live.value,'old');count++;}
+ {const x=setup();x.d.stage=async()=>({commit(){x.live.value='half';throw Error('paint failed');},rollback(){x.live.value='old';}});await assert.rejects(x.session.open(),/paint failed/);assert.equal(x.live.value,'old');assert.equal(x.session.busy,false);count++;}
+ {const x=setup({replay:async()=>{throw Error('numerical failure');}});await assert.rejects(x.session.open(),/numerical failure/);assert.equal(x.live.value,'old');assert.equal(x.session.busy,false);count++;}
+ {const x=setup({stage:async()=>{throw Error('staging failure');}});await assert.rejects(x.session.open(),/staging failure/);assert.equal(x.live.value,'old');count++;}
+ {const x=setup();let got;x.d.api.saveWorld=async(text,name)=>{got={text,name};return '/mock/path';};assert.equal((await x.session.save()).status,'saved');assert.deepEqual(got,{text:'{"completed":true}',name:'map-ab.fmworld'});assert.equal(x.session.cancel(),false);count++;}
+ {const x=setup();x.d.api.saveWorld=async()=>null;assert.equal((await x.session.save()).status,'cancelled');assert.equal(x.session.busy,false);count++;}
+ {const x=setup();x.d.capture=()=>{throw Error('unfinished water');};await assert.rejects(x.session.save(),/unfinished water/);assert.equal(x.session.busy,false);count++;}
+ {const x=setup();x.d.api.saveWorld=async()=>{throw Error('disk failure');};await assert.rejects(x.session.save(),/disk failure/);assert.equal(x.session.busy,false);count++;}
+ {const x=setup({onStatus:()=>{throw Error('observer failure');}});assert.equal((await x.session.open()).status,'opened');count++;}
+ {const x=setup();let fail=true;x.d.setLocked=b=>{if(b&&fail){fail=false;throw Error('lock failure');}};await assert.rejects(x.session.open(),/lock failure/);assert.equal(x.session.busy,false);assert.equal((await x.session.open()).status,'opened');count++;}
+ {const x=setup();x.d.stage=async()=>({commit(){return Promise.resolve();},rollback(){x.live.value='old';}});await assert.rejects(x.session.open(),/synchronous/);assert.equal(x.live.value,'old');count++;}
+ console.log(JSON.stringify({passed:true,cases:count,scope:'Session orchestration with mocked recipe, replay, dialogs, publication and lock adapter. Not viewer, production numerics, Electron, real disk or rendering acceptance.'}));
+})().catch(e=>{console.error(e);process.exitCode=1;});
