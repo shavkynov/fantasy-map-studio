@@ -1,0 +1,24 @@
+BASIN WATER EXPERIMENTS ON REAL A/B
+Base commit: ff63c04f51aac9301dc6d83b5708f9278b2c632b.
+API: BasinWaterExperiment.run(model, {initialStorage?, initialPending?, segments:[{steps,dt,forcing}]}). Requires the existing BasinWaterBudget model. Each run has an explicit prescribed forcing and at most 4096 steps; no climate or epoch controls are created.
+
+Runner keeps pendingSpill cumulatively per basin, separately from in-basin storage, boundary outflow, evaporation and seepage. Pending transfers are not fed back as rain or externally added repeatedly. They are NOT spatially modeled water, not routed between basins, and not evaporated without a location. initialPending can carry this unresolved inventory into a new run; initialStorage and initialPending are copied. Each run's flux ledger starts afresh from the supplied inventory.
+
+At EVERY step: initial storage+pending inventory + cumulative effective input = current storage + cumulative pending + cumulative boundary outflow + cumulative evaporation + cumulative seepage. The runner fails on an unbalanced ledger. This prevents an overflow returned on one step from silently disappearing on the next. No interbasin coupling or merging is claimed.
+
+Executed Node tests: actual 720x360 A/B geometry and heights; exact blob-verified A/B core, regional terrain, drainage, spill hierarchy and water-budget modules; spherical build and sourceUV extracted verbatim (not full renderer). No history recomputation, rendering, browser/Electron or climate simulation. Heights, masks, owner and gap unchanged, expected land-mask hashes matched.
+
+Prescribed tests, NOT planet parameters:
+- idle: P=0,E=0,C=.5, 5 steps of .05 from empty inventory; stays empty.
+- wet: P=.02,E=.001,C=.5, seepage=0, T=5 model units; 100 steps of .05 and 200 of .025.
+- dry: initial storage = half local capacity in each basin; P=0,E=.02,C=.5, 100 steps of .05.
+- continuation: carry wet final storage AND pending inventory into 2 zero-forcing steps; pending preserved.
+
+A: 3609 terminal catchments, 67 closed minima, summed local storage capacity .004554967639841923. Wet100 stored .004328754111019469, pending .09618754052961956, boundary .12300106213269853. Dry100 stored .00040791852877679986 from initial .0022774838199209617. Halved timestep changes wet final stored volume by .000004450915635040471.
+B: 3675 catchments, 63 closed minima, local capacity .004569932532073731. Wet100 stored .004320632865187413, pending .09745643010380642, boundary .12195615204240924. Dry100 stored .0004135787785429304 from initial .0022849662660368655. Halved timestep changes stored volume by .000004426398892923983.
+
+Volumes: relative height*steradian, NOT m3. Time: arbitrary model units, NOT years. Maximum cumulative balance error in tested runs below 2e-15. A two-step-size comparison is a sensitivity check, not proof of convergence or physical correctness. Wet-cell rain area changes with the explicit step, so effective input can also change slightly with timestep.
+
+Large pending inventory exposes the missing interbasin transport/merge stage; it is not a real lake or extra planet-wide stored water. Next work must resolve transfers, not discard them or route all directly to the ocean. Persistent lakes and calibrated planet climate remain undetermined.
+Run: node tools/basin-water-experiment-ab-test.cjs .
+No UI, version, packaging, main-window entry or main changes.
