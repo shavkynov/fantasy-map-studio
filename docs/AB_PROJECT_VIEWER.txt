@@ -1,0 +1,18 @@
+A/B VIEWER PROJECT PUBLICATION — prepared transaction, not Save/Open UI
+Base: 08b49bc3dea077ee71dec3146e0011c769ad14f0.
+Original viewer reconstructed byte-for-byte: Git blob 53971e29ee18ee9f130b114683f54b21b3a5fe4e.
+
+New viewer API: setProjectLocked(boolean), getAppliedProgress(), stageProject(scene).
+scene = {progress, compose, panes:[{model,frame,pixels},{model,frame,pixels}]}.
+Requires two prepared 720x360 frames with angles progress*2/progress*8 and the corresponding A/B model limits. pixels must be full Uint8ClampedArray RGBA and are copied. Models/frames/compose must remain stable after staging.
+
+Lock rejects incomplete geometry or pending history. While locked, viewer start/apply/history/click/export handlers do not start work. The caller MUST separately lock water operations and display controls; water.syncAll can change button appearance and is not a project lock. An already pending PNG callback/native save is not cancelled by this lock.
+
+stageProject only snapshots live viewer state and canvas pixels; it does not run compose, geometry or change the scene. getImageData can fail before any publication. Staging requires readback-capable canvases. It returns synchronous commit()/rollback() for composition with ABProjectSession and a future water transaction.
+commit checks lock version, original model/current/generation, composer and applied progress. It adopts exact prepared frame identities, replaces pane models/composer, clears history caches, writes both images, updates applied fraction and slider. It does NOT call start or model.frame. Existing inspection/history/export handlers use adopted pane models/current; next Apply uses the adopted movement value.
+rollback before commit only discards. After started/committed publication, rollback restores prior model/current/cache references, composer, fraction, slider, status/inspection texts and both canvas images. Generations stay monotonic to avoid reviving stale jobs. Rollback is idempotent after success and must run before unlock. Canvas/DOM failures during rollback can still propagate; no unconditional rollback guarantee for a broken rendering backend. commit is not self-rolling-back: caller catches failures and calls rollback. Two prepared images are published synchronously; no browser paint between awaited steps is introduced. This is not an OS-level atomic canvas primitive.
+
+Fresh local Node checks: viewer syntax passed; node tools/ab-project-viewer-test.cjs passed 12 grouped scenarios. Actual modified viewer with fake DOM/canvas, model and composer: lock requirement, malformed geometry, staged pixel copy/no early publication, adoption without frame rebuild, exact frame/model references, internal progress/slider, new-composer history, mock PNG name, rollback including history cache and unapplied slider, second-canvas injected failure, discard/repeated commit, stale lock/generation, locked handlers, pending-history/geometry refusal, next Apply.
+The original evaporation-return-ui-test.cjs was read but NOT rerun in this step. No claim of its regression result. No production numerical rerun, actual water-controller adoption, real A/B geometry, native PNG/dialog/disk, Electron or Mac performance acceptance.
+
+Not yet connected to project-session or recipe. No Save/Open buttons, no completed project opening. Version/build unchanged. This extends the loaded viewer but existing page never invokes the new project API. Full package still needs water-context adoption, detached preparation, joint viewer+water rollback, UI locks/progress/cancel, integration regression and Mac acceptance. Progress estimate stays about 60%.
