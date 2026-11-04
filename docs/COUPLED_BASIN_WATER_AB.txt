@@ -1,0 +1,27 @@
+COUPLED BASIN WATER ON REAL A/B
+Base commit: 0080b5743718503fdd8642f49f99a118cb5fe33c.
+
+Executed the actual coupled-step and fill/spill modules, both verified by Git blob, plus exact blob-verified regional terrain, drainage and spill hierarchy. Production A/B geometry functions, spherical build and sourceUV were extracted verbatim, not full history/renderer modules. Original source labels verified by SHA-256. Final land-mask SHA-256 references matched. Heights, land, owner and gap unchanged. No browser/Electron/IPC run.
+
+Prescribed test forcing, NOT planet climate:
+- wet: P=.02,E=.001,C=.5,seepage=0, from empty inventory.
+- coarse: 20 steps dt=.05; fine: 40 steps dt=.025. Both end at T=1 arbitrary model-time unit.
+- dry: continue COARSE final state for 20 steps dt=.05 with P=0,E=.02,C=.5.
+- idle: one zero-source/zero-loss step from empty state.
+A and B were run separately to respect per-execution limits; limits and iteration guards were not increased.
+
+A coarse: stored .0031277014751038665; cumulative boundary export .04208793180577651; evaporation .00029867349339503707. Fine stored .003137481832255688, +.31270110749609864%. Maximum depth difference .00017021987100457325; 22 cells differ in diagnostic wet mask. Dry stored .0007438421559964448, with 11 binary split operations over the dry run.
+B coarse: stored .0031219767436039734; export .042118638900320346; evaporation .0002996679745739998. Fine stored .003131671939762772, +.31054671302921005%. Maximum depth difference .00016578824590729457; 28 changed diagnostic wet cells. Dry stored .0007461333165240639, with 9 binary split operations over the dry run.
+
+Volume unit: relative height*steradian, not m3. Depth: relative height, not meters. Time: arbitrary, not years. Water/wet-cell diagnostics use a depth cutoff of 1e-9 ONLY for reporting/display, without altering simulated inventory, geometry or core land masks. Neither cutoff-based water area nor the test-forcing states establish persistent real lakes.
+
+Every step retained a balanced cumulative ledger, zero pending transfer inventory and nonnegative depths. Maximum tested absolute ledger residual below 9.4e-15. Old state depth/ledger checked for nonmutation on the first step of each scenario. Merges/splits refer to algorithmic reconstruction and binary tree operations; repeated rebuild counts are not distinct physical water-body events or lake counts.
+
+Two step sizes give sensitivity, not a convergence proof or physical validation. Effective inflow also depends on the initial wetted mask, so total delivered input differs slightly with step size. Inflow-before-loss operator splitting, frozen loss areas, instantaneous routing, common zero-level water boundary, absent temperature/freezing and absent calibrated climate remain limitations. This T=1 coupled comparison must not be equated with earlier T=5 local-only experiments.
+
+Run separately from repository root:
+node tools/coupled-basin-water-ab-test.cjs . 2
+node tools/coupled-basin-water-ab-test.cjs . 8
+Optional COUPLED_AB_OUTPUT_DIR writes diagnostic binary depths/height/mask and trace JSON; the directory must already exist.
+
+Core coupled and fill/spill code required no changes. No UI, version, packaging, main-window entry or main changes.
