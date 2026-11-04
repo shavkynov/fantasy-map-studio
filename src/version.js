@@ -1,7 +1,7 @@
 window.FM = window.FM || {};
-FM.VERSION = '0.89.0-test.4blocks.6';
+FM.VERSION = '0.89.0-test.4blocks.7';
 FM.BUILD_CHANNEL = 'TEST';
-FM.BUILD_ID = '4blocks-relief1';
+FM.BUILD_ID = '4blocks-water-ui1';
 (function () {
   'use strict';
   function applyTestUI() {
@@ -24,7 +24,7 @@ FM.BUILD_ID = '4blocks-relief1';
       const box = document.createElement('div'); box.id = 'testBuildBanner'; box.setAttribute('role', 'navigation');
       box.style.cssText = 'position:fixed;top:8px;right:12px;z-index:1000000;max-width:90vw;padding:10px 14px;background:#203b49;color:#fff;border:2px solid #edb35a;border-radius:6px;font:14px system-ui';
       const text = document.createElement('strong'); text.textContent = 'TEST ' + FM.VERSION + ' · ' + FM.BUILD_ID; box.appendChild(text);
-      for (const item of [['equal-area-ab.html', 'A/B: рельеф и материал'], ['equal-area-candidate.html', 'Прежний EA1'], ['four-block-prototype.html', 'hires3']]) {
+      for (const item of [['drainage-candidate.html', 'Водный цикл A/B'], ['equal-area-ab.html', 'Прежний A/B relief1'], ['equal-area-candidate.html', 'Прежний EA1'], ['four-block-prototype.html', 'hires3']]) {
         const link = document.createElement('a'); link.href = item[0]; link.textContent = item[1]; link.style.cssText = 'color:#9fe8ff;margin-left:12px;white-space:nowrap'; box.appendChild(link);
       }
       document.body.appendChild(box);

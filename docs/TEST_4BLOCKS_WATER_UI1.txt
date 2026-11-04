@@ -1,0 +1,12 @@
+TEST 0.89.0-test.4blocks.7 / 4blocks-water-ui1
+Reconstructed from the November 4 handoff; not recovered byte-for-byte from the old archive.
+Base HEAD: 67adf1586ba3065574211e90d6e30bc1c17117a2.
+Seven files only. No numerical modules, main.js, preload.js, old viewer or main branch changes.
+Water: wet restarts empty, dry continues last completed state; 20 steps dt=.05.
+Wet P=.02 E=.001 C=.5; dry P=0 E=.02 C=.5. Prescribed forcing, not climate.
+Cancel between synchronous calls; no partial state publication. New detailed frame clears water. History frame does not. Layer/material/visibility changes keep completed water and displayed history; material hides water and disables runs.
+Native canvas, Electron, real coupled-core UI integration, Mac responsiveness and native PNG IPC remain unverified. No DMG built here.
+Validation: syntax checks controller/bootstrap/version, bash -n, 29 unique DOM IDs, 14 ordered dependencies, metadata markers. Local integration harness passed 14 groups with unchanged real equal-area-ab-viewer.js and actual page bootstrap; fake DOM/canvas/numerical model/savePNG. Original viewer Git blob verified: 53971e29ee18ee9f130b114683f54b21b3a5fe4e. Original package/version/build verified against Git blobs before marker-only changes. Test-fixture errors (typed-array comparison and missing setAttribute stub) corrected; no numerical reruns claimed.
+Run: node tools/coupled-water-ui-test.cjs
+Mac after approved commit: download ZIP of feature/natural-world-v3, unpack, run /bin/bash ./build-mac.command from project directory. Open Fantasy Map Studio TEST, choose Водный цикл A/B.
+Check A/B wet, dry, cancel, reset; change layer and history; movement clears water; PNG reflects canvas. Confirm renderer acceptance only after actual run.
