@@ -1,0 +1,18 @@
+'use strict';
+const assert=require('node:assert/strict'),Objects=require('../src/surface-water-objects');
+function fixture(w=8,h=4){const n=w*h,land=new Uint8Array(n),height=new Float64Array(n).fill(NaN),area=new Float64Array(n),depth=new Float64Array(n).fill(NaN);for(let y=0;y<h;y++)for(let x=0;x<w;x++)area[y*w+x]=2*Math.PI/w*(Math.sin(Math.PI*(.5-y/h))-Math.sin(Math.PI*(.5-(y+1)/h)));return {field:{w,h,land,height,area},water:{w,h,depth},wet(i,d=.1,z=1){land[i]=1;height[i]=z;depth[i]=d;}};}
+const close=(a,b)=>assert.ok(Math.abs(a-b)<1e-12,`${a} != ${b}`);
+let cases=0;
+{const x=fixture(),r=Objects.build(x.field,x.water);assert.equal(r.objects.length,0);assert.ok(r.labels.every(v=>v===-1));cases++;}
+{const x=fixture();x.wet(8);x.wet(15);const r=Objects.build(x.field,x.water);assert.equal(r.objects.length,1);assert.equal(r.labels[8],r.labels[15]);assert.equal(r.objects[0].cellCount,2);assert.equal(r.objects[0].touchesOceanMask,true);cases++;}
+{const x=fixture();x.wet(9);x.wet(18);assert.equal(Objects.build(x.field,x.water).objects.length,2);cases++;}
+{const x=fixture();x.wet(0);x.wet(28);assert.equal(Objects.build(x.field,x.water).objects.length,2);cases++;}
+{const x=fixture();x.wet(9,1e-9);x.wet(10,2e-9);const r=Objects.build(x.field,x.water);assert.equal(r.summary.wetCells,1);assert.equal(r.labels[9],-1);close(r.summary.landVolume,r.summary.mappedVolume+r.summary.omittedVolume);cases++;}
+{const x=fixture();x.wet(9,.1,1);x.wet(10,.3,2);const r=Objects.build(x.field,x.water),o=r.objects[0];close(o.areaSteradians,x.field.area[9]+x.field.area[10]);close(o.meanDepth,.2);close(o.minSurfaceLevel,1.1);close(o.maxSurfaceLevel,2.3);assert.equal(o.maxDepth,.3);cases++;}
+{const x=fixture();for(let i=0;i<32;i++)x.wet(i,.2);const r=Objects.build(x.field,x.water);assert.equal(r.objects.length,1);assert.equal(r.objects[0].touchesOceanMask,false);close(r.summary.wetAreaSteradians,4*Math.PI);cases++;}
+{const x=fixture();x.wet(9);const before={land:x.field.land.slice(),height:x.field.height.slice(),depth:x.water.depth.slice()},a=Objects.build(x.field,x.water),b=Objects.build(x.field,x.water);assert.deepEqual(a,b);assert.deepEqual(x.field.land,before.land);assert.deepEqual(x.field.height,before.height);assert.deepEqual(x.water.depth,before.depth);a.labels.fill(7);assert.notDeepEqual(a.labels,b.labels);cases++;}
+{const x=fixture();x.wet(9,0);assert.equal(Objects.build(x.field,x.water,{depthThreshold:0}).objects.length,0);x.wet(9,.1);for(const bad of [-1,NaN,Infinity])assert.throws(()=>Objects.build(x.field,x.water,{depthThreshold:bad}));assert.throws(()=>Objects.build(x.field,x.water,{minArea:1}));for(const bad of [-1,NaN,Infinity]){x.water.depth[9]=bad;assert.throws(()=>Objects.build(x.field,x.water));}cases++;}
+{const x=fixture();x.wet(9);x.field.land[9]=2;assert.throws(()=>Objects.build(x.field,x.water));x.field.land[9]=1;x.field.area[9]=0;assert.throws(()=>Objects.build(x.field,x.water));assert.throws(()=>Objects.build(x.field,{...x.water,w:4}));cases++;}
+{const x=fixture(720,360);x.wet(0);x.wet(719);x.wet(720*359+360);const r=Objects.build(x.field,x.water);assert.equal(r.objects.length,2);assert.equal(r.summary.wetCells,3);close(r.summary.volumeResidual,0);cases++;}
+{const x=fixture();x.wet(9);x.wet(11);x.water.pools=[{id:0,basins:[0],volume:.1*(x.field.area[9]+x.field.area[11])}];assert.equal(Objects.build(x.field,x.water).objects.length,2);const pole=fixture();pole.wet(0);pole.wet(4);assert.equal(Objects.build(pole.field,pole.water).objects.length,2);cases++;}
+console.log(JSON.stringify({passed:true,cases,scope:'Synthetic raster geometry/depth snapshots, including full-size sparse grid. No production fill/spill, real A/B, renderer or Electron run.'}));
