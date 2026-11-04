@@ -1,314 +1,189 @@
 FANTASY MAP STUDIO — ПЕРЕНОС В НОВЫЙ ЧАТ
-Состояние: 4 ноября 2026, около 00:29 МСК.
+Состояние на 4 ноября 2026, 08:40 МСК.
+Уточнение 08:45 МСК: пользователь попросил записать этот перенос в репозиторий, заменив прежний файл того же назначения. Разрешение касается только документа переноса, НЕ несохранённого UI-пакета.
 
-Продолжай с этого состояния. Не начинай разработку/проверки заново. Это продолжение длительной работы, а не запрос на объяснение с нуля. Перед изменениями проверь актуальную ветку: она могла измениться после переноса.
+Это продолжение разработки, не запрос начать заново. Ничего нового в коде приложения по запросу переноса не записывать.
 
-1. РЕПОЗИТОРИЙ И РАБОЧИЙ ПРОЦЕСС
+1. РЕПОЗИТОРИЙ И ПРАВИЛА
+Репозиторий shavkynov/fantasy-map-studio, рабочая ветка feature/natural-world-v3. main не меняли. Доступ через GitHub connector.
+Последний записанный и проверенный коммит РАЗРАБОТКИ до замены этого документа: 128b91b7a46f0fd207f17e9f8e08350a7d12cd3b — Validate coupled A/B water cycles and timestep sensitivity on full terrain.
+Перед дальнейшей работой проверить актуальный head: после переноса он мог измениться. Коммит замены этого документа сам по себе не означает новых изменений приложения.
+Каждая запись требует нового confirm_action с точными intended_arguments будущей записи и полным содержимым в placeholder. Все прежние подтверждения использованы. У текущего UI-пакета подтверждения на запись ЕЩЁ НЕТ.
+Не заявлять фоновую работу. Не повторять неизменённые численные проверки и установку ради микрошагов. Пользователь недоволен длинной чередой едва различимых тестов; работать законченными содержательными пакетами.
 
-Репозиторий: shavkynov/fantasy-map-studio.
-Экспериментальная ветка: feature/natural-world-v3.
-Стабильную ветку main в этом чате НЕ меняли.
-Последний успешно записанный и проверенный коммит:
-  301d85733705800e6a6623f718caeceb2519294c
-  Add material-attached illustrative relief to A/B viewer
-Текущая TEST-версия установленного приложения:
-  0.89.0-test.4blocks.6
-  buildId: 4blocks-relief1
+Пользователь на Mac скачивает ZIP ветки, распаковывает и собирает локально. Не предлагать git pull/git switch, не требовать ZIP от пользователя. Рабочий запуск из папки проекта: /bin/bash ./build-mac.command (одной строкой). Не предлагать /bin/bash без аргумента, sudo, chsh или отключение защиты.
+Сборка TEST в dist-test, приложение Fantasy Map Studio TEST. Здесь DMG не собирался и Electron renderer не запускался.
+Пользователь сообщил, что не может скачать или скопировать выданный файл из чата, поэтому перенос хранится здесь. Не рассчитывать, что он сможет передать архив несохранённого UI из предыдущего чата.
 
-Пользователь на Mac: скачивает ZIP ветки, распаковывает и собирает локально. Не предлагать git pull / git switch. ZIP не требовать от пользователя. Все принятые изменения этого чата сохранены в ветке.
-ZIP ветки:
-  https://github.com/shavkynov/fantasy-map-studio/archive/refs/heads/feature/natural-world-v3.zip
+2. ЦЕЛЬ И ОГРАНИЧЕНИЯ
+Естественная географическая карта: не более 7 материков, сопряжённые берега с объяснимым происхождением, открытый океан и место для крупных морей. Не менять произвольно радиус, возраст планеты или раскладку блоков.
+Материки, плиты, метки исходной маски и связные растровые области — разные сущности.
+A = 2°/2°, B = 8°/8°. 12° с конфликтом отложен; не возобновлять цепочку 12…100°. Пользователь не выбирал B окончательно лучше A.
+Градусы движения — не годы. Старому океану и континентам возраст не назначается. История показывает лишь новую/заменённую кору двух эпизодов, не всю историю планеты.
+Численное отсутствие sampled конфликтов не доказывает физическую полноту. Нынешний рельеф процедурный, не физическое горообразование. Климат планеты НЕ рассчитан.
 
-У build-mac.command после скачивания возникало отсутствие права исполнения. Рабочий способ, который пользователь уже освоил: из папки проекта выполнить ОДНОЙ СТРОКОЙ
-  /bin/bash ./build-mac.command
-Не предлагать просто /bin/bash без аргумента: это открывает интерактивную оболочку, пользователь уже столкнулся с этим. sudo, отключение защиты Mac и chsh не нужны для этого обхода.
+3. ПРЕДЫДУЩИЙ ПЕРЕНОС В ИСТОРИИ GIT
+Предыдущая версия docs/HANDOFF_2026-11-04.txt описывала состояние relief1 до работ этого чата. Она была сохранена коммитом 03110ee627a3c553689da81594d2f2eb64faf44c. Если нужны детали того этапа, читать файл ПО ЭТОМУ КОММИТУ, а не считать текущий документ старым переносом.
+Последний установленный и подтверждённый пользователем запуск: TEST 0.89.0-test.4blocks.6, buildId 4blocks-relief1, коммит рельефа 301d85733705800e6a6623f718caeceb2519294c. Более новые численные модули НЕ означают установленную новую версию на Mac.
+main.js открывает прежний src/index.html. Новые страницы доступны отдельно; до текущего несохранённого UI-пакета ссылки на drainage-candidate.html в главном окне НЕТ.
+В src/version.js сохранены UI-совместимость, скрытие epochs и календаря calSec. Внутренний legacy epochs полностью не удалён.
+docs/evidence/CURRENT.json в этом чате не изменяли; читать актуальный перед любым изменением.
 
-Сборка создаёт Fantasy Map Studio TEST в dist-test. Имена артефактов содержат TEST и buildId. После сборки установить и запустить именно TEST, не старое стабильное приложение. Здесь ассистент DMG НЕ собирал; реальные запуски подтверждал пользователь.
+4. СОХРАНЁННЫЕ КОММИТЫ ЭТОГО ЧАТА
+69c99b56570424de27eee386591b982e4d486b91 — regional material terrain candidate + source tests.
+fbb87f2446fea1d80a6d5b52bdc08d01c3fe2315 — spherical field/renderer integration + regional A/B page/test.
+c35c5e3d30683ce91bfa366ad35cf2fb33604fc2 — spherical drainage + tests.
+9bfa24fc3b5a878c2d3ba77e8aaf5df3c0ccdf28 — drainage overlay/page + real A/B test.
+e2635529d317163662afc79b0adc3878f9b06967 — spill hierarchy + independent tests/docs.
+822ebda704e480175adfc93fb8ae85325fcf9765 — spill diagnostic overlay, update existing drainage page, real A/B test/docs.
+ff63c04f51aac9301dc6d83b5708f9278b2c632b — local basin water budget + tests/docs.
+cc7eda65321530c5428e8eedbb89296c194cf7f7 — cumulative pending-water experiment runner + A/B tests/docs.
+16adf7e2c35efac3abe6407ececc8931091a63f0 — fill/spill/merge redistribution + tests/docs.
+39ad5bfde204ccbbe691e49903e39653d4312973 — resolution adapter from pending inventory to merged pools + A/B tests/docs.
+0080b5743718503fdd8642f49f99a118cb5fe33c — coupled water step with recession splits + synthetic tests/docs.
+128b91b7a46f0fd207f17e9f8e08350a7d12cd3b — real A/B coupled-cycle/timestep validation + report.
+Все эти записи были отдельно подтверждены и проверены get_commit.
 
-Обычная разработка и ограниченные расчёты разрешены. Каждая внешняя запись в GitHub требует нового confirm_action с точными intended_arguments будущего push_files и полным содержимым. Все предыдущие подтверждения уже использованы. Одно подтверждение — один законченный пакет. Не записывать новые изменения по старому «да».
+5. АКТУАЛЬНЫЕ СОХРАНЁННЫЕ МОДУЛИ И КОНТРАКТЫ
+src/equal-area-ab-candidate.js — bounded равноплощадное ядро A/B; src/three-block-prototype.js загружает исходные labels. Геометрия 720x360, история 180x90. Ползунок 0–100% меняет западный эпизод; восточный уже завершён.
+src/material-relief-layer.js — старый иллюстративный рельеф, sourceUV обратного переноса и legacy heights.
+src/regional-material-terrain.js — create(base, relief), heights(model,frame), materialElevation(u,v). Процедурные крупные формы/пояса и прибрежное ослабление по ИСХОДНОМУ берегу. Новые берега разломов не учитываются. Высоты относительные, не метры.
+src/regional-relief-integration.js — build(frame,heights) возвращает {w,h,land,height,east,north,area,neighbors,angularDistance,units}; height воды=NaN, площадь в стерадианах, градиенты относительная высота/радиан; соседство через шов и полюса. createRenderer(models,baseCompose,getMode,regional,legacy) -> {models,compose,field}. field(frame,mode='regional'), modes regional/legacy/material. В legacy высоты прежние, свет уже сферический, не точная старая пиксельная светотень.
+Эта интеграция объединяет ранние несохранённые spherical-elevation-field / spherical-relief-renderer прототипы. Их старые архивные filenames НЕ являются зависимостями продукта и не требуют восстановления.
+src/spherical-drainage.js — build(field). Сток по наибольшему спуску/угловому расстоянию; ровные участки по BFS; замкнутые минимумы сохранены. Возвращает receiver, terminal, accumulation, basins, network(threshold), stats. receiver=-2 вода, -1 замкнутый минимум, >=0 индекс приёмника. accumulation — площадь водосбора в ср, НЕ расход воды. Водные клетки — общая граница с поверхностью 0, не известные глубины. Basin — последняя сухопутная клетка перед водой или корень замкнутого минимума; тысячи выходов НЕ означают тысячи рек.
+src/drainage-overlay.js — createRenderer(render,drainage,getTerrain,getLayer,getThreshold,onSummary) -> {models,compose,data}. data(frame,mode) возвращает drainage. layers terrain/network/basins. Вода/история не перекрашиваются.
+src/basin-spill-hierarchy.js — build(field,drainage). Граф минимальных седловин, локальный порог, минимакс-уровень доступа к существующей воде, Kruskal merge forest. localSpillLevel и escapeToWaterLevel РАЗНЫЕ. potentialDepth — гипотетическое заполнение до выхода к воде, не реальная глубина озёр. Ёмкости в relative-height*steradian, не м3. Все текущие водные клетки — общая внешняя граница. Равные пороги имеют технический бинарный порядок, не физическую хронологию.
+src/spill-diagnostic-layer.js — createRenderer(render,drain,spill,getTerrain,getLayer,onSummary) -> {models,compose,data}; data -> {field,drainage,hierarchy,summary}. layers terrain/potential/saddles. Эти режимы уже добавлены В существующую src/drainage-candidate.html, не в новую страницу.
+src/basin-water-budget.js — LOCAL-only create(field,hierarchy), stage(b,volume), advance(storage,forcing,dt). Ограничен ПЕРВЫМ локальным порогом. Эффективный сток с сухих клеток и прямой дождь на начальную водную поверхность не складываются дважды. Испарение/утечки ограничены водой. pendingSpill — избыток за шаг, не автоматически перенесённый. После объединения бассейнов эту старую advance напрямую применять НЕЛЬЗЯ.
+src/basin-water-experiment.js — run(model,{initialStorage?,initialPending?,segments:[{steps,dt,forcing}]}). Накопительный учёт pending, boundary, losses; максимум 4096 шагов. Pending не исчезает между шагами, но не считается пространственно размещённой водой и не испаряется без модели его положения.
+src/basin-fill-spill.js — redistribute(field,hierarchy,volumesPerOriginalBasin). Передача избытка по фактическим рёбрам, слияние только если оба бассейна наполнены до общего минимального выхода; сосед с более низким другим выходом не сливается ошибочно. Возвращает pools, poolByBasin, basinStorage, depth, boundaryOutflow, stats. Это мгновенное перераспределение заданного объёма, не скорость течения. Ограничение 200000 операций не повышалось. basinStorage после слияния может превысить старую local capacity.
+src/basin-water-resolution.js — resolve(field,hierarchy,snapshot,fillAPI) -> {redistribution,ledger,metadata}. Суммирует storage+pending один раз, прежний boundary не возвращает как воду, новый ledger.pendingTotal=0. Pure function не обеспечивает защиту от повторного воспроизведения одного snapshot сторонним кодом: вызывающий должен заменить живое состояние.
+src/coupled-basin-water.js — create(field,hierarchy,fill) -> empty(), advance(state,forcing,dt). Состояние {redistribution,ledger}, совместимо с resolution. P/E/C обязательные scalar/cell arrays, seepage optional0, externalInflow optional по исходным бассейнам. Фиксированный кадр/рельеф: при изменении геометрии создавать новый контекст.
+Порядок coupled step: дождь/сток по НАЧАЛЬНОМУ wet mask -> мгновенное перераспределение/слияния -> ставки потерь по POST-INFLOW wet mask, замороженные на шаг -> спад уровня с разделением по MST-порогам, независимые потери после отделения -> финальное перераспределение и баланс. Вход до испарения и фиксированные площади делают метод зависимым от dt. Климат, устойчивые озёра, температура/лёд, грунтовый возврат не рассчитаны. Время не годы, радиус/возраст не меняются.
 
-2. ЦЕЛЬ И НЕИЗМЕНЯЕМЫЕ ОГРАНИЧЕНИЯ
+6. СОХРАНЁННЫЕ ПРОВЕРКИ И ОТЧЁТЫ
+В tools/ и docs/ есть одноимённые проверки/отчёты этапов. Основные:
+ tools/regional-material-terrain-test.cjs
+ tools/regional-relief-integration-test.cjs
+ tools/spherical-drainage-test.cjs
+ tools/drainage-ab-test.cjs
+ tools/basin-spill-hierarchy-test.cjs
+ tools/spill-ab-test.cjs
+ tools/basin-water-budget-test.cjs
+ tools/basin-water-experiment-ab-test.cjs
+ tools/basin-fill-spill-test.cjs
+ tools/basin-water-resolution-ab-test.cjs
+ tools/coupled-basin-water-test.cjs
+ tools/coupled-basin-water-ab-test.cjs
+ docs/COUPLED_BASIN_WATER_AB.txt и остальные docs/BASIN_* / docs/SPILL_DIAGNOSTICS_AB.txt.
 
-Пользователь хочет естественную карту: не более 7 материков, сопряжённые берега с объяснимым происхождением, достаточно открытого океана и пространства для крупных морей. Не нравится случайное рассыпание материков и перегруженный сушей центр.
-Возраст планеты ограничен землеподобным возрастом; пользователь давно требовал удалить пользовательский счётчик древних эпох. Новые численные границы возраста не согласованы. Радиус/размер планеты НЕ переназначать; точные прежние глобальные размеры из старого переноса не восстановлены.
-Материки, плиты, фрагменты исходной маски и связные растровые области — разные сущности.
-Отсутствие sampled столкновений не равно естественной географии или полной физической модели.
+Не повторять без причины:
+- A/B маски суши не изменены гидрологией; SHA A e85687b26ee217359c179144e8c898b15b6c62d3577f8e83f95fbfb644d1bcfe; B 5684b58196f94c72390e4dd302ec9e62ce7c7881975c4d0546bca47982838b12.
+- A 60549 клеток суши, B 61410 на 720x360. Не переводить количества пикселей в площадь напрямую.
+- Замкнутые catchments занимают ~42.4/42.9% площади суши, а гипотетическое заполнение до выхода к воде ~8.11/8.14%. Это разные величины, ни одна не равна площади реальных озёр.
+- Fill/spill реального заданного wet snapshot: 26/20 merge operations в A/B, не количество озёр. Повторное перераспределение меняло глубины менее 1.3e-14, дополнительный сток <8e-17. На насыщенном стресс-тесте отличие от minimax envelope <1.1e-11 при допуске1e-10.
+- Coupled реальный A/B: wet P=.02,E=.001,C=.5 от сухого состояния; 20 шаговdt=.05 и40dt=.025 доT=1. Затем от COARSE результата20dry шаговdt=.05,P0,E.02,C.5.
+A coarse stored .0031277014751038665; fine .003137481832255688 (+.3127011075%); dry .0007438421559964448. Максимальная разница глубин coarse/fine .0001702198710;22 диагностические wet-клетки отличаются.
+B coarse .0031219767436039734; fine .003131671939762772 (+.3105467130%); dry .0007461333165240639. Max depth difference .0001657882459;28 клеток.
+Максимальная невязка <9.4e-15. Нулевой pending, отрицательных глубин нет; исходные высоты/masks/owner/gap не менялись.
+- Cutoff1e-9 применён только к диагностическому wet-mask, не к массе или core land-mask.
+- Два dt — чувствительность, не доказательство сходимости. Этот T=1 coupled тест не сравнивать как тот же сценарий с ранним T=5 local-only.
+- Node production numerical прогоны не равны браузерному/renderer запуску. В некоторых запусках точные core-модули проверены по Git blob; geometry/build/sourceUV извлекались дословно без полного history/renderer-модуля. Подробный scope записан в docs.
 
-3. ПОЛЬЗОВАТЕЛЬ НЕДОВОЛЕН МИКРОШАГАМИ — ВАЖНО
+7. САМОЕ ВАЖНОЕ: НОВЫЙ UI-ПАКЕТ ПОДГОТОВЛЕН, НО НЕ ЗАПИСАН
+Последняя работа после коммита128b91b: интеграция coupled cycle в существующий просмотр и видимый вход из главного окна.
+Пакет выдан пользователю архивом water-ui1-review-package.zip. Этот ZIP НЕ находится в GitHub и НЕ гарантированно доступен в файловой среде нового чата. Рабочая среда и сырые файлы между ответами не наследуются. Пользователь не может скачать или скопировать файлы из текущего чата: не требовать от него этот архив.
+Не говорить, что UI уже сохранён, установлен или работает на Mac. Перед записью нужно НОВОЕ точное подтверждение ПОЛНОГО пакета.
+Целевые версия/ID ПОДГОТОВЛЕННОГО пакета: 0.89.0-test.4blocks.7 / 4blocks-water-ui1.
+В РЕПОЗИТОРИИ пока остаются .6 / 4blocks-relief1, несмотря на новые численные модули!
 
-Пользователь сообщил, что от теста к тесту едва замечает изменения. Спросил, будут ли проверки длиться до 100 градусов. Ему прямо обещано:
-  — не идти по цепочке 2°, 8°, 12° … 100°;
-  — закончить один содержательный A/B-пакет;
-  — A = 2°/2°, B = 8°/8°;
-  — вариант 12° с найденным конфликтом отложен;
-  — не выпускать установщик ради каждого маленького технического теста.
-Этот A/B-пакет уже сохранён и проверен пользователем. Не возвращаться к бесконечному расширению углов и набору стендов. Следующее согласованное направление — переход от стенда дрейфа к рельефной географической карте, а не очередная новая серия углов.
-Не заявлять фоновую работу. Работать содержательными пакетами, кратко отчитываться, подробности и код сохранять файлами/в репозитории.
+Ровно 7 файлов подготовлено:
+ NEW src/coupled-water-ui.js
+ MODIFY src/drainage-candidate.html
+ MODIFY src/version.js
+ MODIFY package.json
+ MODIFY build-mac.command
+ NEW tools/coupled-water-ui-test.cjs
+ NEW docs/TEST_4BLOCKS_WATER_UI1.txt
+Архив содержит эти файлы, controller-test-result.json и review-manifest.json с SHA256 каждого подготовленного файла. Дополнительные JSON архива не предназначались для push.
 
-4. ЧТО УЖЕ ПОДТВЕРДИЛ ПОЛЬЗОВАТЕЛЬ НА MAC
+Оригиналы перед изменением проверены по blob:
+ package.json a84fd04748ebcacdf1690416e6aa36deea4f1642
+ src/version.js 379e0ea42e316e78180dab25c959faba22d4db9a
+ build-mac.command 1799a3881714cdaf16db029f22879dc2182ed562
+ src/equal-area-ab-viewer.js 53971e29ee18ee9f130b114683f54b21b3a5fe4e (НЕ менять в этом пакете).
+Текущая сохранённая src/drainage-candidate.html blob f2d470cc9ab4b0f3e91ba71dbe94b847f062e28b.
 
-Последовательность сохранений (каждое push_files подтверждено, коммит проверен get_commit):
-  c7569d5f10c0d867c50b95b473058542b642095d — трёхблочный v0.1, меню.
-  927d00a9eed1e5f4fd372212c6e1d64e11174de5 — история материала трёх блоков.
-  0dbb44da496d4081bfb3b16fe398e0aa1590ede3 — четыре блока, два эпизода, меню.
-  97021f3041d75357f7bb7a0c923a0512f3a44adf — TEST-маркировка, явные входы, скрытие эпох/календаря.
-  9ea0f39b45d9e9a31e9a4e1e34d239d0d9dfcf2c — подробная геометрия 720×360 и пробы истории 180×90 (hires3).
-  56b98a4a46b98250a381ec2f86d01eea9e0761fe — отдельный равноплощадный EA1, TEST .4.
-  c8d8ab766a7138ea1d210d4e897e82d2bcec1281 — сравнение A/B, исправленный угловой шаг истории, TEST .5.
-  301d85733705800e6a6623f718caeceb2519294c — иллюстративный рельеф в A/B, TEST .6.
+8. ЧТО ДЕЛАЕТ ПОДГОТОВЛЕННЫЙ UI
+По четыре кнопки каждой панели: Наполнить / Высушить / Отмена / Сброс воды.
+Общий checkbox waterVisible — показывать рассчитанную воду.
+Наполнить:20 шагов dt.05 от empty(), P.02 E.001 C.5; повторное наполнение ПЕРЕЗАПУСКАЕТ от сухого.
+Высушить:20 шагов dt.05 от последнего ЗАВЕРШЁННОГО результата, P0 E.02 C.5; можно повторять.
+Прогресс1…20. Каждый шаг yield через window.setTimeout(resolve,0); отмена между подготовкой/шагами/commit, НЕ внутри одного синхронного численного вызова.
+До завершения на canvas остаётся старый завершённый результат; частичный state не публикуется, не кэшируется и не возобновляется.
+При отмене/ошибке сохраняется предыдущий завершённый state. Панели независимы.
+Контекст и state строго привязаны к detailed frame. Любое новое frame720x360 (движение/перерисовка геометрии) сбрасывает воду и контекст. History frame180x90 НЕ сбрасывает воду.
+Смена surfaceMode / drainageLayer / catchmentThreshold НЕ вызывает view.start в новом bootstrap: cancelAll -> refreshAll на том же кадре -> syncAll. Завершённая вода и уже показанная история сохраняются. Material скрывает воду и блокирует запуск water-операций.
+Применить движение: cancelAll -> исходный apply-handler -> syncAll. Старый numerical run не может дописать результат в новый кадр.
+Новая вода окрашивает только исходную сушу при depth>1e-9; ocean/history pixels не трогаются. Цвет [110,115,225], alpha=.35+.5*min(1,depth/.05).
+PNG сохраняет текущий canvas через прежний EqualAreaABViewer/preload API; history/export блокированы при water run. Имена PNG остаются от прежнего контроллера equal-area-A2/B8..., это не новый PNG IPC.
 
-Пользователь подтвердил работу hires3, EA1, A/B. После установки последней relief1 сказал: «Окей. Оно работает, но я не понимаю, почему точки с историей получаются только внутри разломов». Это подтверждает запуск последней версии, не научное принятие горообразования и не окончательное визуальное принятие всей карты. Отдельного выбора «B окончательно лучше A» не было: не приписывать пользователю такой выбор.
-Первоначально пользователь не находил меню/переключатели; проблему доступности обходили явной плашкой TEST со ссылками в главном окне. Позже он нашёл выпадающий список «Материал / История» и подтвердил работу. Не заставлять опять искать отсутствующую отдельную кнопку.
+9. КОНТРАКТ НОВОГО src/coupled-water-ui.js ДЛЯ ВОССТАНОВЛЕНИЯ
+UMD global CoupledWaterUI, API:
+ create(models,baseCompose,getContext,coupled,fill,doc,win,getVisible,getSurface)
+ -> {models:wrapped, compose, attach(view), run(i,kind), reset(i), cancelAll(), refreshAll(), syncAll(), records}
+kind wet/dry.
+records[i]={token,busy,frame,args,context,state,ticks}; frames WeakMap frame->panel.
+wrapped.frame вызывает исходную модель, при720x360 cancel(i,false), сбрасывает контекст/state/ticks/args, регистрирует frame и пишет «Водный эксперимент не запущен».
+compose запоминает последние {f,low,h} и поверх baseCompose рисует ТОЛЬКО land-water из завершённого state, если checkbox и regional. Это позволяет refresh сохранять историю, не меняя private paint старого viewer.
+refresh проверяет view.panes[i].current.f===args.f и кладёт ImageData текущего compose в canvas.
+attach сохраняет view и назначает water-кнопки.
+sync блокирует wet при нет current/regional/busy, dry дополнительно при нет state, cancel при !busy, reset при нет ready/state/busy. History/export блокированы при busy/нет ready. При изменении generation чужой history-операцией finally может вызвать sync(i,true), не переопределяя его кнопки.
+cancel увеличивает token, снимает busy; по умолчанию ++view.panes[i].generation для отмены старой истории; при onFrame viewer=false, иначе можно отменить собственный draw. Завершённый state не стирает.
+run захватывает frame, ++token и ++pane.generation, проверяет актуальность по token/frame/p.current.f/generation. После yield создаёт контекст getContext(frame) -> coupled.create(c.field,c.hierarchy,fill). Считает в ЛОКАЛЬНОЙ state20шагов, каждый с yield/check. Только при valid после20шагов присваивает rec.state/ticks, refresh и статус результата. catch не затирает stale/new state. finally синхронизирует только при совпадении token.
+reset отменяет и стирает state/ticks, refresh сохраняет текущую history.
 
-5. ТЕКУЩИЙ ИНТЕРФЕЙС И TEST-МАРКИРОВКА
+10. ТОЧКА ПОДКЛЮЧЕНИЯ В ПОДГОТОВЛЕННОЙ drainage-candidate.html
+Сохраняются network и spill diagnostics и ссылки на прежние страницы.
+Скрипты в порядке:
+ three-block-prototype.js, equal-area-ab-candidate.js, four-block-viewer.js,
+ equal-area-ab-viewer.js, material-relief-layer.js, regional-material-terrain.js,
+ regional-relief-integration.js, spherical-drainage.js, drainage-overlay.js,
+ basin-spill-hierarchy.js, spill-diagnostic-layer.js, basin-fill-spill.js,
+ coupled-basin-water.js, coupled-water-ui.js.
+Bootstrap:
+ terrain=RegionalMaterialTerrain.create(base,MaterialReliefLayer);
+ render=RegionalReliefIntegration.createRenderer([A2model,B8model],FourBlockViewer.compose,mode,terrain,MaterialReliefLayer);
+ network=DrainageOverlay.createRenderer(render,SphericalDrainage,mode,()=>isSpill()?'terrain':selected(),threshold,summary);
+ diagnostic=SpillDiagnosticLayer.createRenderer({...render,models:network.models},SphericalDrainage,BasinSpillHierarchy,mode,()=>isSpill()?selected():'terrain',summary);
+ baseCompose=(f,l,h)=>isSpill()?diagnostic.compose(f,l,h):network.compose(f,l,h);
+ water=CoupledWaterUI.create(diagnostic.models,baseCompose,f=>diagnostic.data(f,'regional'),CoupledBasinWater,BasinFillSpill,document,window,()=>waterVisible.checked,mode);
+ view=EqualAreaABViewer.attach(water.models,water.compose,FourBlockViewer.pointFromClick,document,window);
+ water.attach(view); wrap apply; assign display events; await view.start(); water.syncAll().
+Обёртки models именно в этом порядке сохраняют один и тот же frame и индексы панелей у network/diagnostic/water.
+DOM: старые progress/progressValue/apply/map0..1/status/inspect/history/export/hydro; новые waterVisible, waterWet0..1, waterDry0..1, waterCancel0..1, waterReset0..1, waterStatus0..1. Всего29 уникальных ID.
+Страница показывает новый TEST header и явно поясняет единицы/тестовые forcing/сброс при движении/отмену между шагами. По умолчанию diagnosis terrain, вода видима.
 
-package.json:
-  исходная npm-версия остаётся 0.89.0 (lockfile не перенумеровывали);
-  build.extraMetadata.version = 0.89.0-test.4blocks.6;
-  build.extraMetadata.buildChannel = TEST;
-  build.extraMetadata.buildId = 4blocks-relief1;
-  build.productName = Fantasy Map Studio TEST;
-  build.appId = com.shavkunov.fantasymapstudio.test;
-  output = dist-test;
-  artifact names содержат TEST-4blocks-relief1.
-Версия упакованного приложения и видимый FM.VERSION отделены от стабильной версии. При следующем тестовом пакете согласованно менять package.json, src/version.js, build-mac.command и заголовок изменяемого просмотра.
+11. МЕТАДАННЫЕ ПОДГОТОВЛЕННОГО ПАКЕТА
+package.json: меняются только строки .6 -> .7 и 4blocks-relief1 -> 4blocks-water-ui1 во всех build.extraMetadata/dmg.title/artifactName. Root version0.89.0, lockfile, scripts, зависимости, TEST appId/productName/dist-test остаются прежними.
+src/version.js: те же замены версии/ID, первая ссылка ['drainage-candidate.html','Водный цикл A/B']; прежний A/B остаётся под подписью 'Прежний A/B relief1'; EA1/hires3 остаются. Весь код скрытия epochs/calSec сохранить.
+build-mac.command: те же версии/ID в echo/guard/artifact name; подсказка выбрать «Водный цикл A/B». Сборка по-прежнему npm install и dist:dmg/dist:dmg-intel по uname, outputdist-test.
+Не менять main.js, preload.js, численные модули, старый equal-area-ab-viewer.js и main.
 
-src/version.js теперь не только номер версии. Он выполняет UI-совместимость:
-  — epochs превращён в type=hidden, disabled; подпись epochsV скрыта;
-  — calSec скрыт, inert, поля disabled, клики блокируются в capture;
-  — добавляет видимую плашку TEST с версией/buildId и ссылками.
-ВНИМАНИЕ: старые DOM-ID и внутренний коэффициент epochs в legacy app.js ещё существуют. Полного удаления логики эпох не было; убран пользовательский контроль. Это не новый физический возраст планеты. Календарь временно отключён в UI, сохранённые данные/код совместимости не удалены. Не заявлять обратного.
+12. ПРОВЕРКИ ПОДГОТОВЛЕННОГО UI — ЧЕСТНЫЙ SCOPE
+Выполнен Node-тест с НАСТОЯЩИМ неизменённым equal-area-ab-viewer.js (blobverified), НОВЫМ контроллером и fake DOM/canvas/numerical model/savePNG.
+Пройдены: wet completion, progress/busy flags, dry disabled without state, inter-step cancel, old completed result preserved, reset, stale result after new frame discarded, independent panes, simulated numerical failure retaining old state, history/ocean pixels unchanged, checkbox/material toggling, PNG callback and current-canvas composition.
+Это НЕ renderer/Electron/настоящий coupled численный прогон в UI. Настоящее numerical ядро проверено отдельно раньше на реальных A/B.
+Дополнительно: node --check inline/controller/version; уникальные29DOM-ID, 14script dependencies и порядок; bash -n build-mac.command (не запуск сборки); JSONpackage marker consistency. VM run version.js проверил epochs/calendar по-прежнему hidden/disabled и новый видимый banner link.
+Численный UI-интеграционный прогон, отзывчивость Mac, native canvas и настоящий PNG IPC ещё не подтверждены пользователем.
 
-Плашка последней версии содержит:
-  equal-area-ab.html — «A/B: рельеф и материал»;
-  equal-area-candidate.html — «Прежний EA1»;
-  four-block-prototype.html — «hires3».
-
-main.js продолжает запускать src/index.html (основной legacy-генератор), НЕ новый генератор по умолчанию. В меню «Прототип» остались:
-  Три блока (эксперимент), CmdOrCtrl+Shift+3;
-  Четыре блока — два эпизода, CmdOrCtrl+Shift+4.
-На Mac Cmd+Shift+4 конфликтует с привычным системным действием; лучше пользоваться видимыми ссылками TEST. Старый пункт меню «четыре блока» ведёт в four-block-prototype.html, не в новую A/B-страницу. Этого различия не скрывать.
-preload.js и прежние IPC сохранения сохранены; PNG через window.api.savePNG.
-
-6. ФАЙЛЫ, С КОТОРЫМИ ПРОДОЛЖАТЬ
-
-Принятый исходный ограниченный сценарий:
-  src/three-block-prototype.js
-  src/three-block-prototype.html
-  tools/three-block-prototype-test.cjs
-  tools/three-block-history-test.cjs
-  docs/THREE_BLOCK_PROTOTYPE.md
-  docs/THREE_BLOCK_HISTORY.md
-
-Старый четырёхблочный сценарий, прежнее размещение с ~46% сферической суши:
-  src/four-block-prototype.js
-  src/four-block-prototype.html
-  src/four-block-viewer.js
-  tools/four-block-integration-test.cjs
-  tools/four-block-viewer-test.cjs
-  docs/FOUR_BLOCK_PROTOTYPE.md
-  docs/TEST_4BLOCKS_HIRES3.md
-
-Равноплощадный EA1 с пределами 2°:
-  src/equal-area-world-candidate.js
-  src/equal-area-candidate.html
-  tools/equal-area-history-test.cjs
-  docs/TEST_4BLOCKS_EA1.md
-
-Текущий A/B:
-  src/equal-area-ab-candidate.js — собственное равноплощадное ядро, пределы 2/8, исправленный шаг истории;
-  src/equal-area-ab-viewer.js — контроллер двух панелей;
-  src/equal-area-ab.html — текущая страница, подключает рельеф;
-  tools/equal-area-ab-viewer-test.cjs;
-  docs/TEST_4BLOCKS_AB1.md.
-
-Последний рельеф:
-  src/material-relief-layer.js;
-  tools/material-relief-layer-test.cjs;
-  docs/TEST_4BLOCKS_RELIEF1.md.
-Последним коммитом изменены ровно 7 файлов: эти 3, src/equal-area-ab.html, src/version.js, package.json, build-mac.command.
-Ядро дрейфа и контроллер A/B последним коммитом НЕ менялись.
-
-docs/evidence/CURRENT.json в этом чате не меняли. Не перезаписывать старой копией и не удалять более новые записи. Читать актуальный перед возможным изменением.
-Не требовать несохранённые архивы предыдущих чатов: все принятые модули выше доступны в репозитории.
-
-7. ИСХОДНАЯ ГЕОГРАФИЯ И ПЕРЕХОД К РАВНОПЛОЩАДНОМУ РАЗМЕЩЕНИЮ
-
-Fixture:
-  tools/fixtures/world-source/vondoran-227-k6.json
-  Git blob 8de969d6c68157ce9a87678666f721b2714abe3e
-  grid 256×171 = 43776 клеток; land 14884;
-  SHA-256 JSON массива labels:
-    d4faef01c8ab64447c04171c36211426374b9728a257c72e3cfc137f73b58947
-Источник дерева разломов:
-  src/world-v4.js
-  blob 6cd6ab743be0b3e93fc8e2f8013ac1fa320f291d
-  seed vondoran-227|try1
-
-Дерево (номера с единицы):
-  [1,2,3,4,5,6] -> [2,3,6] + [1,4,5]
-  [1,4,5] -> [1] + [4,5]
-  [2,3,6] -> [2] + [3,6]
-  [4,5] -> [4] + [5]
-  [3,6] -> [3] + [6]
-Последние два разделения НЕ реализованы как текущие дополнительные движущиеся эпизоды. Это дерево генератора, не установленная геологическая хронология.
-
-В начале текущего сценария первый океан уже открыт:
-  запад [2,3,6] повёрнут вокруг Z на -20°;
-  восток [1,4,5] на +20°.
-Далее эпизод 1 делит восток на [1] и [4,5], эпизод 2 делит запад на [2] и [3,6].
-
-Старое отображение имело lat=pi*(.5-v); исходные ~34% пикселей давали ~46.12% площади сферы. Исправление EA:
-  lon=2*pi*(u-.5)
-  z=sin(lat)=1-2*v
-  inverse v=(1-z)/2
-Точная доля исходной суши на сфере теперь 14884/43776 = 0.34000365497076024. Это не самовольно новое значение landRatio, а равноплощадное размещение той же маски. Сферическая форма и расстояния изменились; сопряжённость общих исходных границ и метки сохранены.
-Радиус/возраст не менялись. Оси пересчитаны, а не автоматически перенесены из старой геометрии.
-
-Текущие мировые оси EA:
-  east = [-0.8235748954314995, 0.3772551392061318, -0.4235598559324959]
-  west = [0.7089598567538721, 0.36325595649079556, 0.6045006464723478]
-На каждом дополнительном эпизоде отрицательный потомок получает -theta/2, положительный +theta/2. В эпизоде 2 восток неподвижен на конечной стадии эпизода 1.
-
-A: eastEnd=2, westEnd=2.
-B: eastEnd=8, westEnd=8.
-API нового A/B-ядра допускает эти пределы, но не 12 или 100. Параметры — градусы движения, не годы и не возраст планеты.
-В UI ползунок 0–100% меняет только западный эпизод: A запад 0–2°, B запад 0–8°. Восток уже завершён на 2°/8°. Это не полная синхронная шкала обоих эпизодов.
-
-8. ГЕОМЕТРИЯ, МАТЕРИАЛ И ИСТОРИЯ
-
-CSG-снимки используют заданный приоритет областей:
-  три блока: west > A > B;
-  четыре блока: [2] > [3,6] > [1] > [4,5].
-Разрыв — дополнение объединения обратно перенесённых старых доменов; владелец по начальному разделению соответствующего эпизода. Это явные кинематические допущения, не физическая субдукция.
-Не накрывать конфликтующую сушу чужой плитой ради результата: кадр/история должны остановиться.
-
-История точки считается вдоль обратной материальной траектории. Если исходный материал теряет область, его жизнь заканчивается; последующий вход — новый материал, не «воскресший» старый. При наследовании эпизода 2 сохраняются birthEpisode и birthAngle из первого эпизода.
-Старому океану и континентам численный возраст НЕ назначается. Градусы разных осей не складываются и не переводятся в годы.
-
-В B обнаружили реальный дефект: при 8° 64 интервала пропустили краткий выход одной точки поля 180×90 (index=11603, x=83,y=64, owner=3). При 128/256/512/1024 точка классифицировалась как новый материал эпизода 2, birthAngle=7.349087361712009, renewed=true.
-Исправление в ТЕКУЩЕМ A/B-ядре:
-  steps=max(requestedSegments, ceil(theta*32))
-  то есть шаг не грубее 1/32°.
-Для 8° это 256 интервалов при стандартном requestedSegments=64.
-Внешний диапазон requestedSegments 32…128; внутренний steps может быть 256. Не «исправлять» это как ошибку.
-Уточнение найденного входа бисекцией до интервала <=1e-9 градуса. Это точность найденного события, не непрерывное доказательство полноты.
-
-API src/equal-area-ab-candidate.js:
-  create(base, {eastEnd:2|8, westEnd:2|8})
-base берётся из await ThreeBlockPrototype.create(), используются проверенные labels и labelsSha256.
-  frame(w,h,t,blocks=4) -> {w,h,angle,owner,land,gap,gapCount,sphericalLandFraction}
-    w<=720,h<=360, минимумы 64×32;
-  state(p,t), state3(p,t)
-  transport(p,k,delta), transport1(p,k,delta)
-  sourceLand(p,k) — суша на старте второго эпизода;
-  pointAt(w,h,index)
-  history(p,k,t,segments=64)
-  history1(p,k,t=eastEnd,segments=64)
-  historyField(frame,{segments,cancelled,progress})
-  limits={eastEnd,westEnd}
-
-history возвращает kind old/new, birthEpisode null/1/2, birthAngle null/number, ageInBirthEpisode null/number, renewed, secondEpisodeSourceConsumed.
-historyField ограничен 180×90, возвращает:
-  episode: Uint8Array (0=нет нового рождения в эпизодах,1/2=эпизод рождения)
-  birth: Float64Array (NaN для старого)
-  renewed: Uint8Array
-
-9. ПОСЛЕДНИЙ ВОПРОС ПОЛЬЗОВАТЕЛЯ: ПОЧЕМУ ТОЧКИ ТОЛЬКО В РАЗЛОМАХ
-
-После подтверждения работы relief1 пользователь спросил, почему точки истории только внутри разломов. Ему уже объяснили:
-  — это НЕ вся история планеты и НЕ полная карта возраста океанского дна;
-  — точки показывают только новую/заменённую океаническую кору рассчитанных эпизодов;
-  — исходный океан с неизвестным до начала сценария возрастом и континенты пропускаются;
-  — новая кора пока главным образом в полосах раскрытия;
-  — текущая точка не обязана совпадать с местом рождения, история учитывает перенос/замену;
-  — название «История» слишком широкое; точнее «Новая кора двух эпизодов».
-Пользователь не давал отдельного приказа уже изменить название или раскрасить старый океан; после объяснения попросил перенос чата. Не выдумывать возраст всей коры ради красивой полной заливки.
-Визуализация в src/four-block-viewer.js compose явно пропускает !episode и low.land.
-
-10. ВИЗУАЛИЗАЦИЯ И РЕЛЬЕФ — ЧТО УЖЕ ЕСТЬ
-
-Геометрия кадра 720×360; история — отдельные пробы 180×90, НЕ растянутое подробное поле. Маркеры не закрашивают сушу, пробы с несовпадением владельца на подробной сетке скрываются. Инспектор работает в точной сферической координате нажатия, не по ближайшей пробе.
-
-Контроллер A/B:
-  EqualAreaABViewer.attach(models, compose, pointFromClick, document, window)
-  .start(), .panes, .showHistory(pane)
-Геометрии двух панелей рассчитываются при старте/«Применить». История не автоматически; отдельная кнопка A/B. Кэш максимум 3 завершённых поля в каждой панели. Старый расчёт отменяется, частичный результат не кэшируется. PNG каждой панели через существующий preload.
-
-Рельеф material-relief-layer.js:
-  sourceUV(model,p,k,t) — обратный перенос западного этапа, затем восточного, затем исходного ±20°;
-  materialElevation(u,v) — детерминированная иллюстративная формула;
-  heights(model,frame) — положительные относительные высоты только на land, вода=-1 sentinel;
-  createRenderer(models,baseCompose,getMode) -> {models:wrapped,compose}.
-WeakMap связывает кадр с исходной моделью, другой WeakMap кэширует высоты для данного кадра. Не менять owner/land/движение.
-Формула широких возвышенностей и noise задана в исходных координатах; seed фиксирован vondoran-227|terrain-candidate. Это не общий произвольный seed-генератор и не физическое горообразование.
-Высоты относительные, НЕ метры. Вода=-1 — служебный маркер, НЕ глубина. Море однотонное. Климат, сток, реки и физическая батиметрия к новому рельефу пока НЕ подключены.
-Светотень — оформление. Из соседних клеток вода заменяется высотой центра, чтобы не создавать искусственные тени от sentinel=-1. Широтная физическая метрика наклонов не рассчитана.
-Нельзя выдавать эту раскраску за научно завершённое горообразование.
-
-Текущая equal-area-ab.html:
-  создаёт модели A/B;
-  оборачивает через MaterialReliefLayer.createRenderer;
-  подключает прежний EqualAreaABViewer;
-  select surfaceMode: relief по умолчанию / material;
-  смена вида вызывает view.start(): геометрия перерисуется, показанная история исчезнет, но завершённый кэш контроллера остаётся. Историю можно повторно показать из кэша.
-PNG сохраняет текущий вид; имя от прежнего контроллера equal-area-A2-...png или B8, не обязательно содержит слово relief.
-
-11. УЖЕ ВЫПОЛНЕННЫЕ ПРОВЕРКИ — НЕ ПОВТОРЯТЬ БЕЗ ИЗМЕНЕНИЙ
-
-EA1 2°/2°:
-  Python 24 кадра (3/4 блока × 6 стадий × 2 сетки 360×180/720×360) без sampled конфликтов.
-  14884 исходных центров суши на 64/128 интервалах не теряли владельца в обоих эпизодах.
-  JS 12 кадров 720×360 без sampled конфликтов; доля суши около 34%.
-  JS поле 180×90 на 2° при 32/64 интервалах: 60 новых проб эпизода1,76 эпизода2,5 renewed. Совпали классификации и уточнённые рождения; нулевой переход без расхождений.
-  До расширения B: EA1 360×180 247 новых проб эпизода1,228 сохранённых,19 утративших область; на местах этих19 старый материал.
-
-B=8°/8°:
-  9 геометрических снимков 720×360 (последовательное движение востока0..8, потом запада0..8) без конфликтов в Python-реализации.
-  Вариант 12°/12° отклонён по 1 конфликтной точке на 360×180. Не «допускать» её и не считать прошедшим.
-  До исправления углового шага на360×180: 951 новая проба эпизода1,894 сохранённых записи,57 утративших область; конечные места этих57:52старых,5новых. Эти выборочные числа НЕ пересчитаны после исправления шага, не называть постфикс-эталоном.
-  После исправления шага полное поле B180×90: episode counts=[15729,230,241].
-  Независимый reference512:0 различий episode,0renewed,0 уточнённых birthAngle относительно исправленного256.
-  Совмещённый запуск production+reference+zero достиг25с лимита; расчёты разделили, лимит не повышали. Отдельно256≈7.1с,512≈13.8с в Node среды, не обещание скорости Mac.
-
-Разрешение/композиция:
-  Сохранённый старый four-block-prototype.js копировали в среду и проверили Git blob 49a13395f2e90386f6fdd29cccdf44b78e1fcc5a побайтово; базовый API в том запуске — переписанные нужные функции, не полный исходный base.
-  EA1 на западных2°:720×360 и офлайн1440×720 дают4 крупных связных массива и1 океан;360×180 даёт3 массива из-за узкого пролива. Подробная офлайн диагностика НЕ означает, что приложение поддерживает1440×720.
-  Критерий крупных областей >=1% сферической суши был только диагностическим, не утверждённым определением материка.
-  Мелкие закрытые воды на промежуточных кадрах сильно зависят от сетки, не считать их доказанными морями.
-  Атласы с разными центральными меридианами не перемещали блоки и не меняли композицию мира.
-
-Рельеф:
-  Проверены обратные координаты на известных вращениях, детерминизм, land/water и отмена раннего async-кандидата.
-  Реальные предпросмотры720×360: геометрия/обратные координаты Python, высоты настоящей JS-функцией. A60549 точек суши, B61410; после назначения высот0 изменений маски в обоих.
-  SHA маски A e85687b26ee217359c179144e8c898b15b6c62d3577f8e83f95fbfb644d1bcfe;
-  B 5684b58196f94c72390e4dd302ec9e62ce7c7881975c4d0546bca47982838b12.
-  Последний material-relief-layer-test.cjs проверял известные преобразования+синтетический кадр, сохранение суши/воды, историю поверх воды, старый вид material, повторяемость и отклонение неизвестного кадра.
-  Это не полный производственный Node/renderer прогон новых A/B с рельефом. Реальный запуск relief1 подтверждён пользователем; научная корректность рельефа этим не установлена.
-
-12. КАКИЕ ИССЛЕДОВАТЕЛЬСКИЕ ВЛОЖЕНИЯ НЕ ПУТАТЬ С ПРОДУКТОМ
-
-В этом чате выдавались JSON/NPZ/PNG, географические атласы и standalone-кандидаты. Они не все сохранены в репозитории; сырые файлы текущая среда нового чата не наследует. Не делать вид, что они доступны, и не пересчитывать всё ради архива.
-Принятые JS-модули и docs перечислены выше и в GitHub. Для продолжения достаточно их; не требовать ZIP или старые вложения.
-
-Предыдущие исследования ещё до текущего переноса:
-  — аналитический K6-стенд, неисправное штатное движение real K6 и текущий ограниченный сценарий — три разные вещи;
-  — real K6 world-drift имел sampled перекрытия, его не исправляли глобально;
-  — треугольный backend не интегрирован;
-  — nearest-cell растровый перенос был отвергнут;
-  — не повторять старые AREA/collision тесты K6 без причины.
-Подробности старого этапа есть в исходном handoff fantasy-map-studio-handoff.txt, если он приложен к новому чату, но он описывает состояние до927d... и уже устарел относительно этого файла.
-
-13. КУДА ДВИГАТЬСЯ ДАЛЬШЕ
-
-Сейчас пользователь попросил только перенос. Не совершать новые записи по этому запросу.
-При продолжении:
-  1) Проверить текущую ветку/коммит и читать фактические файлы.
-  2) Учесть: A/B и relief1 уже запускаются на Mac; не начинать заново проверку установки.
-  3) Не выдавать слой новых кор за полную историю планеты. При доработке UI можно яснее назвать его «Новая кора двух эпизодов» и объяснить исходный материал с неизвестным возрастом, но не выдумывать значения.
-  4) Дальнейшее направление: полноценная географическая карта после дрейфа. Рельеф пока иллюстративный; перед реками/климатом нужен осмысленный интерфейс высот/водосбора и корректная сферическая/периодическая геометрия. Не тащить без проверки старые planar-алгоритмы на глобальную сферу.
-  5) Старый world-v4.js содержит terrain/routing/climate, но его generate() запускает собственный planar drift и выдумывает океанический возраст по расстоянию до хребта; это НЕ новый backend. Не вызывать generate() как будто он сохраняет текущую географию. Его climate использует коэффициенты/широты иллюстративно, routing без оборачивания долготы; требуется отдельная проверка до переноса.
-  6) Не переходить к новым разломам, произвольной расстановке, радиусу или возрасту без содержательной причины. Цель пользователя — заметный естественный результат, не бесконечные тесты.
-  7) Перед будущим push: одно новое точное confirm_action на законченный пакет; послеpush проверкаget_commit и короткая инструкция. Настоящий DMG/renderer не заявлять собранным здесь.
+13. ЧТО ДЕЛАТЬ ПОСЛЕ ПЕРЕНОСА
+- Признать состояние; не начинать заново численную гидрологию.
+- Проверить head и фактические файлы.
+- UI-пакет не в GitHub. Не делать вид, что сырые файлы старой среды сохранились. Если исходный архив недоступен, восстановить пакет по этому переносу и истории, честно назвать восстановлением, сверить с исходниками; не требовать от пользователя ZIP всего репозитория или недоступные вложения.
+- Не считать разрешение сохранить этот ДОКУМЕНТ подтверждением записи UI. Для UI нужно новое confirm_action на все7файлов в ОДНОМ push_files с полным содержимым.
+- После записи UI get_commit, затем краткая инструкция собрать одну содержательную TEST .7 на Mac. DMG здесь не заявлять готовым.
+- Не выпускать отдельные установщики ради каждого внутреннего теста. Проверить уже собранный UI пользователем прежде чем заявлять renderer acceptance.
+- Калиброванный климат, температура/лёд, устойчивые озёра, физическое горообразование и общий произвольный seed-генератор не завершены. Нынешний сценарий ограничен проверенным исходным миром и bounded A/B.
 
 КОНЕЦ ПЕРЕНОСА
