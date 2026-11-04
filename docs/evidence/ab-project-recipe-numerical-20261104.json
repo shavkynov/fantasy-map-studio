@@ -1,0 +1,136 @@
+{
+  "sourceCommit": "01b2d980547f4bce12c31c7c8ed431b90c1931b8",
+  "testPath": "tools/ab-project-recipe-numerical-test.cjs",
+  "testSHA256": "8f909244d0f22ae6fa1cd353d4fa5bbf46337a11e1d7b2054f0f5061e24c078c",
+  "passed": true,
+  "verifiedFullModuleBlobs": {
+    "basin-fill-spill.js": "aee23792f8c564513305afcd3c8b6db67fa29fa5",
+    "coupled-basin-water.js": "a783c73dad89a8aaf31b130fb54246a4f9974be5",
+    "spherical-moisture-transport.js": "7e781f2c3bbbf31a948e0fc0bd38de2eb846b186",
+    "atmosphere-surface-water.js": "3190dce0a06fe63b82cc2d461a75cc8b217cf666",
+    "spatial-water-forcing.js": "81ab6b5c25694a55cd42f3bba61c4ef4cb6a30a4",
+    "ab-project-recipe.js": "5b01df084d5753803ac09a8184fd2287a9f8728c"
+  },
+  "uiHelpers": {
+    "sourceBlob": "480e4ed05dd62cd8cc8b2d309c015576c87b960e",
+    "extracted": [
+      "SCENARIOS/isAtmosphere",
+      "areaFor",
+      "recipe",
+      "transportForcing"
+    ],
+    "fullControllerExecuted": false
+  },
+  "execution": {
+    "freshRun": true,
+    "scope": "Six complete production sources reconstructed from previously fetched text and verified byte-for-byte by current Git blob. Test executed end-to-end in Node against these modules. UI forcing helpers extracted, not full controller. Both direct and replay paths use unchanged production forcing helpers. Synthetic geometry constructed independently for each path; no prior numerical results reused.",
+    "fixture": "720x360 full-size spherical arrays, four land cells at (359,179),(360,179),(359,180),(360,180); heights1/1.002; two supplied basins, saddle1.003 and external boundary1.03. Frame angles1 and4 encode progress=.5 only; no real A/B geometry or drainage generation.",
+    "fileIO": "P.capture -> encode -> mocked openWorld text -> P.open/decode/replay. No native file dialog or disk roundtrip."
+  },
+  "result": {
+    "passed": true,
+    "fixture": "Synthetic spherical 720x360, four land cells/two hand-specified basins. NOT real A/B terrain or drainage generation.",
+    "exactStateComparisons": 7,
+    "exactContinuationComparisons": 7,
+    "cancelledAfterSteps": 21,
+    "measuredSteps": 661,
+    "summaries": [
+      {
+        "case": 1,
+        "panes": [
+          {
+            "scenario": "atm-eastward",
+            "steps": 40,
+            "returnEvaporation": true,
+            "exact": true,
+            "continued20Exact": true,
+            "stored": 8.803331695502076e-06,
+            "residual": 2.333947347792965e-12
+          },
+          {
+            "scenario": "west-wet",
+            "steps": 40,
+            "returnEvaporation": false,
+            "exact": true,
+            "continued20Exact": true,
+            "stored": 0,
+            "residual": 3.015437292225309e-19
+          }
+        ]
+      },
+      {
+        "case": 2,
+        "panes": [
+          {
+            "scenario": "atm-westward",
+            "steps": 20,
+            "returnEvaporation": false,
+            "exact": true,
+            "continued20Exact": true,
+            "stored": 3.7619414911419964e-06,
+            "residual": 1.0378664797149948e-12
+          },
+          {
+            "scenario": "east-wet",
+            "steps": 20,
+            "returnEvaporation": false,
+            "exact": true,
+            "continued20Exact": true,
+            "stored": 5.5211206567810465e-06,
+            "residual": 5.1033735072071595e-20
+          }
+        ]
+      },
+      {
+        "case": 3,
+        "panes": [
+          {
+            "scenario": "uniform",
+            "steps": 20,
+            "returnEvaporation": false,
+            "exact": true,
+            "continued20Exact": true,
+            "stored": 5.566812689802712e-06,
+            "residual": 2.2234614865425384e-20
+          },
+          {
+            "scenario": null,
+            "steps": 0,
+            "exact": true
+          }
+        ]
+      },
+      {
+        "case": 4,
+        "panes": [
+          {
+            "scenario": "atm-eastward",
+            "steps": 20,
+            "returnEvaporation": false,
+            "exact": true,
+            "continued20Exact": true,
+            "stored": 3.773788523902954e-06,
+            "residual": 1.0378838051386562e-12
+          },
+          {
+            "scenario": "atm-westward",
+            "steps": 20,
+            "returnEvaporation": true,
+            "exact": true,
+            "continued20Exact": true,
+            "stored": 3.7653922899223383e-06,
+            "residual": 1.037943330326085e-12
+          }
+        ]
+      }
+    ],
+    "scope": "Production project recipe, surface, atmosphere, join, fill/spill and spatial forcing. Native file read mocked with serialized text. No viewer/DOM, atomic UI adoption, native dialogs, PNG or Electron acceptance."
+  },
+  "maxReportedSnapshotResidual": 2.333947347792965e-12,
+  "checks": "Seven nonempty restored states fully deep-equal direct results, including water redistribution/ledgers and atmospheric amounts/precipitation/ledgers where present. Seven further20-step continuations fully equal. Empty pane restored; atmospheric foreign-context states rejected. ON return positive/OFF ledger shape preserved. Old baseline fingerprints unchanged. Cancellation after step21 in pane B returns no candidate result; no live UI adoption tested. Production core balance guards active throughout.",
+  "limitations": "Controlled sparse synthetic field, not real A/B terrain, source geography reconstruction, drainage, large basin populations or real-project performance. No renderer/native dialog/PNG/Electron/Mac acceptance. UI Save/Open not wired; .10 unchanged. Semantic engine tag is not automatic source-hash enforcement. Relative units and arbitrary time; not full climate or stable lakes.",
+  "next": "Whole-scene transactional UI adoption with existing saveWorld/openWorld IPC; preserve old scene on cancel/error and retain valid reconstructed contexts for continuation.",
+  "appChanged": false,
+  "installerRequired": false,
+  "progressMarker": "Approximately60% of proposed first usable build; unchanged by internal test alone."
+}
