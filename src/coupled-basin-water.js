@@ -1,5 +1,6 @@
 (function(root){'use strict';
-function create(field,hierarchy,fill){
+function create(field,hierarchy,fill,options={}){
+ const trackEvaporation=options.trackEvaporation===true;if(options.trackEvaporation!==undefined&&typeof options.trackEvaporation!=='boolean')throw Error('Invalid evaporation tracking option');
  const {w,h,land,height,area}=field,n=w*h,B=hierarchy.basins.length,groups=Array.from({length:B},()=>[]);
  if(!Number.isInteger(w)||!Number.isInteger(h)||w<1||h<1||land.length!==n||height.length!==n||area.length!==n||hierarchy.w!==w||hierarchy.h!==h||hierarchy.cellBasin.length!==n||typeof fill.redistribute!=='function')throw Error('Invalid coupled field');
  for(let i=0;i<n;i++)if(land[i]){const b=hierarchy.cellBasin[i];if(!Number.isInteger(b)||b<0||b>=B||!Number.isFinite(height[i])||height[i]<=0||!Number.isFinite(area[i])||area[i]<=0)throw Error('Invalid coupled basin');groups[b].push(i);}
@@ -23,15 +24,16 @@ function create(field,hierarchy,fill){
   for(const edge of edges)if(edge.a<B&&edge.b<B&&wet.poolByBasin[edge.a]===wet.poolByBasin[edge.b]&&positive.has(wet.poolByBasin[edge.a])){let a=find(edge.a),b=find(edge.b);if(a===b)continue;if(rank[a]<rank[b]){const t=a;a=b;b=t;}const left=nodes[a],right=nodes[b];nodes[a]=node(left.ids.concat(right.ids),left.E+right.E,left.S+right.S,left,right,edge.level);parent[b]=a;if(rank[a]===rank[b])rank[a]++;}
   function capacity(c,L){let lo=0,hi=c.ids.length;while(lo<hi){const m=(lo+hi)>>1;if(height[c.ids[m]]<L)lo=m+1;else hi=m;}return Math.max(0,L*c.A[lo]-c.Z[lo]);}
   function level(c,v){if(v===0)return height[c.ids[0]];for(let k=1;k<=c.ids.length;k++){const next=k<c.ids.length?height[c.ids[k]]:Infinity;if(v<=next*c.A[k]-c.Z[k]||k===c.ids.length)return (v+c.Z[k])/c.A[k];}throw Error('Invalid loss curve');}
-  const remaining=new Float64Array(B),stack=[];let evapTotal=0,seepTotal=0,splitEvents=0;
+  const remaining=new Float64Array(B),evaporationByCell=trackEvaporation?new Float64Array(n):null,stack=[];let evapTotal=0,seepTotal=0,splitEvents=0;
   for(const pool of wet.pools)if(pool.volume>0){const r=find(pool.basins[0]);if(pool.basins.some(b=>find(b)!==r))throw Error('Disconnected wet pool');stack.push({c:nodes[r],v:pool.volume,t:dt});}
-  function account(loss,c){const rate=c.E+c.S;if(rate>0){evapTotal+=loss*c.E/rate;seepTotal+=loss*c.S/rate;}}
+  function account(loss,c){const rate=c.E+c.S;if(rate>0){evapTotal+=loss*c.E/rate;seepTotal+=loss*c.S/rate;if(trackEvaporation)for(const i of c.ids)if(wet.depth[i]>0)evaporationByCell[i]+=loss*(e[i]*area[i]/rate);}}
   while(stack.length){const {c,v,t}=stack.pop(),rate=c.E+c.S,target=Math.max(0,v-rate*t),leftCap=c.left?capacity(c.left,c.saddle):0,rightCap=c.right?capacity(c.right,c.saddle):0,splitCap=leftCap+rightCap;if(c.left&&v<splitCap-1e-10*Math.max(1,v))throw Error('Pool below internal saddle');
    if(c.left&&target<splitCap){const atSaddle=Math.min(v,splitCap),loss=v-atSaddle,used=rate>0?loss/rate:0,lv=splitCap>0?atSaddle*leftCap/splitCap:0;account(loss,c);splitEvents++;stack.push({c:c.left,v:lv,t:Math.max(0,t-used)},{c:c.right,v:atSaddle-lv,t:Math.max(0,t-used)});}
    else{account(v-target,c);if(target>0){const L=level(c,target);for(const i of c.ids)remaining[hierarchy.cellBasin[i]]+=Math.max(0,L-height[i])*area[i];}}}
   const final=fill.redistribute(field,hierarchy,remaining);if(final.boundaryOutflow>1e-10*Math.max(1,wet.stats.storedTotal))throw Error('Unexpected export during recession');
   const next={initialTotal:ledger.initialTotal,inputTotal:ledger.inputTotal+inputTotal,storedTotal:final.stats.storedTotal,pendingTotal:0,boundaryTotal:ledger.boundaryTotal+wet.boundaryOutflow+final.boundaryOutflow,evapTotal:ledger.evapTotal+evapTotal,seepTotal:ledger.seepTotal+seepTotal};next.residual=next.initialTotal+next.inputTotal-next.storedTotal-next.boundaryTotal-next.evapTotal-next.seepTotal;if(!Number.isFinite(next.residual)||Math.abs(next.residual)>1e-10*Math.max(1,next.initialTotal+next.inputTotal))throw Error('Coupled water imbalance');
-  return {redistribution:final,ledger:next,stepStats:{inputTotal,evapTotal,seepTotal,exported:wet.boundaryOutflow+final.boundaryOutflow,inflowMerges:wet.stats.mergeCount,splitEvents},metadata};
+  if(trackEvaporation){let total=0;for(const v of evaporationByCell){if(!Number.isFinite(v)||v<0)throw Error('Invalid tracked evaporation');total+=v;}if(Math.abs(total-evapTotal)>1e-10*Math.max(1,evapTotal))throw Error('Tracked evaporation imbalance');}
+  return {redistribution:final,ledger:next,stepStats:{inputTotal,evapTotal,seepTotal,exported:wet.boundaryOutflow+final.boundaryOutflow,inflowMerges:wet.stats.mergeCount,splitEvents},metadata,...(trackEvaporation?{evaporationByCell}:{})};
  }
  return {empty,advance,metadata};
 }
