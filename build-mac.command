@@ -1,12 +1,12 @@
 #!/bin/bash
 cd "$(dirname "$0")" || exit 1
-echo "=== Fantasy Map Studio TEST: 0.89.0-test.4blocks.8 / 4blocks-water-ui2 ==="
+echo "=== Fantasy Map Studio TEST: 0.89.0-test.4blocks.9 / 4blocks-water-ui3 ==="
 command -v node >/dev/null || { echo "Нужен Node.js 18+ (https://nodejs.org)"; read -n1 -p "Нажмите любую клавишу"; exit 1; }
-node -e "const p=require('./package.json');if(p.build.productName!=='Fantasy Map Studio TEST'||p.build.extraMetadata?.buildId!=='4blocks-water-ui2')process.exit(1)" || { echo "Не совпала маркировка TEST. Сборка остановлена."; exit 1; }
+node -e "const p=require('./package.json');if(p.build.productName!=='Fantasy Map Studio TEST'||p.build.extraMetadata?.buildId!=='4blocks-water-ui3')process.exit(1)" || { echo "Не совпала маркировка TEST. Сборка остановлена."; exit 1; }
 npm install || exit 1
 case "$(uname -m)" in arm64) T=dist:dmg;; *) T=dist:dmg-intel;; esac
 if npm run "$T"; then
-  echo "Результат: dist-test, имя содержит TEST-4blocks-water-ui2."
+  echo "Результат: dist-test, имя содержит TEST-4blocks-water-ui3."
   echo "Запустите Fantasy Map Studio TEST; на плашке выберите Водный цикл A/B."
   open dist-test
 else
