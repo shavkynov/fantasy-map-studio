@@ -1,0 +1,27 @@
+WATER STEP TRACE — fresh production-module evidence
+
+Baseline: b190f9f7d6ef06ba4cf0d7e24e5a4875e5874eae.
+No application source, page, version, recipe schema, ENGINE, forcing or solver changed by this evidence package.
+
+RUN
+node tools/water-step-trace-production-test.cjs docs/evidence/water-step-trace-production-20261104.json
+The test pins the Git blob IDs of seven modules. A changed baseline fails instead of silently reusing these results.
+Fresh local Node run: 10 groups passed; 133 paired outer steps, 133 traced outer advances and 133 independent reference outer advances. Inner atmospheric substeps/surface calls are not included in that count.
+Each traced step invokes the real model exactly once. Each reference uses its own context and matching initial state. Returned numerical objects/arrays compared by Node assert.deepEqual at every step; not a separate byte-level comparison of all representations.
+Maximum absolute effectiveSurfaceInput*dt versus actual inputTotal error: 5.5511151231257827e-17.
+Maximum absolute ledger residual across every tested step (combined, surface and moisture where present): 3.3306690738754696e-15.
+Units remain relative-height*steradian inventories and arbitrary model time; not m3 or years.
+
+COVERAGE
+Real saved Trace, Surface/Fill, Moisture/Join, Drain/Runoff; no fake numerical solver or routing implementation.
+Independent routing call uses retained PRE-STEP depths and actual returned atmospheric rain. Its full result matches trace.diagnose; prior states remain deep-equal to copies. Checks generation/delivery identities, precipitation rate versus inventory, non-runoff and accepted surface input.
+Fixtures: mostly 8x4 synthetic chain graphs with spherical areas and hand-made one/two-basin spill hierarchies; one sparse 720x360 standalone fixture (three land cells, two paired steps).
+Prescribed dry-to-wet, dry recession, spatial P/C, evaporation/seepage, zero-capacity ocean export, east/west prescribed winds x feedback ON/OFF (25 steps each), nonzero initial atmospheric column, merged pools and saddle splits.
+Merged-case counters sum 7 merge events and 1 split event across steps; NOT seven distinct lakes. Full-size case does not establish dense-map performance.
+Feedback ON produced positive actual returned evaporation in both directions; rain inventories stayed tied to the same outer step after injection.
+
+LIMITS / NEXT
+This checks numerical helper compatibility and diagnostic provenance, NOT equality of diagnostic dry-runoff routes with physical fill/spill transfers. Diagnostics still omit release/spill from stored wet patches and travel time.
+Geometry and hierarchies are synthetic, not real A/B terrain. No controller/replay/viewer integration was run in this suite; the separate b190f9f integration suite used mocked numerics. These are distinct evidence scopes, not one end-to-end proof.
+No Electron, native dialog/disk, PNG, resize or calibrated river/lake acceptance. Do not rerun unchanged suites just to count tests.
+Live .13 remains unactivated. Next: exact-frame drainage lookup plus page/control activation for BOTH run and replay, honest diagnostic UI, and new build acceptance. CURRENT.json is not changed by this package.

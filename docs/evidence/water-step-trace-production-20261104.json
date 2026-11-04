@@ -1,0 +1,71 @@
+{
+  "baseline": "b190f9f7d6ef06ba4cf0d7e24e5a4875e5874eae",
+  "scope": "Actual saved trace, Surface/Fill, Moisture/Join, Drain/Runoff; synthetic chain graphs and hand-made one/two-basin hierarchies, spherical cell areas. Not real A/B, controller/replay/viewer/Electron acceptance or calibrated river physics.",
+  "blobs": {
+    "water-step-trace": "2da5e14c847ae60ad408476e8596c2160ad2b5ad",
+    "coupled-basin-water": "a783c73dad89a8aaf31b130fb54246a4f9974be5",
+    "basin-fill-spill": "aee23792f8c564513305afcd3c8b6db67fa29fa5",
+    "atmosphere-surface-water": "3190dce0a06fe63b82cc2d461a75cc8b217cf666",
+    "spherical-moisture-transport": "7e781f2c3bbbf31a948e0fc0bd38de2eb846b186",
+    "spherical-drainage": "1c32b09899705827a873ad18364ac3e1d0893b05",
+    "rainfall-runoff-routing": "ca50fcd8cfddbc780c0f743c1709f55c79178a49"
+  },
+  "groups": [
+    {
+      "name": "prescribed dry-to-wet and dry recession",
+      "pairedSteps": 6
+    },
+    {
+      "name": "spatial precipitation/coefficient, evaporation and seepage",
+      "pairedSteps": 5
+    },
+    {
+      "name": "dry ocean outlet exports with no final water",
+      "pairedSteps": 1
+    },
+    {
+      "name": "atmosphere sign -1 feedback false twenty steps plus continuation",
+      "pairedSteps": 25,
+      "returnedEvapTotal": 0,
+      "surfaceStored": 0.002386127326464
+    },
+    {
+      "name": "atmosphere sign -1 feedback true twenty steps plus continuation",
+      "pairedSteps": 25,
+      "returnedEvapTotal": 0.00048245193472746633,
+      "surfaceStored": 0.002475861505936007
+    },
+    {
+      "name": "atmosphere sign 1 feedback false twenty steps plus continuation",
+      "pairedSteps": 25,
+      "returnedEvapTotal": 0,
+      "surfaceStored": 0.0014061981509369418
+    },
+    {
+      "name": "atmosphere sign 1 feedback true twenty steps plus continuation",
+      "pairedSteps": 25,
+      "returnedEvapTotal": 0.00048221326116075383,
+      "surfaceStored": 0.0014737925605773886
+    },
+    {
+      "name": "nonzero initial atmospheric column and spatial C",
+      "pairedSteps": 3
+    },
+    {
+      "name": "merged pools and recession saddle splits",
+      "pairedSteps": 16,
+      "merges": 7,
+      "splits": 1
+    },
+    {
+      "name": "sparse full-size standalone trace and routing",
+      "pairedSteps": 2
+    }
+  ],
+  "pairedSteps": 133,
+  "tracedOuterAdvances": 133,
+  "referenceOuterAdvances": 133,
+  "maxInputError": 5.551115123125783e-17,
+  "maxLedgerResidual": 3.3306690738754696e-15,
+  "passed": true
+}
