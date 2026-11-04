@@ -1,0 +1,111 @@
+{
+  "sourceCommit": "5ebe2d3f0649813d60c5e33558d8ce738b1be8d6",
+  "passed": true,
+  "scenario": {
+    "steps": 20,
+    "dt": 0.05,
+    "start": "empty",
+    "meanPOverLand": 0.02,
+    "E": 0.001,
+    "C": 0.5,
+    "seepage": 0,
+    "westWetRawP": [
+      0.04,
+      0.01
+    ],
+    "eastWetRawP": [
+      0.01,
+      0.04
+    ],
+    "westBounds": "0 <= u < .5",
+    "eastBounds": ".5 <= u < 1",
+    "normalization": "each variant and recipe independently land-area normalized; rain ratio 4:1"
+  },
+  "results": [
+    {
+      "end": 2,
+      "scenario": "west-wet",
+      "meanP": 0.01999999999999907,
+      "rainScale": 0.8242277183666883,
+      "input": 0.0446819271388578,
+      "stored": 0.0028871005672060114,
+      "boundary": 0.04152557120934294,
+      "evaporation": 0.0002692553623098212,
+      "pending": 0,
+      "maxResidual": 9.755651148024569e-16,
+      "wetCells": 4302,
+      "wetAreaSteradians": 0.3073958405838514,
+      "maxDepth": 0.1426321800925685
+    },
+    {
+      "end": 2,
+      "scenario": "east-wet",
+      "meanP": 0.019999999999999914,
+      "rainScale": 0.7771559308192898,
+      "input": 0.046339561752795654,
+      "stored": 0.0027457592817735806,
+      "boundary": 0.043290808587164484,
+      "evaporation": 0.00030299388385689733,
+      "pending": 0,
+      "maxResidual": 6.88414169419671e-16,
+      "wetCells": 4458,
+      "wetAreaSteradians": 0.3175243149863291,
+      "maxDepth": 0.06697402020259813
+    },
+    {
+      "end": 8,
+      "scenario": "west-wet",
+      "meanP": 0.020000000000003453,
+      "rainScale": 0.8205010301797119,
+      "input": 0.04470412820115022,
+      "stored": 0.0029238603087548293,
+      "boundary": 0.04150930885871043,
+      "evaporation": 0.0002709590336818619,
+      "pending": 0,
+      "maxResidual": 3.0968608753789706e-15,
+      "wetCells": 4370,
+      "wetAreaSteradians": 0.30863265529855444,
+      "maxDepth": 0.14118532388615923
+    },
+    {
+      "end": 8,
+      "scenario": "east-wet",
+      "meanP": 0.02000000000000033,
+      "rainScale": 0.7804984732893228,
+      "input": 0.04637702457103217,
+      "stored": 0.002741524939050375,
+      "boundary": 0.043331628246416856,
+      "evaporation": 0.00030387138556461327,
+      "pending": 0,
+      "maxResidual": 6.5670125587447e-16,
+      "wetCells": 4521,
+      "wetAreaSteradians": 0.31821316822818074,
+      "maxDepth": 0.06609762533239827
+    }
+  ],
+  "verifiedFullModuleBlobs": {
+    "regional-material-terrain.js": "5da90d0b177ea0ec4cfc2bf44813f913d436487d",
+    "spherical-drainage.js": "1c32b09899705827a873ad18364ac3e1d0893b05",
+    "basin-spill-hierarchy.js": "f5870911f9de99ab211e9f76146e32bb48d851c3",
+    "basin-fill-spill.js": "aee23792f8c564513305afcd3c8b6db67fa29fa5",
+    "coupled-basin-water.js": "be674c31e844d8586d683ae5495d20e46f1d3244",
+    "spatial-water-forcing.js": "81ab6b5c25694a55cd42f3bba61c4ef4cb6a30a4"
+  },
+  "geometryAndFieldScope": "source labels inflated and SHA256 verified; geometry, sourceUV and field build copied from source functions with history/render code omitted locally; full regional terrain/drainage/spill/fill/coupled/spatial modules Git-blob verified. Prepared real 720x360 fields and hierarchy once per A/B; numerical runs consumed lossless binary field arrays and serialized hierarchy. New evaluate() ran all four cases; repository main() launcher syntax-checked, not executed as one end-to-end CLI here. No Electron/UI/PNG IPC run.",
+  "unchangedMasks": {
+    "A": "e85687b26ee217359c179144e8c898b15b6c62d3577f8e83f95fbfb644d1bcfe",
+    "B": "5684b58196f94c72390e4dd302ec9e62ce7c7881975c4d0546bca47982838b12"
+  },
+  "heightSha256": {
+    "A": "8755d676504faa23ab113363ec2ea849bb61e685f6505a5cce807f1507833938",
+    "B": "71177708b73a9fd13488bd4fb5065503cd636a00a2fdc927eac522e3c22e57f5"
+  },
+  "checks": "normalization; per-step independent input accounting; zero pending; residual <1e-10; finite nonnegative final land depths; input geometry and forcing arrays and hierarchy edges unchanged",
+  "limitations": "prescribed rainfall, not climate; relative-height*steradian volumes, not m3; time not years; wet cutoff 1e-9 diagnostic only; four end states not equilibrium or timestep convergence; no choice of A/B winner",
+  "reproduce": [
+    "node tools/spatial-water-ab-test.cjs . 2",
+    "node tools/spatial-water-ab-test.cjs . 8"
+  ],
+  "installerRequired": false,
+  "next": "wire spatial presets and forcing diagnostics into existing water UI in one package"
+}
