@@ -1,0 +1,23 @@
+COUPLED BASIN WATER STEP CANDIDATE
+Base commit: 39ad5bfde204ccbbe691e49903e39653d4312973.
+API: CoupledBasinWater.create(field, hierarchy, BasinFillSpill) -> empty(), advance(state, forcing, dt).
+
+State uses {redistribution,ledger}, matching BasinWaterResolution output; it is not the old local-only storage array. No first-local-spill cap is imposed on already merged pools. pendingTotal must be zero; resolve any old queued inventory first. The field and hierarchy are a fixed terrain snapshot; recreate the model when terrain, mask, drift frame or hierarchy changes. Inputs and prior states are not mutated.
+
+Explicit operator order:
+1. Evaluate prescribed rain/runoff on INITIAL wetted cells: direct precipitation on water, precipitation*runoffCoefficient on dry land, not both. Add optional externalInflow per original basin.
+2. Redistribute inflow immediately through the actual saddle graph, including mergers and external export.
+3. Evaluate open-water evaporation/seepage rates on POST-INFLOW wetted cells and freeze these spatial rates for this step.
+4. Recede merged surfaces. A minimum-spanning saddle tree identifies disconnection thresholds. Losses remove common-pool water down to the next split level; after splitting, children use their own frozen loss rates for the remaining model time. Losses are capped by available water, with evaporation/seepage apportioned by their rates.
+5. Reconcile residual basin volumes by fill/spill and audit cumulative mass balance. A significant extra export during recession is rejected.
+
+This split handling avoids treating disconnected lakes as a shared reservoir: in the explicit two-basin test, intense loss on one side cannot drain the other after water falls below their connecting saddle. Binary tree split counts are numerical events, not lake counts or geological chronology. Equal saddle ties remain deterministic.
+
+Forcing: mandatory precipitation, evaporation and runoffCoefficient, each scalar or cell array; coefficient in [0,1]. Optional seepage defaults to zero. Optional externalInflow is a nonnegative volume/time array by original basin. Rates use relative-height/model-time; volume uses relative-height*steradian, not m3. Time is not years and does not alter planet age. Non-delivered dry-land rain is outside this effective-input budget. Groundwater return flow and water-body-specific boundary levels are not modeled.
+
+LIMITATIONS: routing is instantaneous; rates and wetted areas are frozen during the loss substep. Inflow is routed BEFORE evaporation, so a large timestep may export water that a smaller, interleaved scheme would partly evaporate first. This is a documented, timestep-dependent operator split, not continuous hydrodynamics, calibrated climate or persistent-lake selection. Required convergence/sensitivity checks on real A/B are not done in this package. No temperature/freezing model.
+
+Executed Node tests use the exact blob-verified production BasinFillSpill module and synthetic saddle/height geometry. Cases: rain-driven merger, asymmetric recession and split, no borrowing from disconnected neighbor, loss limiting, evaporation/seepage partition, zero forcing, overflow, direct wet-cell rain vs dry runoff, external inflow, corrupted source rejection, immutable inputs, same-area analytic timestep check, unequal areas/multiple raster cells, 500 random two-basin steps, 80 random graphs with 15 steps each, 60 initially filled graphs with 8 drying steps each. Random runs exercised 301 binary split events. Maximum ledger residual below 5.6e-14. No real A/B coupled-step, browser/Electron or climate run yet.
+
+Run: node tools/coupled-basin-water-test.cjs .
+No UI, version, packaging, main-window entry or main changes.
