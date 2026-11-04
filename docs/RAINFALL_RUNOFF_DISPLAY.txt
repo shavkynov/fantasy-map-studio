@@ -1,0 +1,25 @@
+RAINFALL RUNOFF DISPLAY — library stage, not live UI activation
+
+Baseline: 1fda6998fcc2b331a870e2e8cd265c9c9bf00a17.
+This package adds the display library, compatible replay trace forwarding and its tests. It does NOT change drainage-candidate.html, version.js, package.json, build-mac.command, recipe schema/ENGINE or numerical solvers. Current user build remains .13. A .14 page draft discussed in chat is NOT yet saved or accepted as a native build.
+
+API / CONTRACT
+RainfallRunoffDisplay.create(d) takes water, view, doc, win, routing, getContext(frame), getSurface(), getVisible(), getThreshold(), isLocked(). Returns compose(frame,normal), refreshAll(), attach(), dispose().
+compose finds completed record by exact frame identity and validates trace frame/result/surface identities. It obtains field and drainage from getContext for THAT frame, not selectors or another pane. Context helper validates private trace ownership. Cache is WeakMap keyed by trace; caller must keep returned states immutable.
+Only regional surface is supported. Disabled/Material/missing data returns original normal object. Positive finite threshold is a rate in relative-height*steradian/model-time, not catchment area or m3/s. Cyan pixel alpha uses a logarithmic scale relative to the maximum in this result; no inter-pane calibrated color scale.
+Only positive dry-generated flow above threshold is painted. No paths are extended through initially wet cells. No release of stored water, spill discharge or river speed is inferred. Input pixel array is copied, not mutated; main-canvas integration would include this layer in PNG, but native PNG is not tested here.
+compose does not write DOM. It may paint the last completed record while a new run is busy, or a synchronously staged project record before viewer publication. The readout explicitly waits for busy/project locks and checks the live pane frame. It must not claim an incomplete run is finished.
+Errors in diagnosis/threshold return base pixels and become readout warnings. If the readout backend itself fails, lifecycle update attempts are suppressed so original action errors/return values survive. Public refreshAll/dispose can still throw with a broken backend; no unconditional DOM transaction is promised.
+
+LIFECYCLE / PAGE ACTIVATION STILL REQUIRED
+Create the module after water.attach(view), then use its compose inside the base composer passed to water. Forward WaterStepTrace to BOTH water extras.trace and ABProjectControls trace.
+ABProjectControls now forwards optional d.trace into replay deps. New runoffVisible/runoffThreshold are locked only when present; current .13 has neither and remains supported. Original required controls remain required.
+Create runoff0/runoff1 readouts and independent runoffVisible/runoffThreshold controls on the future page. Toggle display/threshold by refresh, not by changing numerics or cancelling a run.
+Call display.attach after project controls/inspector handlers exist. It wraps existing click/change handlers, preserves this and values, and optionally observes waterBalance0/1 and projectStatus, never its own readouts. Cache is derived, not serialized. Dispose in reverse attachment order and only restore handlers still owned by the module. Page needs its own cleanup if attachment fails; preserve BFCache behavior.
+Future page package must update visible .14/build markers and old layout assertions together (draft: 46 unique IDs and 27 scripts, versus saved .13: 42/24). Do not update tests to require an unsaved page. No installer should be requested from this library-only package.
+
+EVIDENCE
+Fresh: node tools/rainfall-runoff-display-test.cjs — 15 groups passed on local Node, plus changed JS syntax checks.
+Actual display/controls with synthetic records/traces and mocked routing, DOM, observer and session. Covers pixel copies/cache, hidden/Material, absent/stale data, thresholds, route failures, busy/locks, action values/errors including readout failure, observer/disposal, new result/rollback reference restoration, trace forwarding/new locks and legacy .13 with absent controls/trace.
+This suite does NOT load the page or execute production hydrology, renderer, real A/B, native dialogs/disk, PNG or Electron. Earlier chat page-bootstrap checks used a separate unsaved draft and mocked factories; do not count them as this suite or native acceptance. The old full controls test suite was not rerun here; its saved .13 static baseline is unchanged.
+Production numerical evidence remains in docs/evidence/water-step-trace-production-20261104.json; not rerun by this package. No new river/lake physics or progress-percentage increase is claimed.
