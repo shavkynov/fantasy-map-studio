@@ -1,0 +1,19 @@
+BASIN FILL / SPILL / MERGE CANDIDATE
+Base commit: cc7eda65321530c5428e8eedbb89296c194cf7f7.
+API: BasinFillSpill.redistribute(sphericalField, spillHierarchy, volumePerOriginalBasin).
+
+An instantaneous redistribution experiment with prescribed finite volumes, not a climate, flow-speed or elapsed-time solver. Supply in-basin storage PLUS pending spill once per original basin. Already exported boundary flow is not live inventory and must not be reintroduced. Inputs are not mutated; the caller must replace old inventory with the returned state and not replay the same pending volume twice.
+
+Each pool selects its lowest remaining interbasin saddle. Surplus goes to the adjoining pool, never directly to external water unless an actual hierarchy edge reaches that boundary. Pools merge only if both are full to that common saddle and it is a lowest exit for both. This prevents simple reciprocal lowest-neighbor loops and avoids merging into a neighboring pool that has a lower outlet elsewhere. A dry neighbor is filled before a shared surface can rise.
+
+Existing water remains the shared external boundary used by the current hierarchy. No merger with this boundary is performed. Closed worlds with no water outlet retain water instead of inventing an outlet. Equal-saddle choices follow deterministic edge ordering; no physical uniqueness or calibrated transient flow is claimed.
+
+Outputs: active pools (member catchments, volume, level and wetted area), pool ID for each original basin, storage allocated back by geometric depth to each original basin, per-cell depth, exported boundary volume and audit statistics. Member catchments are not necessarily entirely submerged. Geometry and volume balances are checked independently. Units remain relative height*steradian, not m3. Terrain/masks unchanged.
+
+IMPORTANT: after a merge, per-original-basin storage may exceed its old FIRST-local-spill capacity. It must NOT be fed directly back into the old local-only BasinWaterBudget.advance. Coupled forcing/evaporation over merged surfaces still needs integration; this candidate does not complete that step. No rainfall, evaporation, seepage, persistent-lake decision or browser rendering added.
+
+Algorithm: dynamic pool union, original saddle graph, hypsometric capacity/level curves and a work queue; rejects after 200000 processing operations rather than silently returning an unresolved state. Large-world performance and operation bound not tested on real A/B yet.
+
+Executed Node tests: partial transfer without merger, common-level merger, further filling above internal saddle, boundary export, lower alternate outlet without false merger, equal-saddle closed cycle, zero volume, closed world, multiple cells and unequal cell areas, nonnegative inventory, no input changes, deterministic output and settled-state idempotence. 300 random saddle graphs conserve volume; 100 independently evaluated saturated cases match basin-level minimax escape capacities exactly. Maximum tested volume error below 1.5e-14. No real A/B redistribution, climate, browser or Electron run yet.
+Run: node tools/basin-fill-spill-test.cjs .
+No UI, version, packaging, main-window entry or main changes.
