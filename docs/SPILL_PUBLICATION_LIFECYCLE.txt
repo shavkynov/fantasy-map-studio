@@ -1,0 +1,11 @@
+SPILL REPLAY PUBLICATION LIFECYCLE
+
+Run: node tools/spill-publication-lifecycle-test.cjs
+
+Connects actual recipe replay (spill capture enabled) to actual ABProjectWater.prepare/stage, actual CoupledWaterUI and actual EqualAreaABViewer. Actual numerical modules and WaterStepTrace are used, not mocked numerical contexts.
+
+Checks atmospheric eastward feedback-ON and prescribed uniform replay against independent plain references; exact prepared-frame adoption without geometry recreation; last-step capture and rain-trace identities after publication; Continue and Dry using restored contexts; final numerical equality to independent plain continuation; previous result and capture retention; injected second-pane paint error followed by explicit rollback; replacement with a plain replay and subsequent Continue/Dry without stale captures.
+
+Geometry is synthetic 720x360 with five land cells and a handmade two-basin hierarchy. DOM/canvas are fake. This is a lifecycle test, not a dense A/B benchmark, full session/native-dialog test, Electron acceptance or physical validation.
+
+Status at preparation: source prepared after reading HEAD 7728118c5ff615049b3f27946356230677ec6a38. This document does not claim an executed or passing run. Application files, recipe format and solver are unchanged. No build/version activation.
