@@ -1,0 +1,8 @@
+SPILL REPLAY OPT-IN — package based on fefe99be8ddd4fa0bc69ad46513576981e8bbcca
+Changes: recipe.replay accepts optional boolean deps.spill; true constructs SpillStepCapture on the exact prepared scene. Controls forwards d.spill unchanged. No new recipe fields, no ENGINE/WORLD revision, no page activation or version change.
+The captured model remains the replay context; derived captures are not serialized. Capture still runs on EVERY advance of an opted-in model. No performance claim.
+Current local Node runs: unchanged tools/ab-project-recipe-test.cjs (git blob 57f55d3749ecbd38bf7fe5491d3fb2ab6f8cab46) passed against the proposed recipe; new tools/spill-replay-test.cjs passed 10 groups; syntax checks passed.
+Scope: actual recipe/controls, mocked Session, geometry, DOM, numerical factories, Capture and trace. The current run is not actual hydrology, project adoption, full controls/water regression, dense A/B performance or Electron acceptance.
+Earlier separate mock adoption test of actual ABProjectWater is not bundled or claimed as a current full regression.
+Commands: node tools/ab-project-recipe-test.cjs; node tools/spill-replay-test.cjs
+Remaining: full controls/water regression, actual numerical capture plus replay/adoption test, dense real A/B overhead assessment; only then consider page activation.
