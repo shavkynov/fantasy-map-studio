@@ -1,0 +1,23 @@
+name: selective spill capture numerical checks
+on:
+  workflow_dispatch:
+  push:
+    branches: ['feature/natural-world-v3']
+    paths:
+      - '.github/workflows/spill-selective.yml'
+      - 'src/spill-step-capture.js'
+      - 'tools/spill-selective-numerical-test.cjs'
+permissions:
+  contents: read
+jobs:
+  numerical:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node --check src/spill-step-capture.js
+      - run: node tools/spill-step-capture-test.cjs
+      - run: node tools/spill-selective-numerical-test.cjs
