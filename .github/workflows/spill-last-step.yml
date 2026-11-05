@@ -1,0 +1,33 @@
+name: last-step water integration checks
+on:
+  workflow_dispatch:
+  push:
+    branches: ['feature/natural-world-v3']
+    paths:
+      - '.github/workflows/spill-last-step.yml'
+      - 'src/coupled-water-ui.js'
+      - 'src/ab-project-recipe.js'
+      - 'src/spill-step-capture.js'
+      - 'tools/spill-last-step-integration-test.cjs'
+permissions:
+  contents: read
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node tools/spill-last-step-integration-test.cjs
+      - run: node tools/spill-integration-test.cjs
+      - run: node tools/spill-replay-test.cjs
+      - run: node tools/ab-project-recipe-test.cjs
+      - run: node tools/ab-project-controls-test.cjs
+      - run: node tools/ab-project-water-test.cjs
+      - run: node tools/spill-selective-numerical-test.cjs
+      - run: node tools/spill-atmospheric-replay-test.cjs atm-eastward false
+      - run: node tools/spill-atmospheric-replay-test.cjs atm-eastward true
+      - run: node tools/spill-atmospheric-replay-test.cjs atm-westward false
+      - run: node tools/spill-atmospheric-replay-test.cjs atm-westward true
