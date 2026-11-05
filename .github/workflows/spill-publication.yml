@@ -1,0 +1,32 @@
+name: spill publication lifecycle
+on:
+  workflow_dispatch:
+  push:
+    branches: ['feature/natural-world-v3']
+    paths:
+      - '.github/workflows/spill-publication.yml'
+      - 'tools/spill-publication-lifecycle-test.cjs'
+      - 'src/ab-project-water.js'
+      - 'src/ab-project-recipe.js'
+      - 'src/equal-area-ab-viewer.js'
+      - 'src/coupled-water-ui.js'
+      - 'src/spill-step-capture.js'
+      - 'src/spill-edge-projection.js'
+      - 'src/water-step-trace.js'
+      - 'src/coupled-basin-water.js'
+      - 'src/basin-fill-spill.js'
+      - 'src/atmosphere-surface-water.js'
+      - 'src/spherical-moisture-transport.js'
+permissions:
+  contents: read
+jobs:
+  publication:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Actual replay publication and continuation
+        run: node tools/spill-publication-lifecycle-test.cjs
