@@ -1,0 +1,10 @@
+DENSE REAL A/B SPILL CAPTURE BENCHMARK
+Prepared against 5df0655d7be2537d9c5fbc456a84dfab76ea40e5.
+Commands: node tools/spill-dense-ab-benchmark.cjs uniform; node tools/spill-dense-ab-benchmark.cjs atm-eastward.
+No npm install or browser needed. Dedicated CI has two matrix jobs, 20 minute timeout each; push of this package triggers them. Results go to artifacts/spill-dense-<scenario>.json and uploaded artifacts, not committed numerical evidence.
+Real fixed source, regional terrain, spherical drainage and generated spill hierarchy; A=2/2 and B=8/8 at full progress, 720x360. Land and height fingerprints checked against earlier real A/B evidence. No arbitrary source/seed change.
+Each pane/scenario: one warmup pair plus three timed pairs, twenty advances each, zero initial water, independent plain/capture contexts. Alternating execution order. Surface uniform dt=.05,P=.02,E=.001,C=.5; atmosphere eastward dt=.1 with actual UI forcing and return OFF. No dry phase, west wind or feedback ON measured here.
+Timer includes advances and all opt-in capture work, but excludes model construction, empty(), result comparison, last capture retrieval and geometry validation. Full UI latency is NOT measured. Deep equality after stripping routingTrace required after each pair. Geometry fingerprints checked after all trials.
+Local preparation: syntax and deterministic mocked timing/accounting test passed. Real dense A/B benchmark NOT run locally; CI results pending. Existing synthetic or mock passes are not performance measurements.
+Reported medians/ratio are same-runner observations, not Mac/Electron performance, statistical confidence, convergence or automatic acceptance for page activation. No arbitrary speed threshold. Failure may expose geometry/journal/numerical integration problems; do not bypass validation to get timings.
+Application page, version and numerics unchanged.

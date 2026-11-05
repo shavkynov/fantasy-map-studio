@@ -1,0 +1,34 @@
+name: dense A/B spill capture benchmark
+on:
+  workflow_dispatch:
+  push:
+    branches: ['feature/natural-world-v3']
+    paths:
+      - '.github/workflows/spill-dense-ab.yml'
+      - 'tools/spill-dense-ab-benchmark.cjs'
+      - 'tools/spill-dense-benchmark-helper-test.cjs'
+      - 'src/spill-step-capture.js'
+      - 'src/spill-edge-projection.js'
+permissions:
+  contents: read
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [uniform, atm-eastward]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node tools/spill-dense-benchmark-helper-test.cjs
+      - run: node tools/spill-dense-ab-benchmark.cjs ${{ matrix.scenario }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: spill-dense-${{ matrix.scenario }}
+          path: artifacts/spill-dense-*.json
+          if-no-files-found: warn
