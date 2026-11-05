@@ -1,0 +1,79 @@
+{
+  "sourceCommit": "9bc1a954ff903a105bb9005a3555cca2c4d4995b",
+  "provenance": "Four completed local Node runs in the previous response on 2026-11-05. Not rerun during packaging. Repository runner changes only require paths, CLI validation and removal of automatic JSON-file writes; syntax checked during packaging.",
+  "sourceBlobs": {
+    "recipe": "19548a517450f535ee8270e0cfa1e966724006d6",
+    "trace": "2da5e14c847ae60ad408476e8596c2160ad2b5ad",
+    "capture": "9cbbbf8002f227a51960976dddf07c52772df637",
+    "projection": "1faabd3aa4d4329ece01d6b7c36d230f93454b22",
+    "surface": "971170fa52e9ce6c0cf139175376fbd53ee671cb",
+    "fill": "194bf4c5cfc9d97619130138f7b78dbd1994981b",
+    "join": "3190dce0a06fe63b82cc2d461a75cc8b217cf666",
+    "moisture": "7e781f2c3bbbf31a948e0fc0bd38de2eb846b186"
+  },
+  "cases": [
+    {
+      "passed": true,
+      "direction": "atm-eastward",
+      "feedback": false,
+      "pairedOuterSteps": 21,
+      "counts": {
+        "outer": 21,
+        "surface": 21,
+        "fill": 43,
+        "injections": 0
+      },
+      "residual": 1.0437191160680305e-12,
+      "lastReplaySegments": 1,
+      "returnedEvaporation": 0
+    },
+    {
+      "passed": true,
+      "direction": "atm-eastward",
+      "feedback": true,
+      "pairedOuterSteps": 21,
+      "counts": {
+        "outer": 21,
+        "surface": 21,
+        "fill": 43,
+        "injections": 21
+      },
+      "residual": 1.0433611236809227e-12,
+      "lastReplaySegments": 1,
+      "returnedEvaporation": 2.77174551274622e-07
+    },
+    {
+      "passed": true,
+      "direction": "atm-westward",
+      "feedback": false,
+      "pairedOuterSteps": 21,
+      "counts": {
+        "outer": 21,
+        "surface": 21,
+        "fill": 43,
+        "injections": 0
+      },
+      "residual": 1.0437191160680305e-12,
+      "lastReplaySegments": 1,
+      "returnedEvaporation": 0
+    },
+    {
+      "passed": true,
+      "direction": "atm-westward",
+      "feedback": true,
+      "pairedOuterSteps": 21,
+      "counts": {
+        "outer": 21,
+        "surface": 21,
+        "fill": 43,
+        "injections": 21
+      },
+      "residual": 1.0436949529179628e-12,
+      "lastReplaySegments": 1,
+      "returnedEvaporation": 2.77174551274622e-07
+    }
+  ],
+  "pairedOuterSteps": 84,
+  "maxFinalAbsResidual": 1.0437191160680305e-12,
+  "scope": "Actual numerical modules with counting spies; synthetic 720x360, 5 land cells, handmade 2-basin hierarchy, extracted UI forcing helper. Deep equality after removing only routingTrace; immutable prior state, exact result identities and end-step same-cell injection. Not live controller/adoption, real A/B, performance, convergence or Electron."
+}

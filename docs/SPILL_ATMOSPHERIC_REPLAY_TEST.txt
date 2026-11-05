@@ -1,0 +1,13 @@
+ATMOSPHERIC REPLAY NUMERICAL EVIDENCE
+Source commit: 9bc1a954ff903a105bb9005a3555cca2c4d4995b.
+Run each case separately from the repository root:
+node tools/spill-atmospheric-replay-test.cjs atm-eastward false
+node tools/spill-atmospheric-replay-test.cjs atm-eastward true
+node tools/spill-atmospheric-replay-test.cjs atm-westward false
+node tools/spill-atmospheric-replay-test.cjs atm-westward true
+Each command prints fresh JSON; it does not overwrite saved evidence. Node must support structuredClone.
+Four prior runs: 84 tracked plus 84 independent plain outer advances, 20 replay steps plus one continuation per case. OFF/ON are separate scenarios, not expected to match each other. Tracked/plain states match after stripping only routingTrace. Counts include one initial empty Fill call: 21 outer, 21 Surface, 43 Fill per context/case.
+The helper uses the controller's extracted forcing formula, not a running controller. Geometry is synthetic 720x360 with five land cells and a handmade two-basin hierarchy with deliberately low saddles. One positive final-step crossing per case; no claim about real rivers or physical discharge.
+Saved JSON records the previous response's runs. Packaging changed only module paths, CLI validation and output plumbing; syntax checked, full numerical series not repeated while packaging.
+Not dense A/B performance, UI/project adoption, timestep convergence or Electron acceptance. No page, version, engine, numerical solver or project schema changes.
+Next: dense real A/B overhead and actual numerical replay-to-controller adoption tests before page activation. Existing mock lifecycle regressions are separate evidence.
