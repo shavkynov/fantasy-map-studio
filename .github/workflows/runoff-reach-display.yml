@@ -1,0 +1,24 @@
+name: connected runoff display checks
+on:
+  workflow_dispatch:
+  push:
+    branches: ['feature/natural-world-v3']
+    paths:
+      - '.github/workflows/runoff-reach-display.yml'
+      - 'src/runoff-reach-display.js'
+      - 'src/runoff-reach-network.js'
+      - 'src/rainfall-runoff-routing.js'
+      - 'tools/runoff-reach-display-test.cjs'
+permissions:
+  contents: read
+jobs:
+  display:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node tools/runoff-reach-network-test.cjs
+      - run: node tools/runoff-reach-display-test.cjs
