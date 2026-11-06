@@ -20,60 +20,24 @@
     "electron-builder": "^25.1.8",
     "typescript": "^5.6.0"
   },
-  "author": {
-    "name": "Александр Шавкунов"
-  },
+  "author": { "name": "Александр Шавкунов" },
   "license": "UNLICENSED",
   "build": {
     "appId": "com.shavkunov.fantasymapstudio.test",
     "productName": "Fantasy Map Studio TEST",
-    "extraMetadata": {
-      "version": "0.89.0-test.4blocks.14",
-      "buildChannel": "TEST",
-      "buildId": "4blocks-runoff-ui1"
-    },
+    "extraMetadata": { "version": "0.89.0-test.4blocks.15", "buildChannel": "TEST", "buildId": "4blocks-spill-ui1" },
     "copyright": "© Александр Шавкунов",
-    "directories": {
-      "output": "dist-test",
-      "buildResources": "build"
-    },
-    "files": [
-      "main.js",
-      "preload.js",
-      "package.json",
-      "src/**/*",
-      "build/icon.png",
-      "build/icon.ico"
-    ],
+    "directories": { "output": "dist-test", "buildResources": "build" },
+    "files": ["main.js", "preload.js", "package.json", "src/**/*", "build/icon.png", "build/icon.ico"],
     "mac": {
-      "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "arm64",
-            "x64"
-          ]
-        }
-      ],
+      "target": [{ "target": "dmg", "arch": ["arm64", "x64"] }],
       "icon": "build/icon.icns",
       "category": "public.app-category.graphics-design",
       "identity": null,
       "hardenedRuntime": false
     },
-    "dmg": {
-      "title": "Fantasy Map Studio TEST 0.89.0-test.4blocks.14"
-    },
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
-      "icon": "build/icon.ico"
-    },
+    "dmg": { "title": "Fantasy Map Studio TEST 0.89.0-test.4blocks.15" },
+    "win": { "target": [{ "target": "nsis", "arch": ["x64"] }], "icon": "build/icon.ico" },
     "nsis": {
       "oneClick": false,
       "perMachine": false,
@@ -82,21 +46,14 @@
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
       "shortcutName": "Fantasy Map Studio TEST",
-      "artifactName": "FantasyMapStudio-TEST-4blocks-runoff-ui1-Setup-${version}.${ext}"
+      "artifactName": "FantasyMapStudio-TEST-4blocks-spill-ui1-Setup-${version}.${ext}"
     },
     "linux": {
-      "target": [
-        {
-          "target": "AppImage",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
+      "target": [{ "target": "AppImage", "arch": ["x64"] }],
       "icon": "build/icon.png",
       "category": "Graphics",
-      "artifactName": "FantasyMapStudio-TEST-4blocks-runoff-ui1-${version}-linux-x64.${ext}"
+      "artifactName": "FantasyMapStudio-TEST-4blocks-spill-ui1-${version}-linux-x64.${ext}"
     },
-    "artifactName": "FantasyMapStudio-TEST-4blocks-runoff-ui1-${version}.${ext}"
+    "artifactName": "FantasyMapStudio-TEST-4blocks-spill-ui1-${version}.${ext}"
   }
 }
