@@ -11,6 +11,7 @@ on:
       - 'package.json'
       - 'build-mac.command'
       - 'tools/runoff-page-test.cjs'
+      - 'tools/ab-project-controls-test.cjs'
 permissions:
   contents: read
 jobs:
