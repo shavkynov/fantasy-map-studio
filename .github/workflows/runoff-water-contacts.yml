@@ -1,0 +1,23 @@
+name: runoff water contact checks
+on:
+  workflow_dispatch:
+  push:
+    branches: ['feature/natural-world-v3']
+    paths:
+      - '.github/workflows/runoff-water-contacts.yml'
+      - 'src/runoff-water-contacts.js'
+      - 'src/runoff-reach-network.js'
+      - 'src/surface-water-objects.js'
+      - 'tools/runoff-water-contacts-test.cjs'
+permissions:
+  contents: read
+jobs:
+  contacts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node tools/runoff-water-contacts-test.cjs
