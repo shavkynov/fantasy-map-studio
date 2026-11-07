@@ -18,6 +18,7 @@ on:
       - 'scripts/prepare-contact-page.cjs'
       - 'tools/terrain-edit-core-test.cjs'
       - 'tools/terrain-edit-smooth-test.cjs'
+      - 'tools/terrain-edit-comparison-test.cjs'
       - 'tools/terrain-edit-session-test.cjs'
       - 'tools/terrain-editor-ui2-test.cjs'
       - 'tools/terrain-editor-view-test.cjs'
@@ -45,6 +46,8 @@ jobs:
         run: node tools/terrain-edit-core-test.cjs
       - name: Smoothing, coast invariants and real water lifecycle
         run: node tools/terrain-edit-smooth-test.cjs
+      - name: Measured edits, before-after pixels and session isolation
+        run: node tools/terrain-edit-comparison-test.cjs
       - name: Brush preview, shortcuts and interaction guards
         run: node tools/terrain-editor-ui2-test.cjs
       - name: Zoom, scroll and actual coordinate functions
