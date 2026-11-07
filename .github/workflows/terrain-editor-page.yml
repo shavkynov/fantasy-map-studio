@@ -1,10 +1,13 @@
 name: terrain editor page checks
+run-name: 'Terrain editor · ${{ github.event_name }} · ${{ github.head_ref || github.ref_name }} · ${{ github.sha }}'
 on:
   workflow_dispatch:
   push:
     branches: ['feature/natural-world-v3']
     paths:
       - '.github/workflows/terrain-editor-page.yml'
+      - 'scripts/lint-undef.js'
+      - 'scripts/check.js'
       - 'src/terrain-edit-core.js'
       - 'src/terrain-edit-session.js'
       - 'src/terrain-editor.html'
@@ -12,10 +15,14 @@ on:
       - 'scripts/prepare-contact-page.cjs'
       - 'tools/terrain-edit-core-test.cjs'
       - 'tools/terrain-edit-session-test.cjs'
+concurrency:
+  group: terrain-editor-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
   editor:
+    name: Editor static, brush and numerical water checks
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -23,6 +30,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
+      - name: Install static checker
+        run: npm ci --ignore-scripts
+      - name: Static syntax and undeclared names
+        run: npm run check
       - name: Brush geometry, history and edit patch format
         run: node tools/terrain-edit-core-test.cjs
       - name: Real numerical geometry and water lifecycle

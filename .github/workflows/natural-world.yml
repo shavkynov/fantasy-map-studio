@@ -1,13 +1,18 @@
 name: Natural World v3 checks
+run-name: 'Natural World v3 · ${{ github.event_name }} · ${{ github.head_ref || github.ref_name }} · ${{ github.sha }}'
 on:
   push:
     branches: ['feature/natural-world-v3']
   pull_request:
   workflow_dispatch:
+concurrency:
+  group: natural-world-v3-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
   natural-world:
+    name: General static and natural-world regression
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -19,7 +24,8 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: node scripts/enable-natural-v3.cjs
       - run: node tools/composition-v3-test.cjs
-      - run: npm run check
+      - name: Static syntax and undeclared names
+        run: npm run check
       - run: node tools/natural-v3-test.cjs > natural-world-report.json
       - uses: actions/upload-artifact@v4
         if: always()
