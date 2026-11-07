@@ -5,14 +5,21 @@
   "description": "Генератор фэнтези-карт с тектоникой и рисованным стилем",
   "main": "main.js",
   "scripts": {
+    "prepare:contacts": "node scripts/prepare-contact-page.cjs",
+    "prestart": "npm run prepare:contacts",
     "start": "node scripts/ensure-electron.js && electron .",
     "setup": "node scripts/ensure-electron.js",
     "check": "node scripts/check.js",
     "release": "node scripts/release.js",
+    "predist:dmg": "npm run prepare:contacts",
     "dist:dmg": "electron-builder --mac dmg --arm64 --publish never",
+    "predist:dmg-intel": "npm run prepare:contacts",
     "dist:dmg-intel": "electron-builder --mac dmg --x64 --publish never",
+    "predist:win": "npm run prepare:contacts",
     "dist:win": "electron-builder --win nsis --x64 --publish never",
+    "predist:linux": "npm run prepare:contacts",
     "dist:linux": "electron-builder --linux AppImage --x64 --publish never",
+    "predist:dir": "npm run prepare:contacts",
     "dist:dir": "electron-builder --dir"
   },
   "devDependencies": { "electron": "^33.2.0", "electron-builder": "^25.1.8", "typescript": "^5.6.0" },
@@ -21,15 +28,15 @@
   "build": {
     "appId": "com.shavkunov.fantasymapstudio.test",
     "productName": "Fantasy Map Studio TEST",
-    "extraMetadata": { "version": "0.89.0-test.4blocks.16", "buildChannel": "TEST", "buildId": "4blocks-reaches-ui1" },
+    "extraMetadata": { "version": "0.89.0-test.4blocks.17", "buildChannel": "TEST", "buildId": "4blocks-contacts-ui1" },
     "copyright": "© Александр Шавкунов",
     "directories": { "output": "dist-test", "buildResources": "build" },
     "files": ["main.js", "preload.js", "package.json", "src/**/*", "build/icon.png", "build/icon.ico"],
     "mac": { "target": [{ "target": "dmg", "arch": ["arm64", "x64"] }], "icon": "build/icon.icns", "category": "public.app-category.graphics-design", "identity": null, "hardenedRuntime": false },
-    "dmg": { "title": "Fantasy Map Studio TEST 0.89.0-test.4blocks.16" },
+    "dmg": { "title": "Fantasy Map Studio TEST 0.89.0-test.4blocks.17" },
     "win": { "target": [{ "target": "nsis", "arch": ["x64"] }], "icon": "build/icon.ico" },
-    "nsis": { "oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "installerIcon": "build/icon.ico", "uninstallerIcon": "build/icon.ico", "shortcutName": "Fantasy Map Studio TEST", "artifactName": "FantasyMapStudio-TEST-4blocks-reaches-ui1-Setup-${version}.${ext}" },
-    "linux": { "target": [{ "target": "AppImage", "arch": ["x64"] }], "icon": "build/icon.png", "category": "Graphics", "artifactName": "FantasyMapStudio-TEST-4blocks-reaches-ui1-${version}-linux-x64.${ext}" },
-    "artifactName": "FantasyMapStudio-TEST-4blocks-reaches-ui1-${version}.${ext}"
+    "nsis": { "oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "installerIcon": "build/icon.ico", "uninstallerIcon": "build/icon.ico", "shortcutName": "Fantasy Map Studio TEST", "artifactName": "FantasyMapStudio-TEST-4blocks-contacts-ui1-Setup-${version}.${ext}" },
+    "linux": { "target": [{ "target": "AppImage", "arch": ["x64"] }], "icon": "build/icon.png", "category": "Graphics", "artifactName": "FantasyMapStudio-TEST-4blocks-contacts-ui1-${version}-linux-x64.${ext}" },
+    "artifactName": "FantasyMapStudio-TEST-4blocks-contacts-ui1-${version}.${ext}"
   }
 }

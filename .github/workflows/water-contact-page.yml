@@ -1,0 +1,37 @@
+name: TEST .17 water contact card checks
+on:
+  workflow_dispatch:
+  push:
+    branches: ['feature/natural-world-v3']
+    paths:
+      - '.github/workflows/water-contact-page.yml'
+      - 'scripts/prepare-contact-page.cjs'
+      - 'src/drainage-candidate.html'
+      - 'src/water-contact-readout.js'
+      - 'src/runoff-water-contacts.js'
+      - 'src/runoff-reach-network.js'
+      - 'src/surface-water-inspector.js'
+      - 'src/surface-water-objects.js'
+      - 'src/version.js'
+      - 'package.json'
+      - 'build-mac.command'
+      - 'tools/water-contact-page-test.cjs'
+      - 'tools/runoff-page-test.cjs'
+permissions:
+  contents: read
+jobs:
+  cards:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node scripts/prepare-contact-page.cjs
+      - run: node tools/water-contact-page-test.cjs
+      - run: node tools/runoff-page-test.cjs
+      - run: node tools/ab-project-controls-test.cjs
+      - run: node tools/surface-water-inspector-test.cjs
+      - run: node tools/surface-water-highlight-integration-test.cjs
+      - run: node tools/runoff-water-contacts-test.cjs
