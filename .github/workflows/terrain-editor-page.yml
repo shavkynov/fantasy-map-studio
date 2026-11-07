@@ -9,6 +9,7 @@ on:
       - 'scripts/lint-undef.js'
       - 'scripts/check.js'
       - 'src/terrain-edit-core.js'
+      - 'src/terrain-edit-smooth.js'
       - 'src/terrain-edit-session.js'
       - 'src/terrain-editor.html'
       - 'src/terrain-editor-page.js'
@@ -16,6 +17,7 @@ on:
       - 'src/terrain-editor-view.js'
       - 'scripts/prepare-contact-page.cjs'
       - 'tools/terrain-edit-core-test.cjs'
+      - 'tools/terrain-edit-smooth-test.cjs'
       - 'tools/terrain-edit-session-test.cjs'
       - 'tools/terrain-editor-ui2-test.cjs'
       - 'tools/terrain-editor-view-test.cjs'
@@ -41,6 +43,8 @@ jobs:
         run: npm run check
       - name: Brush geometry, history and edit patch format
         run: node tools/terrain-edit-core-test.cjs
+      - name: Smoothing, coast invariants and real water lifecycle
+        run: node tools/terrain-edit-smooth-test.cjs
       - name: Brush preview, shortcuts and interaction guards
         run: node tools/terrain-editor-ui2-test.cjs
       - name: Zoom, scroll and actual coordinate functions
