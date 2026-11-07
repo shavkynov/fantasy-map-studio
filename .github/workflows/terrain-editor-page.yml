@@ -13,10 +13,12 @@ on:
       - 'src/terrain-editor.html'
       - 'src/terrain-editor-page.js'
       - 'src/terrain-editor-ui2.js'
+      - 'src/terrain-editor-view.js'
       - 'scripts/prepare-contact-page.cjs'
       - 'tools/terrain-edit-core-test.cjs'
       - 'tools/terrain-edit-session-test.cjs'
       - 'tools/terrain-editor-ui2-test.cjs'
+      - 'tools/terrain-editor-view-test.cjs'
 concurrency:
   group: terrain-editor-${{ github.ref }}
   cancel-in-progress: true
@@ -41,6 +43,8 @@ jobs:
         run: node tools/terrain-edit-core-test.cjs
       - name: Brush preview, shortcuts and interaction guards
         run: node tools/terrain-editor-ui2-test.cjs
+      - name: Zoom, scroll and actual coordinate functions
+        run: node tools/terrain-editor-view-test.cjs
       - name: Real numerical geometry and water lifecycle
         run: node tools/terrain-edit-session-test.cjs
       - name: Preserve TEST .17 contact page contracts
