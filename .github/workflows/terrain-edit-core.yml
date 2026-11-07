@@ -1,0 +1,22 @@
+name: terrain edit core checks
+on:
+  workflow_dispatch:
+  push:
+    branches: ['feature/natural-world-v3']
+    paths:
+      - '.github/workflows/terrain-edit-core.yml'
+      - 'src/terrain-edit-core.js'
+      - 'tools/terrain-edit-core-test.cjs'
+permissions:
+  contents: read
+jobs:
+  editor-core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Brush, seam and polar geometry; history; patch persistence
+        run: node tools/terrain-edit-core-test.cjs
