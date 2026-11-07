@@ -20,7 +20,7 @@ function fixture(){
  const canvas=element('editorMap');canvas.width=36;canvas.height=18;canvas.getBoundingClientRect=()=>({left:0,top:0,width:36,height:18});canvas.hasPointerCapture=()=>canvas.captured;canvas.parentNode={appendChild(node){elements[node.id]=node;}};
  const elements={editorMap:canvas,brushRadius:element('brushRadius'),brushMode:element('brushMode'),undo:element('undo'),redo:element('redo')};let clicks=0;elements.undo.click=elements.redo.click=()=>clicks++;
  const doc={activeElement:null,getElementById:id=>elements[id],createElement:()=>element('new')},win={addEventListener(name,fn){windowHandlers[name]=fn;},MutationObserver:class{constructor(fn){observer=fn;}observe(){}disconnect(){}}};
- Tools.install(doc,win);return {doc,win,elements,draws,get clicks(){return clicks;},notify:()=>observer(),fire(id,name,e){for(const fn of handlers[id+':'+name]||[])fn(e);},key(e){windowHandlers.keydown(e);}};
+ Tools.install(doc,win);return {doc,win,elements,draws,get clicks(){return clicks;},notify:()=>observer(),fire(id,name,e){for(const fn of handlers[id+':'+name]||[])fn(e);},fireWindow(name,e){const handler=windowHandlers[name];assert.equal(typeof handler,'function','window handler: '+name);handler(e);},key(e){windowHandlers.keydown(e);}};
 }
 test('Installed handlers honour disabled buttons, repeat and focused input',()=>{
  const f=fixture();let prevented=0;const e={key:'z',metaKey:true,preventDefault(){prevented++;}};
@@ -29,7 +29,7 @@ test('Installed handlers honour disabled buttons, repeat and focused input',()=>
 test('Preview hides on lock and exit; accepted captured gesture keeps preview',()=>{
  const f=fixture(),e={clientX:10,clientY:8,pointerId:1,button:0};f.fire('editorMap','pointermove',e);assert(f.draws.length);f.elements.brushRadius.disabled=true;f.notify();assert.equal(f.draws.length,0);
  f.elements.editorMap.captured=true;f.fire('editorMap','pointerdown',{...e,defaultPrevented:true});assert(f.draws.length);f.fire('editorMap','pointermove',{...e,pointerId:2});assert(f.draws.length);f.fire('editorMap','lostpointercapture',e);assert.equal(f.draws.length,0);
- f.elements.brushRadius.disabled=false;f.fire('editorMap','pointermove',e);assert(f.draws.length);f.fire('editorMap','pointerleave',e);assert.equal(f.draws.length,0);f.fire('editorMap','pointermove',e);f.win.pagehide();assert.equal(f.draws.length,0);
+ f.elements.brushRadius.disabled=false;f.fire('editorMap','pointermove',e);assert(f.draws.length);f.fire('editorMap','pointerleave',e);assert.equal(f.draws.length,0);f.fire('editorMap','pointermove',e);assert(f.draws.length);f.fireWindow('pagehide');assert.equal(f.draws.length,0);f.fire('editorMap','pointermove',e);assert.equal(f.draws.length,0);
 });
 test('Page wiring, marker and isolated PNG source contract',()=>{
  const root=path.join(__dirname,'..'),html=fs.readFileSync(path.join(root,'src/terrain-editor.html'),'utf8'),page=fs.readFileSync(path.join(root,'src/terrain-editor-page.js'),'utf8'),tools=fs.readFileSync(path.join(root,'src/terrain-editor-ui2.js'),'utf8');assert(html.includes('editor-ui2'));assert(html.indexOf('src="terrain-editor-page.js"')<html.indexOf('src="terrain-editor-ui2.js"'));assert(html.includes('src="terrain-editor-ui2.js"'));assert(page.includes('canvas.toBlob('));assert(!tools.includes('toBlob('));
