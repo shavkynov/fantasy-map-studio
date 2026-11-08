@@ -15,7 +15,10 @@ function extend(Core){
     if(mode==='ocean'){land[i]=0;height[i]=NaN;}
     else if(mode==='land'){if(!before.land[i]){land[i]=1;height[i]=Math.max(1e-6,amount*weight[i]);}}
     else if(before.land[i]){
-     if(mode==='flatten')height[i]=before.height[i]+amount*weight[i]*(target-before.height[i]);
+     if(mode==='flatten'){
+      const influence=amount*weight[i];
+      height[i]=influence===1?target:before.height[i]+influence*(target-before.height[i]);
+     }
      else if(mode==='smooth'){
       const x=i%w,y=Math.floor(i/w),px=(x+w/2)%w,neighbours=new Set([y*w+(x+w-1)%w,y*w+(x+1)%w,y===0?px:i-w,y===h-1?(h-1)*w+px:i+w]);let total=1,delta=0,low=before.height[i],high=low;
       for(const j of neighbours)if(j!==i&&before.land[j]){const q=(Math.PI/h/Math.max(1e-12,distance(i,j)))**2;total+=q;delta+=q*(before.height[j]-before.height[i]);low=Math.min(low,before.height[j]);high=Math.max(high,before.height[j]);}
