@@ -22,7 +22,7 @@ jobs:
   editor:
     name: Editor numerical and full browser checks
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -39,6 +39,8 @@ jobs:
         run: node tools/terrain-edit-smooth-test.cjs
       - name: Shaping profiles, spherical edges, history and numerical water
         run: node tools/terrain-edit-shaping-test.cjs
+      - name: Whole maps, atomic replacement, dirty state and actual water
+        run: node tools/terrain-edit-workspace-test.cjs
       - name: Measured edits, before-after pixels and session isolation
         run: node tools/terrain-edit-comparison-test.cjs
       - name: Brush preview, shortcuts and interaction guards
@@ -57,11 +59,17 @@ jobs:
         env:
           NODE_PATH: ${{ runner.temp }}/editor-browser/node_modules
         run: node tools/terrain-editor-browser-test.cjs
-      - name: Browser report, screenshots and actual exported PNG
+      - name: Standalone maps in Chromium - create, save, switch and restore
+        env:
+          NODE_PATH: ${{ runner.temp }}/editor-browser/node_modules
+        run: node tools/terrain-editor-workspace-browser-test.cjs
+      - name: Browser reports, screenshots and actual exported PNGs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: terrain-editor-browser-${{ github.sha }}
-          path: artifacts/editor
+          path: |
+            artifacts/editor
+            artifacts/editor-workspace
           if-no-files-found: ignore
           retention-days: 7

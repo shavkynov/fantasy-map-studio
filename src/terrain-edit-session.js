@@ -1,8 +1,9 @@
 (function(root){
 'use strict';
-function create(base,deps){
+function create(base,deps,initialPatch){
  const Core=deps.Core,initial=Core.create(base).exportPatch(),limit=32;
  let changes=[],undo=[],redo=[],revision=0,epoch=0,busy=false,water=null;
+ if(initialPatch!==undefined){const candidate=Core.create(base);candidate.importPatch(initialPatch);changes=candidate.exportPatch().changes;}
  const envelope=c=>({...initial,changes:c});
  function prepare(c){
   const core=Core.create(base);core.importPatch(envelope(c));
