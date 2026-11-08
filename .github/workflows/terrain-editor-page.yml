@@ -8,20 +8,11 @@ on:
       - '.github/workflows/terrain-editor-page.yml'
       - 'scripts/lint-undef.js'
       - 'scripts/check.js'
-      - 'src/terrain-edit-core.js'
-      - 'src/terrain-edit-smooth.js'
-      - 'src/terrain-edit-session.js'
-      - 'src/terrain-editor.html'
-      - 'src/terrain-editor-page.js'
-      - 'src/terrain-editor-ui2.js'
-      - 'src/terrain-editor-view.js'
+      - 'src/terrain-edit-*.js'
+      - 'src/terrain-editor*'
       - 'scripts/prepare-contact-page.cjs'
-      - 'tools/terrain-edit-core-test.cjs'
-      - 'tools/terrain-edit-smooth-test.cjs'
-      - 'tools/terrain-edit-comparison-test.cjs'
-      - 'tools/terrain-edit-session-test.cjs'
-      - 'tools/terrain-editor-ui2-test.cjs'
-      - 'tools/terrain-editor-view-test.cjs'
+      - 'tools/terrain-edit-*.cjs'
+      - 'tools/terrain-editor-*.cjs'
 concurrency:
   group: terrain-editor-${{ github.ref }}
   cancel-in-progress: true
@@ -29,9 +20,9 @@ permissions:
   contents: read
 jobs:
   editor:
-    name: Editor static, brush and numerical water checks
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    name: Editor numerical and full browser checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -46,6 +37,8 @@ jobs:
         run: node tools/terrain-edit-core-test.cjs
       - name: Smoothing, coast invariants and real water lifecycle
         run: node tools/terrain-edit-smooth-test.cjs
+      - name: Shaping profiles, spherical edges, history and numerical water
+        run: node tools/terrain-edit-shaping-test.cjs
       - name: Measured edits, before-after pixels and session isolation
         run: node tools/terrain-edit-comparison-test.cjs
       - name: Brush preview, shortcuts and interaction guards
@@ -56,3 +49,19 @@ jobs:
         run: node tools/terrain-edit-session-test.cjs
       - name: Preserve TEST .17 contact page contracts
         run: node tools/water-contact-page-test.cjs
+      - name: Install isolated pinned browser tools
+        run: |
+          npm install --prefix "$RUNNER_TEMP/editor-browser" --no-save --package-lock=false playwright@1.56.1
+          "$RUNNER_TEMP/editor-browser/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Full procedural editor in Chromium - integrated user scenarios
+        env:
+          NODE_PATH: ${{ runner.temp }}/editor-browser/node_modules
+        run: node tools/terrain-editor-browser-test.cjs
+      - name: Browser report, screenshots and actual exported PNG
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terrain-editor-browser-${{ github.sha }}
+          path: artifacts/editor
+          if-no-files-found: ignore
+          retention-days: 7
