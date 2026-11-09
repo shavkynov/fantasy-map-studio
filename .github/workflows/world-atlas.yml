@@ -1,0 +1,37 @@
+name: world atlas checks
+on:
+  workflow_dispatch:
+  push:
+    branches: ['feature/natural-world-v3']
+    paths: ['src/**', 'scripts/prepare-world-atlas.cjs', 'tools/world-atlas*.cjs', 'package.json', '.github/workflows/world-atlas.yml']
+permissions:
+  contents: read
+concurrency:
+  group: world-atlas-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  atlas:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run check
+      - run: node tools/world-atlas-test.cjs
+      - run: npm run prepare:contacts
+      - run: |
+          npm install --prefix "$RUNNER_TEMP/atlas-browser" --no-save --package-lock=false playwright@1.56.1
+          "$RUNNER_TEMP/atlas-browser/node_modules/.bin/playwright" install --with-deps chromium
+      - run: node tools/world-atlas-browser-test.cjs
+        env:
+          NODE_PATH: ${{ runner.temp }}/atlas-browser/node_modules
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: world-atlas-${{ github.sha }}
+          path: artifacts/world-atlas
+          if-no-files-found: ignore
