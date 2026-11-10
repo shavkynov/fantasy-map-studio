@@ -29,5 +29,9 @@ const flowHistoryTest = spawnSync(process.execPath, [path.join(root, 'tools', 't
 process.stdout.write(flowHistoryTest.stdout || '');
 if (flowHistoryTest.status !== 0) fail(`история стока\n${flowHistoryTest.stderr}`);
 
+const flowClassificationTest = spawnSync(process.execPath, [path.join(root, 'tools', 'runoff-flow-classification-test.cjs')], { encoding: 'utf8' });
+process.stdout.write(flowClassificationTest.stdout || '');
+if (flowClassificationTest.status !== 0) fail(`классификация стока\n${flowClassificationTest.stderr}`);
+
 if (failed) { console.error(`\nПроверка не пройдена: ${failed}`); process.exit(1); }
 console.log('✓ Проверка пройдена');

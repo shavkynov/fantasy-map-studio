@@ -1,0 +1,11 @@
+ 'use strict';
+const assert=require('node:assert/strict'),History=require('../src/runoff-flow-history');
+const field={w:4,h:2,land:Uint8Array.from([1,1,1,1,0,0,0,0])},drainage={w:4,h:2,receiver:Int32Array.from([4,4,4,4,-2,-2,-2,-2])};
+function sample(values){const flow=new Float64Array(8).fill(NaN),kind=new Uint8Array(8);for(let i=0;i<4;i++){flow[i]=values[i]===null?0:values[i];kind[i]=values[i]===null?1:2;}return {w:4,h:2,flow,kind};}
+const h=History.create(4,2);h.observe(field,drainage,sample([2,0,2,null]),1);h.observe(field,drainage,sample([2,0,0,null]),3);const a=h.snapshot();assert.deepEqual(Array.from(a.observationClass),[3,1,2,0,0,0,0,0]);assert.deepEqual(a.observationSummary,{notObserved:1,noFlow:1,intermittent:1,throughout:1,notLand:4});assert.equal(a.meanFlow[2],.5);assert.equal(a.zeroFlowTime[2],3);assert(Number.isNaN(a.occurrence[3]));assert.match(a.metadata.classification,/no season/);
+a.observationClass[0]=99;assert.equal(h.snapshot().observationClass[0],3);assert.throws(()=>{a.observationSummary.throughout=99;});
+const before=h.snapshot();assert.throws(()=>h.observe(field,drainage,sample([NaN,0,0,null]),1));assert.deepEqual(h.snapshot(),before);
+const tiny=History.create(4,2);tiny.observe(field,drainage,sample([2,0,2,null]),1e15);tiny.observe(field,drainage,sample([0,0,2,null]),1);assert.equal(tiny.snapshot().observationClass[0],2);
+const one=History.create(4,2),split=History.create(4,2);one.observe(field,drainage,sample([2,0,2,null]),2);for(let i=0;i<4;i++)split.observe(field,drainage,sample([2,0,2,null]),.5);assert.deepEqual(one.snapshot().observationClass,split.snapshot().observationClass);assert.deepEqual(one.snapshot().meanFlow,split.snapshot().meanFlow);
+const lake=History.create(4,2);lake.observe(field,drainage,sample([2,null,null,null]),1);lake.observe(field,drainage,sample([null,null,null,null]),1);assert.equal(lake.snapshot().observationClass[0],3);assert.equal(lake.snapshot().coverage[0],.5);assert.equal(lake.snapshot().zeroFlowTime[0],0);
+console.log('PASS: observed continuous/interrupted/zero/unobserved classes, mixed wet coverage, no season inference, detached labels and frozen summary, rollback, short dry event, time subdivision, wet time is not drought.');
