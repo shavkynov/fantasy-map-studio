@@ -1,9 +1,15 @@
-# Fantasy Map Studio — current handoff
+# Fantasy Map Studio — development entry point
 
-2026-11-02, shavkynov/fantasy-map-studio, feature/natural-world-v3. Current task: bounded fixed-frame K6 area batching, not moving-K6 acceptance. Read docs/WORK_STATE.md and docs/K6_FIXED_FRAME_AREA_BATCH.md; do not load all history.
-User Mac pilot 21:05 MSK exit0 CONFIRMED; old pending notes obsolete. Never repeat pilot/request same JSON. Mac timings unavailable in this session.
-Policy analytic-k6-dual-gauss-area-v1 unchanged: ALL6/ALL10, BOTH G4/G8 errors strictly<0.03, retain original centres/gate. Original assistant full moving-K6 CLI FAILED: piece2 reverse0.25,360x180 centre error0.03543776625744366>0.03. Do not erase failure or conflate revised area success with collision success.
-New batch runner/test/spec: one explicit frame per call, saved local evidence, strict ten-frame assembly, existing local pilot import as index4. Legacy historical hashes unavailable and explicitly marked. No geometry/core/poses/Gauss/policy/pilot/fixtures/baselines changed; no culling. Assistant syntax/isolated synthetic tests exit0 (19 invalid collections,7 invalid imports); NOT full checkout/geometry/user batch/CI. No heavy run.
-Continue development here, not repeated ZIP/test handoffs. User uses extracted ZIP on Mac, no git pull/switch. Exact resolved confirmation before GitHub writes. Preserve failed evidence; no silent criteria/mask/expected-value changes. Short stdout; no repeated old reports/screenshots. Geometry/climate/UI separate. Passing tests is not accepted geography.
-Full prior handoff, WORK_STATE, metrics and provenance preserved unchanged at 014bec13a086f970bf1d44e18901f2e09ebb8467; earlier history/spec references remain there. Five frozen sources/checksum loader protected. Prior analytic K4/K6 static/poses/moving-K4/experiment/policy user successes remain recorded; analytic toys are not frozen-source integration. Frozen independent K4 overlaps; cone evidence is representation-specific, not impossibility.
-Next: actual-module validation/bounded equivalence where tools permit,cost review,remaining9 area frames plus imported pilot,then separate unchanged collisions/coverage/round trips. integrationRun=false,collisionChecksPerformed=false,movingK6StageAccepted=false,visualAccepted=false,appIntegrated=false. Atlas flatv4,no accepted moving geography/general continuous collision resolution; all-cases/CI unconfirmed. Real-source bridge,explicit frame/visual acceptance,app integration later; climate/crust separate.
+Updated 2026-11-10 for shavkynov/fantasy-map-studio, feature/natural-world-v3.
+Read docs/DEVELOPMENT_PLAN.md first. It is the current coordination plan, not a claim of release acceptance.
+
+## Historical geometry work
+The previous entry point is preserved verbatim in Git blob 3006f06555bbba9bf7cfdebd6382a7036d8cce3a (available in commit e953a685fca2d6ecfa02ef9622b6bd4ac4719aba). docs/WORK_STATE.md and docs/evidence/CURRENT.json remain historical K6 records; their next-step instructions are NOT the default task for this branch. Do not delete or rewrite evidence. Consult them when explicitly resuming K6.
+
+## Standing safeguards
+- Continue in this branch; do not merge or release without explicit approval. Exact resolved confirmation is required before GitHub writes.
+- User uses extracted ZIP on Mac; do not prescribe git pull/switch or repeat confirmed pilots.
+- Preserve failed evidence, fixtures, baselines, five frozen sources and checksum protection. No silent criterion, mask or expected-value changes.
+- K6 policy analytic-k6-dual-gauss-area-v1 stays unchanged: ALL6/ALL10, both G4/G8 errors strictly <0.03, retain original centres. Original moving-K6 failure remains piece2 reverse0.25 at 360x180, centre error 0.03543776625744366 >0.03. Area success is not collision acceptance.
+- Keep geometry, climate and UI claims separate. Numerical success is not artistic or geographic acceptance. No CI, Mac, full-schedule or integration success without run-specific evidence.
+- Avoid heavy geometry reruns and repeated ZIP handoffs. Prefer bounded regression and one combined acceptance session.
