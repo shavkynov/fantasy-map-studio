@@ -3,7 +3,10 @@
 function create(base,deps,initialPatch){
  const Core=deps.Core,initial=Core.create(base).exportPatch(),limit=32;
  if(!!deps.Routing!==!!deps.Reaches)throw Error('Routing and Reaches must be supplied together');
- let changes=[],undo=[],redo=[],revision=0,epoch=0,busy=false,water=null,rivers=null;
+ const FlowHistory=deps.FlowHistory||(deps.Routing?root.RunoffFlowHistory:null);
+ if(FlowHistory&&!deps.Routing)throw Error('FlowHistory requires Routing and Reaches');
+ if(deps.Routing&&root.document&&!FlowHistory)throw Error('RunoffFlowHistory not loaded');
+ let changes=[],undo=[],redo=[],revision=0,epoch=0,busy=false,water=null,rivers=null,flowHistory=null;
  if(initialPatch!==undefined){const candidate=Core.create(base);candidate.importPatch(initialPatch);changes=candidate.exportPatch().changes;}
  const envelope=c=>({...initial,changes:c});
  function prepare(c){
@@ -12,7 +15,7 @@ function create(base,deps,initialPatch){
   return {core,field,drainage,hierarchy};
  }
  let scene=prepare(changes);
- function install(next,c){epoch++;busy=false;water=null;rivers=null;scene=next;changes=c;revision++;}
+ function install(next,c){epoch++;busy=false;water=null;rivers=null;flowHistory=null;scene=next;changes=c;revision++;}
  function commit(next,c){undo.push(changes);if(undo.length>limit)undo.shift();redo=[];install(next,c);}
  function stroke(command){
   const candidate=Core.create(base);candidate.importPatch(envelope(changes));
@@ -26,31 +29,42 @@ function create(base,deps,initialPatch){
   const network=rivers.network;
   return {step:rivers.step,routing:{w:network.w,h:network.h,flow:rivers.routing.flow.slice()},network:{...network,nodes:network.nodes.map(v=>({...v})),reaches:network.reaches.map(v=>({...v,cells:v.cells.slice()})),summary:{...network.summary},metadata:{...network.metadata}}};
  }
- function snapshot(){return {w:base.w,h:base.h,land:scene.field.land.slice(),height:scene.field.height.slice(),east:scene.field.east.slice(),north:scene.field.north.slice(),depth:water?water.redistribution.depth.slice():null,ledger:water?{...water.ledger}:null,rivers:riverSnapshot(),revision,busy,canUndo:undo.length>0,canRedo:redo.length>0,basins:scene.hierarchy.basins.length};}
+ function historySnapshot(){
+  if(!flowHistory)return null;
+  const result={...flowHistory,metadata:{...flowHistory.metadata}};
+  for(const key of Object.keys(result))if(ArrayBuffer.isView(result[key]))result[key]=result[key].slice();
+  return result;
+ }
+ function snapshot(){return {w:base.w,h:base.h,land:scene.field.land.slice(),height:scene.field.height.slice(),east:scene.field.east.slice(),north:scene.field.north.slice(),depth:water?water.redistribution.depth.slice():null,ledger:water?{...water.ledger}:null,rivers:riverSnapshot(),flowHistory:historySnapshot(),revision,busy,canUndo:undo.length>0,canRedo:redo.length>0,basins:scene.hierarchy.basins.length};}
  function cancel(){epoch++;busy=false;}
  async function runWater(onProgress=()=>{}){
   if(busy)return {status:'busy'};
   const current=scene,token=++epoch;busy=true;
   try{
    const model=deps.Surface.create(current.field,current.hierarchy,deps.Fill);let state=model.empty(),nextRivers=null;
+   const observer=FlowHistory?FlowHistory.create(base.w,base.h):null;
    const forcing={precipitation:.02,evaporation:.001,runoffCoefficient:.5};
    for(let step=1;step<=20;step++){
     if(token!==epoch||current!==scene)return {status:'cancelled'};
-    // Diagnose the final step with its INITIAL wet mask, before advancing water.
-    if(step===20&&deps.Routing){
+    // Observe initial wet masks; preserve the final-step display network.
+    if(deps.Routing&&(observer||step===20)){
      const routing=deps.Routing.build(current.field,current.drainage,{precipitation:forcing.precipitation,runoffCoefficient:forcing.runoffCoefficient},state.redistribution.depth);
+     if(observer)observer.observe(current.field,current.drainage,routing,.05);
+     if(step===20){
      const network=deps.Reaches.build(current.field,current.drainage,routing,{threshold:1e-6});
      nextRivers={step,routing,network};
+     }
     }
     state=model.advance(state,forcing,.05);
     onProgress(step,20);await deps.yieldStep();
    }
    if(token!==epoch||current!==scene)return {status:'cancelled'};
+   const nextHistory=observer?observer.snapshot():null;
    // Publish a matched pair only after every calculation and cancellation check succeeds.
-   water=state;rivers=nextRivers;return {status:'completed'};
+   water=state;rivers=nextRivers;flowHistory=nextHistory;return {status:'completed'};
   }finally{if(token===epoch)busy=false;}
  }
- return {stroke,undo:()=>history(undo,redo),redo:()=>history(redo,undo),load,save:()=>JSON.parse(JSON.stringify(envelope(changes))),snapshot,cancel,runWater,clearWater(){cancel();water=null;rivers=null;}};
+ return {stroke,undo:()=>history(undo,redo),redo:()=>history(redo,undo),load,save:()=>JSON.parse(JSON.stringify(envelope(changes))),snapshot,cancel,runWater,clearWater(){cancel();water=null;rivers=null;flowHistory=null;}};
 }
 const api={create};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.TerrainEditSession=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

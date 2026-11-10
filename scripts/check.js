@@ -25,5 +25,9 @@ const lint = spawnSync(process.execPath, [path.join(__dirname, 'lint-undef.js')]
 process.stdout.write(lint.stdout || '');
 if (lint.status !== 0) fail(`необъявленные имена\n${lint.stderr}`);
 
+const flowHistoryTest = spawnSync(process.execPath, [path.join(root, 'tools', 'terrain-edit-flow-history-test.cjs')], { encoding: 'utf8' });
+process.stdout.write(flowHistoryTest.stdout || '');
+if (flowHistoryTest.status !== 0) fail(`история стока\n${flowHistoryTest.stderr}`);
+
 if (failed) { console.error(`\nПроверка не пройдена: ${failed}`); process.exit(1); }
 console.log('✓ Проверка пройдена');
