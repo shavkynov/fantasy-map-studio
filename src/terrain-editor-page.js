@@ -9,7 +9,7 @@ function measure(before,after){
  }
  return {mask,changedCells,heightCells,added,removed,maxAbs,meanAbs:heightCells?sumAbs/heightCells:0};
 }
-function terrainPixels(s,withWater=false,mask=null){
+function terrainPixels(s,withWater=false,mask=null,withRivers=false,reachDisplay=null){
  const data=new Uint8ClampedArray(s.w*s.h*4);
  for(let i=0;i<s.land.length;i++){
   let c=[24,66,91];
@@ -17,6 +17,10 @@ function terrainPixels(s,withWater=false,mask=null){
   if(s.land[i]&&s.depth&&withWater&&s.depth[i]>1e-9){const a=.35+.5*Math.min(1,s.depth[i]/.05);c=c.map((v,k)=>(1-a)*v+a*[110,115,225][k]);}
   if(mask?.[i])c=mask[i]===2?[70,255,120]:mask[i]===3?[255,90,190]:[255,220,30];
   data.set([...c.map(v=>Math.max(0,Math.min(255,Math.round(v)))),255],i*4);
+ }
+ if(withWater&&withRivers&&!mask&&s.rivers){
+  if(!reachDisplay||typeof reachDisplay.paint!=='function')throw Error('Reach display unavailable');
+  return reachDisplay.paint({pixels:data},s.rivers.network,s.rivers.routing).pixels;
  }
  return data;
 }
@@ -32,6 +36,9 @@ function createComparison(){
 if(typeof module!=='undefined'&&module.exports&&typeof document==='undefined'){module.exports={measure,terrainPixels,createComparison};return;}
 const $=id=>document.getElementById(id),canvas=$('editorMap'),overlay=$('gesture'),comparison=createComparison();
 let session=null,gesture=null,locked=false;
+const riverControls=document.createElement('div');
+riverControls.innerHTML='<label><input id="showRivers" type="checkbox" checked> Показывать дождевые водотоки</label><p id="riverInfo" role="status">Завершённой речной диагностики нет.</p><p>Водотоки последнего дождевого шага, порог 0.000001 в условных единицах расхода. Это не постоянные реки. Вход в воду определяется по началу шага; видимая вода — по его концу. Проходов через озёра и выходов из них здесь ещё нет. Голубые клетки — пути; зелёные — начала ветвей, белые — слияния, фиолетовые — входы в начальную воду, синие — океан, красные — замкнутые окончания. Слой входит в PNG при включённых воде и водотоках.</p>';
+$('waterInfo').insertAdjacentElement('afterend',riverControls);
 const controlIds=['brushMode','brushRadius','brushAmount','undo','redo','calculateWater','clearWater','saveEdits','openEdits','saveImage'];
 const comparisonPanel=document.createElement('section');
 comparisonPanel.innerHTML='<h2>Результат последнего жеста · compare-ui1</h2><p id="compareSummary" role="status">Завершите жест, чтобы измерить его результат.</p><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;padding:12px;background:#203b49;line-height:1.7"><div>Изменено клеток<br><output id="compareCells">—</output></div><div>С изменённой высотой<br><output id="compareHeights">—</output></div><div>Максимальное |Δh|<br><output id="compareMax">—</output></div><div>Среднее |Δh|<br><output id="compareMean">—</output></div><div>Добавлено суши<br><output id="compareAdded">—</output></div><div>Убрано суши<br><output id="compareRemoved">—</output></div></div><p><button id="compareCurrent">Текущая карта · рисовать</button><button id="compareBefore">До</button><button id="compareAfter">После</button><button id="compareChanges">Где изменилось</button></p><p id="compareHint" style="line-height:1.7">До/после — только рельеф, без воды, с одной цветовой шкалой. Жёлтый: изменилась высота; зелёный: новая суша; розовый: убрана суша. Цвет подсветки обозначает факт изменения, не его величину. Среднее |Δh| считается только по клеткам с изменённой высотой, остающимся сушей. Высоты условные, не метры. В видах сравнения рисование заблокировано. PNG всегда сохраняет текущую карту без сравнения и подсветки. Undo/Redo и успешное открытие файла очищают сравнение.</p>';
@@ -56,9 +63,11 @@ function sync(){
  $('cancelWater').disabled=!busy;comparisonUi(s);
 }
 function paint(){
- const s=session.snapshot(),ctx=canvas.getContext('2d'),im=ctx.createImageData(s.w,s.h);im.data.set(terrainPixels(s,$('showWater').checked));ctx.putImageData(im,0,0);
+ const s=session.snapshot(),ctx=canvas.getContext('2d'),im=ctx.createImageData(s.w,s.h);im.data.set(terrainPixels(s,$('showWater').checked,null,$('showRivers').checked,RunoffReachDisplay));ctx.putImageData(im,0,0);
  $('editorStatus').textContent='Ревизия: '+s.revision+'\nСуша, клеток: '+s.land.reduce((a,b)=>a+b,0)+'\nВодосборов: '+s.basins+'\nUndo / Redo: '+(s.canUndo?'доступно':'нет')+' / '+(s.canRedo?'доступно':'нет');
  $('waterInfo').textContent=s.ledger?'Завершено: 20 шагов\nПриход: '+s.ledger.inputTotal.toPrecision(7)+'\nЗапас: '+s.ledger.storedTotal.toPrecision(7)+'\nГраница: '+s.ledger.boundaryTotal.toPrecision(7)+'\nИспарение: '+s.ledger.evapTotal.toPrecision(7)+'\nНевязка: '+s.ledger.residual.toPrecision(7):'Завершённого расчёта нет. Вода сбрасывается после изменения рельефа.';
+ const net=s.rivers?.network,counts={};if(net)for(const node of net.nodes)counts[node.kind]=(counts[node.kind]||0)+1;
+ $('riverInfo').textContent=net?'Дождевой шаг: '+s.rivers.step+'; участков: '+net.reaches.length+'; начал ветвей: '+(counts.headwater||0)+'; слияний: '+(counts.confluence||0)+'; входов в начальную воду: '+(counts['wet-entry']||0)+'; океанских окончаний: '+(counts.ocean||0)+'; замкнутых: '+(counts.closed||0)+'.'+(!$('showWater').checked||!$('showRivers').checked?' Слой скрыт.':''):'Завершённой речной диагностики нет. Пересчитайте воду.';
  sync();
 }
 function clearGesture(){const g=gesture;gesture=null;overlay.getContext('2d').clearRect(0,0,overlay.width,overlay.height);if(g&&canvas.hasPointerCapture(g.pointer))canvas.releasePointerCapture(g.pointer);sync();}
@@ -77,6 +86,7 @@ for(const name of ['pointercancel','lostpointercapture'])canvas.addEventListener
 window.addEventListener('keydown',e=>{if(e.key==='Escape'&&gesture)clearGesture();});
 for(const name of ['undo','redo'])$(name).onclick=()=>{try{session[name]();comparison.clear();paint();}catch(error){$('editorStatus').textContent='Операция отклонена: '+error.message;sync();}};
 $('showWater').onchange=()=>{if(session)paint();};
+$('showRivers').onchange=()=>{if(session)paint();};
 $('calculateWater').onclick=async()=>{try{comparison.select('current',session.snapshot().revision);const task=session.runWater((step,total)=>{$('waterInfo').textContent='Расчёт воды\nШаг: '+step+' / '+total;});sync();const result=await task;paint();if(result.status==='cancelled')$('waterInfo').textContent+='\nНовый расчёт отменён; прежний завершённый результат сохранён.';}catch(error){paint();$('waterInfo').textContent+='\nОшибка расчёта: '+error.message;}finally{sync();}};
 $('cancelWater').onclick=()=>session.cancel();
 $('clearWater').onclick=()=>{session.clearWater();paint();};
@@ -86,8 +96,9 @@ $('openEdits').onchange=async()=>{const file=$('openEdits').files[0];if(!file)re
 $('saveImage').onclick=()=>{canvas.toBlob(async blob=>{try{if(!blob)throw Error('PNG не создан');if(window.api?.savePNG)await window.api.savePNG(await blob.arrayBuffer(),'terrain-editor.png');else download(blob,'terrain-editor.png');$('fileInfo').textContent='PNG текущей карты передан для сохранения. Сравнение, подсветка и точки жеста не включены.';}catch(error){$('fileInfo').textContent='Ошибка PNG: '+error.message;}});};
 window.addEventListener('pagehide',()=>{if(session)session.cancel();comparison.clear();clearGesture();});
 sync();
-ThreeBlockPrototype.create().then(base=>{
+function loadRiverModule(src){return new Promise((resolve,reject)=>{const script=document.createElement('script');script.src=src;script.onload=resolve;script.onerror=()=>reject(Error('Не загружен модуль '+src));document.head.appendChild(script);});}
+Promise.all(['rainfall-runoff-routing.js','runoff-reach-network.js','runoff-reach-display.js'].map(loadRiverModule)).then(()=>ThreeBlockPrototype.create()).then(base=>{
  const model=EqualAreaABCandidate.create(base,{eastEnd:2,westEnd:2}),frame=model.frame(360,180,2,4),terrain=RegionalMaterialTerrain.create(base,MaterialReliefLayer),field=RegionalReliefIntegration.build(frame,terrain.heights(model,frame));
- session=TerrainEditSession.create(field,{Core:TerrainEditCore,Relief:RegionalReliefIntegration,Drainage:SphericalDrainage,Hierarchy:BasinSpillHierarchy,Surface:CoupledBasinWater,Fill:BasinFillSpill,yieldStep:()=>new Promise(r=>setTimeout(r,0))});paint();
+ session=TerrainEditSession.create(field,{Core:TerrainEditCore,Relief:RegionalReliefIntegration,Drainage:SphericalDrainage,Hierarchy:BasinSpillHierarchy,Surface:CoupledBasinWater,Fill:BasinFillSpill,Routing:RainfallRunoffRouting,Reaches:RunoffReachNetwork,yieldStep:()=>new Promise(r=>setTimeout(r,0))});paint();
 }).catch(error=>{$('editorStatus').textContent='Редактор не запущен: '+error.message;});
 })();
