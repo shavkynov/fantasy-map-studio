@@ -1,0 +1,30 @@
+'use strict';
+const assert=require('node:assert/strict');
+const A=require('../src/regional-relief-integration.js');
+const make=()=>({w:8,h:4,land:new Uint8Array(32).fill(1)});
+const z=new Float64Array(32).fill(1);
+for(const value of [-1,2,256,1.5,NaN,Infinity,'1',true,null,undefined]){
+ const f=make();f.land=Array.from(f.land);f.land[9]=value;
+ assert.throws(()=>A.build(f,z),/Invalid land mask/);
+}
+assert.throws(()=>A.build(null,z),/Invalid spherical field/);
+assert.throws(()=>A.build(make(),null),/Invalid spherical field/);
+for(const waterBoundary of ['lake','unknown',null])assert.throws(()=>A.build({...make(),waterBoundary},z),/Unsupported water boundary/);
+const f=make();f.land[9]=0;f.land[22]=0;
+const before=Array.from(f.land),g=A.build(f,z);
+assert.equal(g.waterBoundary,'external-zero-level-v1');
+assert.deepEqual(Array.from(g.land),before);
+assert.equal(g.land[9],0);assert.equal(g.land[22],0);
+assert(Number.isNaN(g.height[9]));assert(Number.isNaN(g.height[22]));
+assert.deepEqual(Array.from(f.land),before);
+const explicit=A.build({...f,waterBoundary:'external-zero-level-v1'},z);
+for(const k of ['land','height','area','east','north'])assert.deepEqual(explicit[k],g[k]);
+const depth=new Float64Array(32);depth[10]=.5;
+const lakeBefore=depth.slice(),landBefore=g.land.slice();
+assert.equal(g.land[10],1);assert.equal(g.height[10]+depth[10],1.5);
+assert.deepEqual(g.land,landBefore);assert.deepEqual(depth,lakeBefore);
+const dry=A.build(make(),z),ocean=A.build({w:8,h:4,land:new Uint8Array(32)},new Float64Array(32).fill(NaN));
+assert(dry.land.every(v=>v===1));assert(ocean.land.every(v=>v===0));assert(ocean.height.every(Number.isNaN));
+assert(Math.abs(g.area.reduce((a,b)=>a+b,0)-4*Math.PI)<1e-12);
+for(let i=0;i<32;i++)for(const j of g.neighbors(i))assert(g.neighbors(j).includes(i));
+console.log('PASS water field contract: strict binary input, supported boundary, disconnected external water, wet-land representation, empty/full ocean and spherical topology');
