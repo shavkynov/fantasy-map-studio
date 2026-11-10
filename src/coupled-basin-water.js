@@ -5,12 +5,22 @@ function create(field,hierarchy,fill,options={}){
  const {w,h,land,height,area}=field,n=w*h,B=hierarchy.basins.length,groups=Array.from({length:B},()=>[]);
  if(!Number.isInteger(w)||!Number.isInteger(h)||w<1||h<1||land.length!==n||height.length!==n||area.length!==n||hierarchy.w!==w||hierarchy.h!==h||hierarchy.cellBasin.length!==n||typeof fill.redistribute!=='function')throw Error('Invalid coupled field');
  for(let i=0;i<n;i++)if(land[i]){const b=hierarchy.cellBasin[i];if(!Number.isInteger(b)||b<0||b>=B||!Number.isFinite(height[i])||height[i]<=0||!Number.isFinite(area[i])||area[i]<=0)throw Error('Invalid coupled basin');groups[b].push(i);}
+ // A live water context belongs to one unchanged geometry; edits require a rebuild.
+ const cellBasin=hierarchy.cellBasin,sourceEdges=hierarchy.edges;
+ const geometry={land:Uint8Array.from(land),height:Float64Array.from(height),area:Float64Array.from(area),cellBasin:Int32Array.from(cellBasin),edges:sourceEdges.map(e=>({...e})),waterNode:hierarchy.waterNode};
+ function assertGeometry(){
+  const fail=()=>{throw Error('Water geometry changed; rebuild drainage, hierarchy and water context');};
+  if(field.w!==w||field.h!==h||field.land!==land||field.height!==height||field.area!==area||land.length!==n||height.length!==n||area.length!==n||hierarchy.w!==w||hierarchy.h!==h||hierarchy.basins.length!==B||hierarchy.cellBasin!==cellBasin||cellBasin.length!==n||hierarchy.edges!==sourceEdges||sourceEdges.length!==geometry.edges.length||hierarchy.waterNode!==geometry.waterNode)fail();
+  for(let i=0;i<n;i++)if(land[i]!==geometry.land[i]||!Object.is(height[i],geometry.height[i])||!Object.is(area[i],geometry.area[i])||cellBasin[i]!==geometry.cellBasin[i])fail();
+  for(let k=0;k<sourceEdges.length;k++)for(const name of ['a','b','level','fromCell','toCell'])if(!Object.is(sourceEdges[k][name],geometry.edges[k][name]))fail();
+ }
  const edges=hierarchy.edges.slice().sort((a,b)=>a.level-b.level||a.a-b.a||a.b-b.b);
  const metadata=Object.freeze({units:'relative-height*steradian; arbitrary model time',forcing:'prescribed, not generated climate',order:'initial-wet rain/runoff, instantaneous routing, event-driven wet-area losses with saddle splits, final routing',losses:'prescribed per-cell rates; exact piecewise-constant wet-area recession, initial-wet rain remains timestep dependent',climate:false,persistentLakes:false,terrainModified:false});
- function empty(){return {redistribution:fill.redistribute(field,hierarchy,new Float64Array(B)),ledger:{initialTotal:0,inputTotal:0,storedTotal:0,pendingTotal:0,boundaryTotal:0,evapTotal:0,seepTotal:0,residual:0},metadata};}
+ function empty(){assertGeometry();return {redistribution:fill.redistribute(field,hierarchy,new Float64Array(B)),ledger:{initialTotal:0,inputTotal:0,storedTotal:0,pendingTotal:0,boundaryTotal:0,evapTotal:0,seepTotal:0,residual:0},metadata};}
  function redistribute(volumes){const r=trackRouting?fill.redistribute(field,hierarchy,volumes,{trackRouting:true}):fill.redistribute(field,hierarchy,volumes);if(trackRouting&&!r.routingTrace)throw Error('Fill routing trace API required');return r;}
  function sample(v,i,name,max=Infinity){const x=typeof v==='number'?v:v&&v.length===n?v[i]:NaN;if(!Number.isFinite(x)||x<0||x>max)throw Error('Invalid '+name);return x;}
  function advance(state,forcing,dt){
+  assertGeometry();
   const old=state&&state.redistribution,ledger=state&&state.ledger;if(!old||!ledger||old.w!==w||old.h!==h||old.depth.length!==n||old.basinStorage.length!==B||!forcing||!Number.isFinite(dt)||dt<=0||ledger.pendingTotal!==0)throw Error('Invalid coupled state');
   for(const k of ['initialTotal','inputTotal','storedTotal','boundaryTotal','evapTotal','seepTotal'])if(!Number.isFinite(ledger[k])||ledger[k]<0)throw Error('Invalid coupled ledger');
   for(const v of old.basinStorage)if(!Number.isFinite(v)||v<0)throw Error('Invalid source inventory');

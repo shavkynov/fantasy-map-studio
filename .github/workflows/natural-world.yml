@@ -30,6 +30,8 @@ jobs:
         run: |
           node tools/basin-spill-hierarchy-test.cjs
           node tools/basin-spill-input-test.cjs
+      - name: Complete water chain and live geometry contract
+        run: node tools/water-chain-test.cjs
       - run: npm ci --ignore-scripts
       - run: node scripts/enable-natural-v3.cjs
       - run: node tools/composition-v3-test.cjs
