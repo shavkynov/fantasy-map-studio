@@ -1,7 +1,34 @@
 (function(root){'use strict';
 function build(field,drainage){
  const {w,h,land,height,area}=field,n=w*h;
- if(!Number.isInteger(w)||!Number.isInteger(h)||w<1||h<1||land.length!==n||height.length!==n||area.length!==n||drainage.w!==w||drainage.h!==h||drainage.terminal.length!==n||typeof field.neighbors!=='function')throw Error('Invalid spill input');
+ if(!Number.isInteger(w)||!Number.isInteger(h)||w<1||h<1||land.length!==n||height.length!==n||area.length!==n||drainage.w!==w||drainage.h!==h||drainage.terminal.length!==n||typeof field.neighbors!=='function'||!drainage.receiver||drainage.receiver.length!==n||!Array.isArray(drainage.basins))throw Error('Invalid spill input');
+ // Validate the supplied drainage forest against CURRENT terrain, not object identity.
+ const receiver=drainage.receiver,indegree=new Uint32Array(n),queue=[],areaByTerminal=new Map();let landCount=0;
+ for(let i=0;i<n;i++){
+  if(land[i]!==0&&land[i]!==1)throw Error('Invalid spill land mask');
+  if(!land[i]){if(receiver[i]!==-2||drainage.terminal[i]!==-1)throw Error('Drainage water-mask mismatch');continue;}
+  landCount++;
+  if(!Number.isFinite(height[i])||height[i]<=0||!Number.isFinite(area[i])||area[i]<=0)throw Error('Invalid basin sample');
+  const r=receiver[i],t=drainage.terminal[i];
+  if(!Number.isInteger(r)||r< -1||r>=n||r===i||!Number.isInteger(t)||t<0||t>=n||land[t]!==1)throw Error('Invalid drainage forest');
+  if(r<0){if(t!==i)throw Error('Drainage terminal mismatch');}
+  else{
+   if(!Array.from(field.neighbors(i)).includes(r))throw Error('Drainage receiver is not a neighbor');
+   if(land[r]){if(height[r]>height[i])throw Error('Stale drainage: uphill receiver');if(t!==drainage.terminal[r])throw Error('Drainage terminal mismatch');indegree[r]++;}
+   else if(t!==i)throw Error('Drainage outlet mismatch');
+  }
+  const a=(areaByTerminal.get(t)||0)+area[i];if(!Number.isFinite(a))throw Error('Catchment area overflow');areaByTerminal.set(t,a);
+ }
+ for(let i=0;i<n;i++)if(land[i]&&indegree[i]===0)queue.push(i);
+ for(let k=0;k<queue.length;k++){const r=receiver[queue[k]];if(r>=0&&land[r]&&--indegree[r]===0)queue.push(r);}
+ if(queue.length!==landCount)throw Error('Drainage forest cycle');
+ if(areaByTerminal.size!==drainage.basins.length)throw Error('Drainage basin count mismatch');
+ const roots=new Set();
+ for(const b of drainage.basins){
+  const a=areaByTerminal.get(b.terminal),r=receiver[b.terminal];
+  if(a===undefined||roots.has(b.terminal)||drainage.terminal[b.terminal]!==b.terminal||!Number.isFinite(b.areaSteradians)||Math.abs(a-b.areaSteradians)>1e-10*Math.max(1,a)||b.receiver!==r||b.kind!==(r>=0?'water-outlet':'closed-minimum'))throw Error('Drainage basin metadata mismatch');
+  roots.add(b.terminal);
+ }
  const basins=drainage.basins.map(b=>({...b})).sort((a,b)=>a.terminal-b.terminal),B=basins.length,water=B,index=new Map(),cellBasin=new Int32Array(n).fill(-1),floor=new Float64Array(B).fill(Infinity),edgeMap=new Map();
  for(let b=0;b<B;b++){if(index.has(basins[b].terminal))throw Error('Duplicate terminal');index.set(basins[b].terminal,b);}
  for(let i=0;i<n;i++)if(land[i]){const b=index.get(drainage.terminal[i]);if(b===undefined||!Number.isFinite(height[i])||height[i]<=0||!Number.isFinite(area[i])||area[i]<=0)throw Error('Invalid basin sample');cellBasin[i]=b;floor[b]=Math.min(floor[b],height[i]);}
