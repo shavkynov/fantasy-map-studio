@@ -37,5 +37,9 @@ const forcingRealCoreTest = spawnSync(process.execPath, [path.join(root, 'tools'
 process.stdout.write(forcingRealCoreTest.stdout || '');
 if (forcingRealCoreTest.status !== 0) fail(`переменные воздействия на реальном водном ядре\n${forcingRealCoreTest.stderr}`);
 
+const waterScheduleTest = spawnSync(process.execPath, [path.join(root, 'tools', 'terrain-edit-water-schedule-test.cjs')], { encoding: 'utf8' });
+process.stdout.write(waterScheduleTest.stdout || '');
+if (waterScheduleTest.status !== 0) fail(`расписание водной сессии\n${waterScheduleTest.stderr}`);
+
 if (failed) { console.error(`\nПроверка не пройдена: ${failed}`); process.exit(1); }
 console.log('✓ Проверка пройдена');
