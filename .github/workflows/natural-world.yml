@@ -21,6 +21,10 @@ jobs:
         with:
           node-version: 20
           cache: npm
+      - name: Coupled water regression and cell-drying events
+        run: |
+          node tools/coupled-basin-water-test.cjs
+          node tools/coupled-basin-water-drying-test.cjs
       - run: npm ci --ignore-scripts
       - run: node scripts/enable-natural-v3.cjs
       - run: node tools/composition-v3-test.cjs
