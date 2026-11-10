@@ -33,13 +33,36 @@ function createComparison(){
  function select(next,revision){if(!['current','before','after','changes'].includes(next))return false;if(next!=='current'&&!current(revision))return false;mode=next;return true;}
  return {record,clear,current,select,get mode(){return mode;}};
 }
-if(typeof module!=='undefined'&&module.exports&&typeof document==='undefined'){module.exports={measure,terrainPixels,createComparison};return;}
+function waterSchedule(mode){
+ if(!['constant','wet-dry','wet-dry-wet'].includes(mode))throw Error('Unknown water scenario');
+ const periods=mode==='constant'?[true]:mode==='wet-dry'?[true,false]:[true,false,true];
+ return periods.flatMap(wet=>Array.from({length:20},()=>({dt:.05,precipitation:wet?.02:0,evaporation:.001,runoffCoefficient:.5})));
+}
+function waterRunText(s){
+ if(!s.ledger)return 'Завершённого расчёта нет. Вода сбрасывается после изменения рельефа.';
+ const run=s.waterRun,number=v=>Number(v.toPrecision(7)).toString(),lines=[];
+ if(run){
+  lines.push('Завершено: '+run.steps.length+' шагов; время: '+number(run.totalTime)+' (условное).');
+  let start=0;
+  while(start<run.steps.length){let end=start+1;const a=run.steps[start],f=a.forcing;while(end<run.steps.length){const b=run.steps[end],g=b.forcing;if(a.dt!==b.dt||f.precipitation!==g.precipitation||f.evaporation!==g.evaporation||f.runoffCoefficient!==g.runoffCoefficient||(f.seepage||0)!==(g.seepage||0))break;end++;}
+   lines.push('Шаги '+(start+1)+'–'+end+': dt='+number(a.dt)+', P='+number(f.precipitation)+', E='+number(f.evaporation)+', C='+number(f.runoffCoefficient)+', S='+number(f.seepage||0));start=end;
+  }
+ }else lines.push('Завершено; расписание этого результата недоступно.');
+ const l=s.ledger;lines.push('Приход: '+l.inputTotal.toPrecision(7),'Запас: '+l.storedTotal.toPrecision(7),'Граница: '+l.boundaryTotal.toPrecision(7),'Испарение: '+l.evapTotal.toPrecision(7),'Просачивание: '+l.seepTotal.toPrecision(7),'Невязка: '+l.residual.toPrecision(7));
+ return lines.join('\n');
+}
+if(typeof module!=='undefined'&&module.exports&&typeof document==='undefined'){module.exports={measure,terrainPixels,createComparison,waterSchedule,waterRunText};return;}
 const $=id=>document.getElementById(id),canvas=$('editorMap'),overlay=$('gesture'),comparison=createComparison();
 let session=null,gesture=null,locked=false;
+const waterDescription=$('waterInfo').nextElementSibling;if(waterDescription)waterDescription.textContent='Каждая действительная правка, отмена или повтор сбрасывает воду и перестраивает водосборы. Воздействия задаются выбранным испытательным расписанием, не климатом. Условные высоты и время. Океан — внешняя граница.';
 const riverControls=document.createElement('div');
 riverControls.innerHTML='<label><input id="showRivers" type="checkbox" checked> Показывать дождевые водотоки</label><p id="riverInfo" role="status">Завершённой речной диагностики нет.</p><p>Водотоки последнего дождевого шага, порог 0.000001 в условных единицах расхода. Это не постоянные реки. Вход в воду определяется по началу шага; видимая вода — по его концу. Проходов через озёра и выходов из них здесь ещё нет. Голубые клетки — пути; зелёные — начала ветвей, белые — слияния, фиолетовые — входы в начальную воду, синие — океан, красные — замкнутые окончания. Слой входит в PNG при включённых воде и водотоках.</p>';
 $('waterInfo').insertAdjacentElement('afterend',riverControls);
-const controlIds=['brushMode','brushRadius','brushAmount','undo','redo','calculateWater','clearWater','saveEdits','openEdits','saveImage'];
+const scenarioControls=document.createElement('div');
+scenarioControls.innerHTML='<label>Испытательный сценарий <select id="waterScenario" disabled><option value="constant">Равномерный дождь · 20 шагов</option><option value="wet-dry">Дождь → сухой период · 40 шагов</option><option value="wet-dry-wet">Дождь → сухой период → дождь · 60 шагов</option></select></label><p>Каждый период: 20 шагов, dt=0.05; дождь P=0.02, сухой период P=0; всегда E=0.001, C=0.5, S=0. Высоты и время условные. Это заданные испытания, не климат, сезоны или подтверждение постоянных рек. Каждый запуск начинается с пустого водного состояния. Смена выбора не меняет уже рассчитанный результат; выполненное расписание показано ниже. Речной слой относится только к последнему шагу.</p>';
+$('calculateWater').insertAdjacentElement('beforebegin',scenarioControls);
+$('calculateWater').textContent='Рассчитать с нуля · выбранный сценарий';
+const controlIds=['waterScenario','brushMode','brushRadius','brushAmount','undo','redo','calculateWater','clearWater','saveEdits','openEdits','saveImage'];
 const comparisonPanel=document.createElement('section');
 comparisonPanel.innerHTML='<h2>Результат последнего жеста · compare-ui1</h2><p id="compareSummary" role="status">Завершите жест, чтобы измерить его результат.</p><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;padding:12px;background:#203b49;line-height:1.7"><div>Изменено клеток<br><output id="compareCells">—</output></div><div>С изменённой высотой<br><output id="compareHeights">—</output></div><div>Максимальное |Δh|<br><output id="compareMax">—</output></div><div>Среднее |Δh|<br><output id="compareMean">—</output></div><div>Добавлено суши<br><output id="compareAdded">—</output></div><div>Убрано суши<br><output id="compareRemoved">—</output></div></div><p><button id="compareCurrent">Текущая карта · рисовать</button><button id="compareBefore">До</button><button id="compareAfter">После</button><button id="compareChanges">Где изменилось</button></p><p id="compareHint" style="line-height:1.7">До/после — только рельеф, без воды, с одной цветовой шкалой. Жёлтый: изменилась высота; зелёный: новая суша; розовый: убрана суша. Цвет подсветки обозначает факт изменения, не его величину. Среднее |Δh| считается только по клеткам с изменённой высотой, остающимся сушей. Высоты условные, не метры. В видах сравнения рисование заблокировано. PNG всегда сохраняет текущую карту без сравнения и подсветки. Undo/Redo и успешное открытие файла очищают сравнение.</p>';
 $('mapViewport').insertAdjacentElement('afterend',comparisonPanel);
@@ -65,7 +88,7 @@ function sync(){
 function paint(){
  const s=session.snapshot(),ctx=canvas.getContext('2d'),im=ctx.createImageData(s.w,s.h);im.data.set(terrainPixels(s,$('showWater').checked,null,$('showRivers').checked,RunoffReachDisplay));ctx.putImageData(im,0,0);
  $('editorStatus').textContent='Ревизия: '+s.revision+'\nСуша, клеток: '+s.land.reduce((a,b)=>a+b,0)+'\nВодосборов: '+s.basins+'\nUndo / Redo: '+(s.canUndo?'доступно':'нет')+' / '+(s.canRedo?'доступно':'нет');
- $('waterInfo').textContent=s.ledger?'Завершено: 20 шагов\nПриход: '+s.ledger.inputTotal.toPrecision(7)+'\nЗапас: '+s.ledger.storedTotal.toPrecision(7)+'\nГраница: '+s.ledger.boundaryTotal.toPrecision(7)+'\nИспарение: '+s.ledger.evapTotal.toPrecision(7)+'\nНевязка: '+s.ledger.residual.toPrecision(7):'Завершённого расчёта нет. Вода сбрасывается после изменения рельефа.';
+ $('waterInfo').textContent=waterRunText(s);
  const net=s.rivers?.network,counts={};if(net)for(const node of net.nodes)counts[node.kind]=(counts[node.kind]||0)+1;
  $('riverInfo').textContent=net?'Дождевой шаг: '+s.rivers.step+'; участков: '+net.reaches.length+'; начал ветвей: '+(counts.headwater||0)+'; слияний: '+(counts.confluence||0)+'; входов в начальную воду: '+(counts['wet-entry']||0)+'; океанских окончаний: '+(counts.ocean||0)+'; замкнутых: '+(counts.closed||0)+'.'+(!$('showWater').checked||!$('showRivers').checked?' Слой скрыт.':''):'Завершённой речной диагностики нет. Пересчитайте воду.';
  sync();
@@ -87,7 +110,7 @@ window.addEventListener('keydown',e=>{if(e.key==='Escape'&&gesture)clearGesture(
 for(const name of ['undo','redo'])$(name).onclick=()=>{try{session[name]();comparison.clear();paint();}catch(error){$('editorStatus').textContent='Операция отклонена: '+error.message;sync();}};
 $('showWater').onchange=()=>{if(session)paint();};
 $('showRivers').onchange=()=>{if(session)paint();};
-$('calculateWater').onclick=async()=>{try{comparison.select('current',session.snapshot().revision);const task=session.runWater((step,total)=>{$('waterInfo').textContent='Расчёт воды\nШаг: '+step+' / '+total;});sync();const result=await task;paint();if(result.status==='cancelled')$('waterInfo').textContent+='\nНовый расчёт отменён; прежний завершённый результат сохранён.';}catch(error){paint();$('waterInfo').textContent+='\nОшибка расчёта: '+error.message;}finally{sync();}};
+$('calculateWater').onclick=async()=>{try{comparison.select('current',session.snapshot().revision);const schedule=waterSchedule($('waterScenario').value);const task=session.runWater((step,total)=>{$('waterInfo').textContent='Расчёт воды\nШаг: '+step+' / '+total;},{schedule});sync();const result=await task;paint();if(result.status==='cancelled')$('waterInfo').textContent+='\nНовый расчёт отменён; прежний завершённый результат сохранён.';}catch(error){paint();$('waterInfo').textContent+='\nОшибка расчёта: '+error.message;}finally{sync();}};
 $('cancelWater').onclick=()=>session.cancel();
 $('clearWater').onclick=()=>{session.clearWater();paint();};
 function download(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}

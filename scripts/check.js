@@ -41,5 +41,9 @@ const waterScheduleTest = spawnSync(process.execPath, [path.join(root, 'tools', 
 process.stdout.write(waterScheduleTest.stdout || '');
 if (waterScheduleTest.status !== 0) fail(`расписание водной сессии\n${waterScheduleTest.stderr}`);
 
+const waterScenariosTest = spawnSync(process.execPath, [path.join(root, 'tools', 'terrain-editor-water-scenarios-test.cjs')], { encoding: 'utf8' });
+process.stdout.write(waterScenariosTest.stdout || '');
+if (waterScenariosTest.status !== 0) fail(`испытательные сценарии редактора\n${waterScenariosTest.stderr}`);
+
 if (failed) { console.error(`\nПроверка не пройдена: ${failed}`); process.exit(1); }
 console.log('✓ Проверка пройдена');
