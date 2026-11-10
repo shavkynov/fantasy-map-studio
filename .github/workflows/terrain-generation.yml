@@ -21,6 +21,7 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm run check
+      - run: node tools/terrain-edit-tectonics-test.cjs
       - run: node tools/terrain-edit-generation-test.cjs
       - name: Install isolated browser
         run: |
