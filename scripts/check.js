@@ -33,5 +33,9 @@ const flowClassificationTest = spawnSync(process.execPath, [path.join(root, 'too
 process.stdout.write(flowClassificationTest.stdout || '');
 if (flowClassificationTest.status !== 0) fail(`классификация стока\n${flowClassificationTest.stderr}`);
 
+const forcingRealCoreTest = spawnSync(process.execPath, [path.join(root, 'tools', 'terrain-edit-forcing-real-core-test.cjs')], { encoding: 'utf8' });
+process.stdout.write(forcingRealCoreTest.stdout || '');
+if (forcingRealCoreTest.status !== 0) fail(`переменные воздействия на реальном водном ядре\n${forcingRealCoreTest.stderr}`);
+
 if (failed) { console.error(`\nПроверка не пройдена: ${failed}`); process.exit(1); }
 console.log('✓ Проверка пройдена');
