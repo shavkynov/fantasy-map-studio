@@ -1,0 +1,16 @@
+'use strict';
+const assert = require('node:assert/strict');
+const { inject } = require('../scripts/prepare-world-atlas.cjs');
+const tag = '<script src="world-atlas-render.js"></script>';
+const app = '<script src="app.js"></script>';
+const once = inject(app);
+assert.equal(once, tag + '\n' + app);
+assert.equal(inject(once), once);
+assert.throws(() => inject(''), /Main entry contract changed/);
+assert.throws(() => inject(app + app), /Main entry contract changed/);
+assert.throws(() => inject(tag + app + app), /Main entry contract changed/);
+assert.throws(() => inject(tag), /Main entry contract changed/);
+assert.throws(() => inject(app + tag), /Atlas must load before app/);
+assert.throws(() => inject(tag + tag + app), /Duplicate atlas script/);
+assert.throws(() => inject(app + tag + app), /Main entry contract changed/);
+console.log('PASS atlas installer: insertion, idempotency and seven invalid HTML contracts');
