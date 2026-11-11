@@ -19,10 +19,11 @@ function prepareSchedule(options){
 function create(base,deps,initialPatch){
  const Core=deps.Core,initial=Core.create(base).exportPatch(),limit=32;
  if(!!deps.Routing!==!!deps.Reaches)throw Error('Routing and Reaches must be supplied together');
+ if(!!deps.Identity!==!!deps.Objects)throw Error('Identity and Objects must be supplied together');
  const FlowHistory=deps.FlowHistory||(deps.Routing?root.RunoffFlowHistory:null);
  if(FlowHistory&&!deps.Routing)throw Error('FlowHistory requires Routing and Reaches');
  if(deps.Routing&&root.document&&!FlowHistory)throw Error('RunoffFlowHistory not loaded');
- let changes=[],undo=[],redo=[],revision=0,epoch=0,busy=false,water=null,rivers=null,flowHistory=null,waterRun=null;
+ let changes=[],undo=[],redo=[],revision=0,epoch=0,busy=false,water=null,rivers=null,flowHistory=null,waterRun=null,waterBodies=null;
  if(initialPatch!==undefined){const candidate=Core.create(base);candidate.importPatch(initialPatch);changes=candidate.exportPatch().changes;}
  const envelope=c=>({...initial,changes:c});
  function prepare(c){
@@ -31,7 +32,7 @@ function create(base,deps,initialPatch){
   return {core,field,drainage,hierarchy};
  }
  let scene=prepare(changes);
- function install(next,c){epoch++;busy=false;water=null;rivers=null;flowHistory=null;waterRun=null;scene=next;changes=c;revision++;}
+ function install(next,c){epoch++;busy=false;water=null;rivers=null;flowHistory=null;waterRun=null;waterBodies=null;scene=next;changes=c;revision++;}
  function commit(next,c){undo.push(changes);if(undo.length>limit)undo.shift();redo=[];install(next,c);}
  function stroke(command){
   const candidate=Core.create(base);candidate.importPatch(envelope(changes));
@@ -51,7 +52,7 @@ function create(base,deps,initialPatch){
   for(const key of Object.keys(result))if(ArrayBuffer.isView(result[key]))result[key]=result[key].slice();
   return result;
  }
- function snapshot(){return {w:base.w,h:base.h,land:scene.field.land.slice(),height:scene.field.height.slice(),east:scene.field.east.slice(),north:scene.field.north.slice(),depth:water?water.redistribution.depth.slice():null,ledger:water?{...water.ledger}:null,rivers:riverSnapshot(),flowHistory:historySnapshot(),waterRun:waterRun?JSON.parse(JSON.stringify(waterRun)):null,revision,busy,canUndo:undo.length>0,canRedo:redo.length>0,basins:scene.hierarchy.basins.length};}
+ function snapshot(){return {w:base.w,h:base.h,land:scene.field.land.slice(),height:scene.field.height.slice(),east:scene.field.east.slice(),north:scene.field.north.slice(),depth:water?water.redistribution.depth.slice():null,ledger:water?{...water.ledger}:null,rivers:riverSnapshot(),flowHistory:historySnapshot(),waterRun:waterRun?JSON.parse(JSON.stringify(waterRun)):null,waterBodies:waterBodies?JSON.parse(JSON.stringify(waterBodies)):null,revision,busy,canUndo:undo.length>0,canRedo:redo.length>0,basins:scene.hierarchy.basins.length};}
  function cancel(){epoch++;busy=false;}
  async function runWater(onProgress=()=>{},options={}){
   if(busy)return {status:'busy'};
@@ -61,6 +62,7 @@ function create(base,deps,initialPatch){
   try{
    const model=deps.Surface.create(current.field,current.hierarchy,deps.Fill);let state=model.empty(),nextRivers=null;
    const observer=FlowHistory?FlowHistory.create(base.w,base.h):null;
+   const identity=deps.Identity?deps.Identity.create(current.field,deps.Objects):null;let time=0;
    for(let step=1;step<=total;step++){
     const {dt,forcing}=plan.steps[step-1];
     if(token!==epoch||current!==scene)return {status:'cancelled'};
@@ -73,16 +75,18 @@ function create(base,deps,initialPatch){
      nextRivers={step,routing,network};
      }
     }
-    state=model.advance(state,forcing,dt);
+    state=model.advance(state,forcing,dt);time+=dt;
+    if(identity)identity.observe(state.redistribution,step,time);
     onProgress(step,total);await deps.yieldStep();
    }
    if(token!==epoch||current!==scene)return {status:'cancelled'};
    const nextHistory=observer?observer.snapshot():null;
    // Publish water, history, last-step network and forcing provenance atomically.
-   water=state;rivers=nextRivers;flowHistory=nextHistory;waterRun=plan;return {status:'completed'};
+   const nextBodies=identity?identity.snapshot():null;
+   water=state;rivers=nextRivers;flowHistory=nextHistory;waterRun=plan;waterBodies=nextBodies;return {status:'completed'};
   }finally{if(token===epoch)busy=false;}
  }
- return {stroke,undo:()=>history(undo,redo),redo:()=>history(redo,undo),load,save:()=>JSON.parse(JSON.stringify(envelope(changes))),snapshot,cancel,runWater,clearWater(){cancel();water=null;rivers=null;flowHistory=null;waterRun=null;}};
+ return {stroke,undo:()=>history(undo,redo),redo:()=>history(redo,undo),load,save:()=>JSON.parse(JSON.stringify(envelope(changes))),snapshot,cancel,runWater,clearWater(){cancel();water=null;rivers=null;flowHistory=null;waterRun=null;waterBodies=null;}};
 }
 const api={create};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.TerrainEditSession=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

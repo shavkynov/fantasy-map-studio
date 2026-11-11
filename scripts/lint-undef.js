@@ -10,7 +10,7 @@ const browserModules = [
   'MaterialReliefLayer', 'RegionalReliefIntegration', 'TerrainEditSession',
   'TerrainEditCore', 'SphericalDrainage', 'BasinSpillHierarchy',
   'CoupledBasinWater', 'BasinFillSpill',
-  'RainfallRunoffRouting', 'RunoffReachNetwork', 'RunoffReachDisplay'
+  'RainfallRunoffRouting', 'RunoffReachNetwork', 'RunoffReachDisplay', 'SurfaceWaterObjects', 'SurfaceWaterIdentity'
 ];
 const shim = path.join(require('os').tmpdir(), 'fm-shim.d.ts');
 fs.writeFileSync(shim, 'declare var FM: any;\ninterface Window { FM: any; api: any; __state: any }\n' + browserModules.map(name => 'declare var ' + name + ': any;').join('\n') + '\n');

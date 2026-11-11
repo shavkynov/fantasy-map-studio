@@ -49,5 +49,13 @@ const waterScenariosRealTest = spawnSync(process.execPath, [path.join(root, 'too
 process.stdout.write(waterScenariosRealTest.stdout || '');
 if (waterScenariosRealTest.status !== 0) fail(`сценарии воды на настоящих модулях\n${waterScenariosRealTest.stderr}`);
 
+const waterIdentityTest = spawnSync(process.execPath, [path.join(root, 'tools', 'surface-water-identity-test.cjs')], { encoding: 'utf8' });
+process.stdout.write(waterIdentityTest.stdout || '');
+if (waterIdentityTest.status !== 0) fail(`идентичность водоёмов, синтетика\n${waterIdentityTest.stderr}`);
+
+const waterIdentityRealTest = spawnSync(process.execPath, [path.join(root, 'tools', 'terrain-edit-water-identity-real-test.cjs')], { encoding: 'utf8' });
+process.stdout.write(waterIdentityRealTest.stdout || '');
+if (waterIdentityRealTest.status !== 0) fail(`идентичность водоёмов на настоящих модулях\n${waterIdentityRealTest.stderr}`);
+
 if (failed) { console.error(`\nПроверка не пройдена: ${failed}`); process.exit(1); }
 console.log('✓ Проверка пройдена');
