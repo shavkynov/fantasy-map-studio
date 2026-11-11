@@ -63,6 +63,10 @@ jobs:
         env:
           NODE_PATH: ${{ runner.temp }}/editor-browser/node_modules
         run: node tools/terrain-editor-workspace-browser-test.cjs
+      - name: Water scenarios in Chromium - prescribed schedules, locks, cancel and clear
+        env:
+          NODE_PATH: ${{ runner.temp }}/editor-browser/node_modules
+        run: node tools/terrain-editor-water-scenarios-browser-test.cjs
       - name: Browser reports, screenshots and actual exported PNGs
         if: always()
         uses: actions/upload-artifact@v4
@@ -71,5 +75,6 @@ jobs:
           path: |
             artifacts/editor
             artifacts/editor-workspace
+            artifacts/editor-water-scenarios
           if-no-files-found: ignore
           retention-days: 7
