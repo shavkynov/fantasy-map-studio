@@ -32,9 +32,14 @@ jobs:
       - run: node tools/world-atlas-browser-test.cjs
         env:
           NODE_PATH: ${{ runner.temp }}/atlas-browser/node_modules
+      - run: node tools/world-atlas-export-test.cjs
+        env:
+          NODE_PATH: ${{ runner.temp }}/atlas-browser/node_modules
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: world-atlas-${{ github.sha }}
-          path: artifacts/world-atlas
+          path: |
+            artifacts/world-atlas
+            artifacts/world-atlas-export
           if-no-files-found: ignore
