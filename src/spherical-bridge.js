@@ -33,13 +33,13 @@
   }
 
   // ориентация сферы: на сфере материк может лежать на полюсе, а на плоской карте полоса ±75° прижмёт его к верхнему/нижнему краю.
-  // Выбираем ось (из ~90 кандидатов, тождественная предпочтительна), при которой у полюсов (шире 45° широты) меньше всего суши, и пересэмплируем
+  // Выбираем ось (из ~90 кандидатов, тождественная предпочтительна), при которой у полюсов (шире 60° широты) меньше всего суши, и пересэмплируем
   // все поля сферы в повёрнутую систему координат (сохраняя векторы плит). Поворот чистый и детерминированный от сферы.
   function orient(sph) {
     const { w, h } = sph, N = w * h, vx = new Float64Array(N), vy = new Float64Array(N), vz = new Float64Array(N), wg = new Float64Array(N);
     for (let y = 0; y < h; y++) { const lat = Math.PI * (0.5 - (y + 0.5) / h), cl = Math.cos(lat), sl = Math.sin(lat); for (let x = 0; x < w; x++) { const lon = ((x + 0.5) / w - 0.5) * 2 * Math.PI, i = y * w + x; vx[i] = cl * Math.cos(lon); vy[i] = cl * Math.sin(lon); vz[i] = sl; wg[i] = cl; } }
     let tot = 0; for (let i = 0; i < N; i++) if (sph.land[i]) tot += wg[i];
-    const S0 = Math.SQRT1_2, cost = (px, py, pz) => { let c = 0; for (let i = 0; i < N; i++) if (sph.land[i]) { const d = Math.abs(vx[i] * px + vy[i] * py + vz[i] * pz); if (d > S0) c += wg[i] * (d - S0) / (1 - S0); } return c / tot; };
+    const S0 = Math.sqrt(3) / 2, cost = (px, py, pz) => { let c = 0; for (let i = 0; i < N; i++) if (sph.land[i]) { const d = Math.abs(vx[i] * px + vy[i] * py + vz[i] * pz); if (d > S0) c += wg[i] * (d - S0) / (1 - S0); } return c / tot; };
     const cand = [[0, 0, 1]], M = 90, ga = Math.PI * (3 - Math.sqrt(5));
     for (let k = 0; k < M; k++) { const z = 1 - (k + 0.5) / M, r = Math.sqrt(1 - z * z); cand.push([r * Math.cos(k * ga), r * Math.sin(k * ga), z]); }
     const c0 = cost(0, 0, 1); let best = cand[0], bc = c0;
@@ -147,6 +147,14 @@
         const d = -(Math.max(0.5, dLand[i]) - 0.5) / W;
         h[i] = -0.015 - 0.9 * (1 - Math.exp(d / (0.018 + 0.018 * (1 - active)))); crust[i] = smooth(-0.035 + active * 0.02, 0.015, d);
       }
+    }
+    // шкала высот: относительные высоты сферы в разы площе шкалы основного приложения (замер: медиана суши 0.14 против 0.64, 99-й процентиль 0.43 против 1.0-1.4, из-за чего нет
+    // альпийского пояса, дождевой тени и всё «болото»). Монотонная перестановка по рангу в гипсометрическую кривую основной модели сохраняет порядок (где горы) и меняет только шкалу.
+    {
+      const idx = []; for (let i = 0; i < N; i++) if (lndMask[i]) idx.push(i);
+      idx.sort((p, q) => h[p] - h[q] || p - q);
+      const Q = [0, 0.1, 0.25, 0.5, 0.75, 0.9, 0.97, 0.99, 1], V = [0.004, 0.2, 0.5, 0.65, 0.73, 0.86, 1.05, 1.25, 1.6], M = idx.length;
+      for (let r = 0; r < M; r++) { const q = M > 1 ? r / (M - 1) : 0; let k = 1; while (k < Q.length - 1 && q > Q[k]) k++; h[idx[r]] = V[k - 1] + (V[k] - V[k - 1]) * (q - Q[k - 1]) / (Q[k] - Q[k - 1]); }
     }
     return { W, H, N, seed, K, land, h, crust, old, id, conv, up: upMain, rift: riftMain, shear: shr, lndMask, sphere, seamColumn: col0 };
   }
