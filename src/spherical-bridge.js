@@ -12,7 +12,8 @@
   const rng = (s, t) => FM.mulberry32(FM.hashString(s + '|sphere-bridge|' + t));
   const noise = (s, t) => FM.makeNoise(rng(s, t));
   const VERSION = 'sphere-bridge-v1';
-  const LAT_SPAN = 75;   // как в климате основного мира: |y/H*2-1|*75
+  const LAT_SPAN = 75;
+  const COAST_WARP_DEG = 7, COAST_BAY = 6, COAST_FINE = 1.6, COAST_FRAME = 40;   // деформация берега в градусах, заливы и мелкая деталь в клетках сферы (720x360)   // как в климате основного мира: |y/H*2-1|*75
 
   // расстояние (в клетках, фаска 1/√2) до ближайшей клетки mask===1; по x с замыканием на сфере не нужно: используется на плоской сетке
   function chamfer(mask, w, h, wrapX) {
@@ -114,18 +115,21 @@
     const { W, H, land, K } = validate(params), seed = String(params.seed), N = W * H;
     const sphere = orient(root().SphericalTerrainBase.generate({ seed, w: 720, h: 360, continents: K, landRatio: land }));
     const sw = sphere.w, sh = sphere.h, tec = sphere.tectonics, col0 = seamShiftColumns(sphere), sd = signedField(sphere);
-    const smp = sampler(sw, sh), tmp = { i: new Int32Array(4), w: new Float64Array(4) };
+    const smp = sampler(sw, sh), tmp = { i: new Int32Array(4), w: new Float64Array(4) }, wrpX = noise(seed, 'warpX'), wrpY = noise(seed, 'warpY'), bayN = noise(seed, 'bays');
     const hs = new Float64Array(N), sdm = new Float32Array(N), up = new Float32Array(N), rift = new Float32Array(N), shr = new Float32Array(N), id = new Uint8Array(N), lndMask = new Uint8Array(N);
     const landF = new Float64Array(sw * sh); for (let i = 0; i < sw * sh; i++) landF[i] = sphere.land[i] ? 1 : 0;
     const hgt = new Float64Array(sw * sh); for (let i = 0; i < sw * sh; i++) hgt[i] = sphere.land[i] ? sphere.height[i] : 0;
     for (let y = 0; y < H; y++) {
       const lat = LAT_SPAN * (1 - 2 * (y + 0.5) / H), v = (0.5 - lat / 180) * sh;
       for (let x = 0; x < W; x++) {
-        const i = y * W + x, u = col0 + (x + 0.5) / W * sw;
-        sdm[i] = smp(sd, u, v, tmp);
-        const wl = smp(landF, u, v, tmp); let hh = 0, ws = 0; for (let k = 0; k < 4; k++) if (landF[tmp.i[k]]) { hh += hgt[tmp.i[k]] * tmp.w[k]; ws += tmp.w[k]; }
+        const i = y * W + x, nx = x / (W * 0.16), ny = y / (W * 0.16);
+        // органичность берега: пространственная деформация координат сферы (все поля смещаются согласованно, тектоника остаётся под своим берегом) и ограниченная береговая деталь
+        const u = col0 + (x + 0.5) / W * sw + COAST_WARP_DEG * 2 * (FM.fbm(wrpX, nx, ny, 3) - 0.5) * sw / 360, vv = clamp(v + COAST_WARP_DEG * 2 * (FM.fbm(wrpY, nx + 31, ny + 17, 3) - 0.5) * sh / 180, 0, sh);
+        sdm[i] = smp(sd, u, vv, tmp) + COAST_BAY * (FM.fbm(bayN, x / (W * 0.07), y / (W * 0.07), 4) - 0.5) * 2 + COAST_FINE * (FM.fbm(bayN, x / (W * 0.018) + 40, y / (W * 0.018) + 9, 2) - 0.5) * 2;
+        { const dF = Math.min(x, W - 1 - x, y, H - 1 - y) / (0.045 * W); if (dF < 1) sdm[i] -= COAST_FRAME * (1 - dF) * (1 - dF); }   // у рамки карты суши нет (береговая деформация могла вынести берег к краю)
+        const wl = smp(landF, u, vv, tmp); let hh = 0, ws = 0; for (let k = 0; k < 4; k++) if (landF[tmp.i[k]]) { hh += hgt[tmp.i[k]] * tmp.w[k]; ws += tmp.w[k]; }
         hs[i] = ws > 1e-9 ? hh / ws : 0;
-        up[i] = smp(tec.uplift, u, v, tmp); rift[i] = smp(tec.rift, u, v, tmp); shr[i] = smp(tec.shear, u, v, tmp);
+        up[i] = smp(tec.uplift, u, vv, tmp); rift[i] = smp(tec.rift, u, vv, tmp); shr[i] = smp(tec.shear, u, vv, tmp);
         let bi = 0, bw = -1; for (let k = 0; k < 4; k++) if (tmp.w[k] > bw) { bw = tmp.w[k]; bi = tmp.i[k]; } id[i] = tec.plateId[bi];
         lndMask[i] = sdm[i] > 0 && x >= 3 && y >= 3 && x < W - 3 && y < H - 3 ? 1 : 0;   // рамка карты — океан (сток рек, нет резки материка рамкой)
         void wl;
@@ -134,6 +138,7 @@
     const sea = new Uint8Array(N); for (let i = 0; i < N; i++) sea[i] = lndMask[i] ? 0 : 1;
     const dSea = chamfer(sea, W, H, false), dLand = chamfer(lndMask, W, H, false);   // dSea: для суши расстояние до моря; dLand: для моря до суши
     const nz = noise(seed, 'detail'), h = new Float32Array(N), crust = new Float32Array(N), old = new Float32Array(N), reg = noise(seed, 'provinces');
+    let bridgeMountainGain = 1;
     const conv = new Float32Array(N), upMain = new Float32Array(N), riftMain = new Float32Array(N);
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       const i = y * W + x, active = clamp(up[i] * 1.8, 0, 1);
@@ -148,6 +153,19 @@
         h[i] = -0.015 - 0.9 * (1 - Math.exp(d / (0.018 + 0.018 * (1 - active)))); crust[i] = smooth(-0.035 + active * 0.02, 0.015, d);
       }
     }
+    // горы и холмы: основная модель держит долю «молодых гор» (young>0.2) 8-15% суши и холмов (old>0.14) ~10% (generator.js, fitShare). Замер моста: гор 0.5-5.8%, холмов 0%.
+    // Усиление поднятия — единый множитель (порядок и рисунок сохраняются); холмы — монотонная перестановка по рангу в распределение основной модели.
+    {
+      const idx = []; for (let i = 0; i < N; i++) if (lndMask[i]) idx.push(i);
+      const vals = idx.map(i => upMain[i]).sort((p, q) => q - p), t = vals[Math.min(vals.length - 1, Math.floor(vals.length * 0.11))] || 0;
+      const g = t > 1e-6 ? clamp(0.24 / t, 1, 6) : 6; for (const i of idx) upMain[i] = clamp(upMain[i] * g, 0, 1.5);
+      { const need = Math.floor(0.08 * idx.length); let have = 0; for (const i of idx) if (upMain[i] > 0.2) have++;
+        if (have < need) { const ord = idx.slice().sort((p, q) => upMain[q] - upMain[p] || p - q); for (let k = 0; k < need; k++) upMain[ord[k]] = Math.max(upMain[ord[k]], 0.2 + 0.12 * (1 - k / need)); bridgeMountainGain = -g; } }   // слабая тектоника: минимум 8% суши — самые сильные поднятия (g<0 в метаданных)
+      idx.sort((p, q) => old[p] - old[q] || p - q);
+      const Q = [0, 0.5, 0.9, 0.99, 1], V = [0, 0.04, 0.15, 0.23, 0.3], M = idx.length;
+      for (let r = 0; r < M; r++) { const q = M > 1 ? r / (M - 1) : 0; let k = 1; while (k < Q.length - 1 && q > Q[k]) k++; old[idx[r]] = V[k - 1] + (V[k] - V[k - 1]) * (q - Q[k - 1]) / (Q[k] - Q[k - 1]); }
+      bridgeMountainGain = g;
+    }
     // шкала высот: относительные высоты сферы в разы площе шкалы основного приложения (замер: медиана суши 0.14 против 0.64, 99-й процентиль 0.43 против 1.0-1.4, из-за чего нет
     // альпийского пояса, дождевой тени и всё «болото»). Монотонная перестановка по рангу в гипсометрическую кривую основной модели сохраняет порядок (где горы) и меняет только шкалу.
     {
@@ -156,7 +174,7 @@
       const Q = [0, 0.1, 0.25, 0.5, 0.75, 0.9, 0.97, 0.99, 1], V = [0.004, 0.2, 0.5, 0.65, 0.73, 0.86, 1.05, 1.25, 1.6], M = idx.length;
       for (let r = 0; r < M; r++) { const q = M > 1 ? r / (M - 1) : 0; let k = 1; while (k < Q.length - 1 && q > Q[k]) k++; h[idx[r]] = V[k - 1] + (V[k] - V[k - 1]) * (q - Q[k - 1]) / (Q[k] - Q[k - 1]); }
     }
-    return { W, H, N, seed, K, land, h, crust, old, id, conv, up: upMain, rift: riftMain, shear: shr, lndMask, sphere, seamColumn: col0 };
+    return { mountainGain: bridgeMountainGain, W, H, N, seed, K, land, h, crust, old, id, conv, up: upMain, rift: riftMain, shear: shr, lndMask, sphere, seamColumn: col0 };
   }
 
   function root() { return typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : {}); }
