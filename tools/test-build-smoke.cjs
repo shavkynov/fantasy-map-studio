@@ -20,8 +20,8 @@ const root = path.resolve(__dirname, '../src');
     await p.waitForFunction(() => window.__m && document.getElementById('stats').textContent.includes('Городов:'), null, { timeout: 600000 });
     const r = await p.evaluate(() => ({ bridge: __m.natural && __m.natural.bridge, W: __m.W, H: __m.H, continents: __m.natural && __m.natural.requestedContinents, version: FM.VERSION }));
     assert.deepEqual([r.bridge, r.W, r.H], ['sphere-bridge-v1', 1440, 960], 'spherical bridge (genVersion 4) at the largest size');
-    await p.locator('#layersSec .fold-h').click(); await p.locator('#themeSeg button[data-t="atlas"]').click();
     await p.waitForFunction(() => FM.WorldAtlas && FM.WorldAtlas.inspect() && FM.WorldAtlas.inspect().mode === 'atlas-ui1', null, { timeout: 120000 });
+    await p.locator('#layersSec .fold-h').click(); assert.equal(await p.locator('#themeSeg button[data-t="atlas"].on').count(), 1, 'atlas theme is the default');
     assert.deepEqual(errs, [], 'page errors'); assert.deepEqual(bad, [], 'HTTP >= 400');
     console.log('PASS test build smoke: ' + JSON.stringify(r));
   } finally { await b.close(); srv.close(); }

@@ -16,6 +16,7 @@ once('src/generator.js', 'if (params.genVersion === 3) return yield* FM.naturalW
 once('src/generator.js', "if (params.genVersion === 3 || (params.continents || 0) < 2 || (params.plates && params.plates.length)) return generateOnce(params);", "if (params.genVersion === 3 || params.genVersion === 4 || (params.continents || 0) < 2 || (params.plates && params.plates.length)) return generateOnce(params);");
 once('src/generator.js', "if (params.genVersion === 3 || (params.continents || 0) < 2 || (params.plates && params.plates.length)) return step(params, 0);", "if (params.genVersion === 3 || params.genVersion === 4 || (params.continents || 0) < 2 || (params.plates && params.plates.length)) return step(params, 0);");
 once('src/natural-world-v3.js', 'anchor.before(label,select,hint);', '/* выбор модели мира в тестовой сборке скрыт: всегда сферический мост */');
+once('src/app.js', "view: 'map', theme: 'sepia', lang: 'ru',", "view: 'map', theme: 'atlas', lang: 'ru',");   // тема «Мировой атлас» по умолчанию
 once('src/app.js', "seed: state.seed, plateCount: state.plateCount, landRatio: state.land / 100,", "genVersion: 4, seed: state.seed, plateCount: state.plateCount, landRatio: state.land / 100,");
 
 // main.js: без меню «Прототип» и без окон прототипов
@@ -43,7 +44,8 @@ const an = 'FantasyMapStudio-TEST-' + label + '-${version}'; pj.build.artifactNa
   if (i < 0 || j < i) throw Error('version.js contract changed (banner)');
   v = v.slice(0, i) + '  }\n' + v.slice(j);
   const set = (k, val) => { const re = new RegExp("FM\\." + k + " = '[^']*';"); if (!re.test(v)) throw Error('version.js contract changed: ' + k); v = v.replace(re, "FM." + k + " = '" + val + "';"); };
-  set('VERSION', ver); set('BUILD_ID', label); fs.writeFileSync(p, v); }
+  set('VERSION', ver); set('BUILD_ID', label);
+  v += "\n(function(){ window.addEventListener('load', function(){ var s = document.getElementById('themeSeg'); if (s) [].forEach.call(s.children, function(b){ b.classList.toggle('on', b.dataset.t === 'atlas'); }); }); })();   // тема по умолчанию — «Мировой атлас»: подсветить её кнопку\n"; fs.writeFileSync(p, v); }
 for (const k of Object.keys(pj.scripts)) if (k === 'prestart' || k === 'prepare:contacts' || k.startsWith('predist')) delete pj.scripts[k];   // кандидатных страниц в сборке нет, атлас уже подключён
 fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify(pj));
 console.log(JSON.stringify({ version: ver, kept: used.size, removed: removed.length, removedFiles: removed }));

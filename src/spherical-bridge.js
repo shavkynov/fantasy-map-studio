@@ -135,6 +135,18 @@
         void wl;
       }
     }
+    let islandCells = 0;
+    // вулканические дуги и острова: центры берутся там, где граница плит даёт сильное поднятие в океане (сфера, uplift) и берег не рядом; вокруг центра растёт островок
+    // с неровным контуром. Цепочки возникают, потому что центры тянутся вдоль границы. Суммарная площадь ~3% площади материков (малые острова Земли ~2-4%).
+    {
+      const isl = noise(seed, 'islands'), rr = rng(seed, 'island-radius'), cand = []; let landN = 0; for (let i = 0; i < N; i++) if (lndMask[i]) landN++;
+      const x0 = Math.floor(W * 0.07), x1 = Math.ceil(W * 0.93), y0 = Math.floor(H * 0.1), y1 = Math.ceil(H * 0.9);
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const i = y * W + x; if (lndMask[i] || sdm[i] > -9 || up[i] < 0.3) continue; cand.push([Math.min(1, up[i]) * (0.4 + FM.fbm(isl, x / (W * 0.05), y / (W * 0.05), 2)), i]); }
+      cand.sort((p, q) => q[0] - p[0] || p[1] - q[1]);
+      const want = Math.floor(landN * 0.03), centers = [], sp = W * 0.03; let area = 0;
+      for (const c of cand) { if (area >= want || centers.length >= 40) break; const cx = c[1] % W, cy = (c[1] / W) | 0; if (centers.some(q => Math.hypot(q.x - cx, q.y - cy) < sp)) continue; const r = W * (0.004 + 0.011 * rr()); centers.push({ x: cx, y: cy, r }); area += Math.PI * r * r; }
+      for (const q of centers) { const R = Math.ceil(q.r * 1.5); for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) { const x = q.x + dx, y = q.y + dy; if (x < x0 || x >= x1 || y < y0 || y >= y1) continue; const i = y * W + x; if (lndMask[i] || sdm[i] > -5) continue; const d = Math.hypot(dx, dy) / q.r + 0.55 * (FM.fbm(isl, x / (W * 0.012) + 7, y / (W * 0.012) + 3, 2) - 0.5); if (d < 1) { lndMask[i] = 1; sdm[i] = 1.5; hs[i] = 0.04 + 0.1 * (1 - d); islandCells++; } } }
+    }
     const sea = new Uint8Array(N); for (let i = 0; i < N; i++) sea[i] = lndMask[i] ? 0 : 1;
     const dSea = chamfer(sea, W, H, false), dLand = chamfer(lndMask, W, H, false);   // dSea: для суши расстояние до моря; dLand: для моря до суши
     const nz = noise(seed, 'detail'), h = new Float32Array(N), crust = new Float32Array(N), old = new Float32Array(N), reg = noise(seed, 'provinces');
@@ -174,7 +186,7 @@
       const Q = [0, 0.1, 0.25, 0.5, 0.75, 0.9, 0.97, 0.99, 1], V = [0.004, 0.2, 0.5, 0.65, 0.73, 0.86, 1.05, 1.25, 1.6], M = idx.length;
       for (let r = 0; r < M; r++) { const q = M > 1 ? r / (M - 1) : 0; let k = 1; while (k < Q.length - 1 && q > Q[k]) k++; h[idx[r]] = V[k - 1] + (V[k] - V[k - 1]) * (q - Q[k - 1]) / (Q[k] - Q[k - 1]); }
     }
-    return { mountainGain: bridgeMountainGain, W, H, N, seed, K, land, h, crust, old, id, conv, up: upMain, rift: riftMain, shear: shr, lndMask, sphere, seamColumn: col0 };
+    return { islandCells, mountainGain: bridgeMountainGain, W, H, N, seed, K, land, h, crust, old, id, conv, up: upMain, rift: riftMain, shear: shr, lndMask, sphere, seamColumn: col0 };
   }
 
   function root() { return typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : {}); }
@@ -206,7 +218,7 @@
     yield 'inlets';
     const S = { W, H, N, seed, genVersion: 3, params: Object.assign({}, params, { genVersion: 4 }), crust: b.crust, mfld, plates, id, bd: { conv: mfld.conv, shear: mfld.shear, edge, other, btype }, seaLevel: 0, young: { up: b.up, rift: b.rift }, old: b.old, volcanoes, islandGroups: [], noiseB: noise(seed, 'climate'), noiseC: noise(seed, 'routing'), lakePot: new Float32Array(N).fill(0.3), cat: null, inl: { events: [], mask: null }, t0, checkMasses: () => { }, landRatio: land, epochs: 0, h };
     let landCells = 0; for (let i = 0; i < N; i++) if (h[i] > 0) landCells++;
-    S.postHook = map => { map.natural = { version: 1, bridge: VERSION, requestedContinents: K, measuredLandBeforeHydrology: landCells / N, sphere: { orientation: b.sphere.orientation, generator: b.sphere.metadata.generator, attempt: b.sphere.metadata.attempt, components: b.sphere.metadata.components, seamColumn: b.seamColumn, grid: '720x360', latitudeBand: LAT_SPAN } }; map.params.genVersion = 4; };
+    S.postHook = map => { map.natural = { version: 1, bridge: VERSION, requestedContinents: K, measuredLandBeforeHydrology: landCells / N, sphere: { orientation: b.sphere.orientation, generator: b.sphere.metadata.generator, attempt: b.sphere.metadata.attempt, components: b.sphere.metadata.components, seamColumn: b.seamColumn, grid: '720x360', latitudeBand: LAT_SPAN, islandCells: b.islandCells, mountainGain: b.mountainGain } }; map.params.genVersion = 4; };
     return yield* FM.finishNaturalWorld(S);
   }
 
