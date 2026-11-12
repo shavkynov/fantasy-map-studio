@@ -1,6 +1,6 @@
 'use strict';
 // Смоук интегрированной тестовой сборки (после scripts/prepare-test-build.cjs): запуск из корня собранного дерева.
-// Проверяет: нет выбора размера и плашки с экспериментальными ссылками, все файлы из index.html отдаются (нет 404), генерация идёт моделью v3
+// Проверяет: нет выбора размера и плашки с экспериментальными ссылками, все файлы из index.html отдаются (нет 404), генерация идёт сферическим мостом (genVersion 4)
 // на самом большом размере (1440x960), страница без ошибок, тема «Мировой атлас» доступна и применяется. Не заменяет ручную приёмку.
 const { chromium } = require('playwright'), http = require('node:http'), fs = require('node:fs'), path = require('node:path'), assert = require('node:assert/strict');
 const root = path.resolve(__dirname, '../src');
@@ -18,8 +18,8 @@ const root = path.resolve(__dirname, '../src');
     await p.evaluate(() => { window.__m = null; const g = FM.generateAsync; FM.generateAsync = async (...a) => (window.__m = await g(...a)); });
     await p.fill('#seed', 'smoke-v3'); await p.locator('#setupGo').click();
     await p.waitForFunction(() => window.__m && document.getElementById('stats').textContent.includes('Городов:'), null, { timeout: 600000 });
-    const r = await p.evaluate(() => ({ gv: __m.genVersion, W: __m.W, H: __m.H, natural: !!__m.natural, version: FM.VERSION }));
-    assert.deepEqual([r.gv, r.W, r.H, r.natural], [3, 1440, 960, true], 'Natural World v3 at the largest size');
+    const r = await p.evaluate(() => ({ bridge: __m.natural && __m.natural.bridge, W: __m.W, H: __m.H, continents: __m.natural && __m.natural.requestedContinents, version: FM.VERSION }));
+    assert.deepEqual([r.bridge, r.W, r.H], ['sphere-bridge-v1', 1440, 960], 'spherical bridge (genVersion 4) at the largest size');
     await p.locator('#layersSec .fold-h').click(); await p.locator('#themeSeg button[data-t="atlas"]').click();
     await p.waitForFunction(() => FM.WorldAtlas && FM.WorldAtlas.inspect() && FM.WorldAtlas.inspect().mode === 'atlas-ui1', null, { timeout: 120000 });
     assert.deepEqual(errs, [], 'page errors'); assert.deepEqual(bad, [], 'HTTP >= 400');

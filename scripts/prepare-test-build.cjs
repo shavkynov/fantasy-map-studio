@@ -10,7 +10,13 @@ const run = (f) => cp.execFileSync(process.execPath, [path.join(__dirname, f)], 
 const once = (file, before, after) => { const p = path.join(root, file), s = fs.readFileSync(p, 'utf8'); if (s.split(before).length !== 2) throw Error('Contract changed in ' + file + ': ' + before.slice(0, 60)); fs.writeFileSync(p, s.replace(before, () => after)); };
 
 run('enable-natural-v3.cjs'); run('prepare-world-atlas.cjs');
-once('src/app.js', "seed: state.seed, plateCount: state.plateCount, landRatio: state.land / 100,", "genVersion: 3, seed: state.seed, plateCount: state.plateCount, landRatio: state.land / 100,");
+// мост сферического генератора (genVersion 4): подключение модулей и маршрут в генераторе; v3 остаётся только как поставщик финализатора
+once('src/index.html', '<script src="natural-world-v3.js"></script>', '<script src="natural-world-v3.js"></script>\n  <script src="terrain-edit-spherical-base.js"></script>\n  <script src="spherical-bridge.js"></script>');
+once('src/generator.js', 'if (params.genVersion === 3) return yield* FM.naturalWorld.stages(params);', 'if (params.genVersion === 4) return yield* FM.sphericalBridge.stages(params);\n    if (params.genVersion === 3) return yield* FM.naturalWorld.stages(params);');
+once('src/generator.js', "if (params.genVersion === 3 || (params.continents || 0) < 2 || (params.plates && params.plates.length)) return generateOnce(params);", "if (params.genVersion === 3 || params.genVersion === 4 || (params.continents || 0) < 2 || (params.plates && params.plates.length)) return generateOnce(params);");
+once('src/generator.js', "if (params.genVersion === 3 || (params.continents || 0) < 2 || (params.plates && params.plates.length)) return step(params, 0);", "if (params.genVersion === 3 || params.genVersion === 4 || (params.continents || 0) < 2 || (params.plates && params.plates.length)) return step(params, 0);");
+once('src/natural-world-v3.js', 'anchor.before(label,select,hint);', '/* выбор модели мира в тестовой сборке скрыт: всегда сферический мост */');
+once('src/app.js', "seed: state.seed, plateCount: state.plateCount, landRatio: state.land / 100,", "genVersion: 4, seed: state.seed, plateCount: state.plateCount, landRatio: state.land / 100,");
 
 // main.js: без меню «Прототип» и без окон прототипов
 let m = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
