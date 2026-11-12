@@ -7,8 +7,8 @@ Established by the test:
 - A manual city and a manual road made through the real UI bump `pol.rv`, trigger an atlas render, and change the next PNG.
 - Save/open round trip: terrain-field hashes, political data (incl. manual city/road) and sea routes are identical after open; atlas sea-palette coverage is unchanged.
 
-Measured, not a pass criterion: exported pixels after open differ from the pre-save export by 0.1–1.1% between runs (state-name glyph placement, some road/city spots; terrain identical). Pixel identity after open is NOT established.
+Measured, not a pass criterion: exported pixels after open differ from the pre-save export by 0.1–1.1% between runs at the earlier small size; 0% in the latest largest-size run (state-name glyph placement, some road/city spots; terrain identical). Pixel identity after open is NOT established.
 
-Defect found (not fixed here): opening a saved world that contains states throws `TypeError: Cannot read properties of null (reading 'W')` in `showStateCard` (app.js) because `loadWorld` sets `state.map = null` before regeneration. Reproduced with the ink theme as well, so it is not atlas-specific. In the full test an atlas `Invalid complete-world grid` error from `validate(null)` also appeared during open. The world still opens correctly. The test records these in `report.json` (`knownOpenErrors`) and fails on any other page error. Fixing them is a separate runtime change and needs a decision.
+Defect found and fixed: opening a saved world with states threw `TypeError ... reading 'W'` in `showStateCard`, and `Invalid complete-world grid` from the atlas `validate(null)` via `rebuildBase`, because `loadWorld` sets `state.map = null` before regeneration. Fix: early return in `showStateCard` and `rebuildBase` when `state.map` is null. The export test now runs at the largest size (1440x960) and fails on any page error. Verified locally once at that size; CI result pending.
 
 Not checked: Electron/Mac native dialogs, visual acceptance, performance (plan step 4).

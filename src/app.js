@@ -175,6 +175,7 @@
     body.appendChild(FM.legendCanvas(state.map, { theme: state.theme, political: state.pol, layers: state.layers, seabed: state.view === 'seabed' }));
   }
   function rebuildBase() {
+    if (!state.map) return;   // при открытии мира state.map временно null
     const t0 = performance.now();
     state.base = FM.renderMap(state.map, { S, theme: state.theme, layers: state.layers, political: state.pol, seabed: state.view === 'seabed', tideF: tideNow() });
     state.heightImg = null; state.zoomImg = null;
@@ -979,7 +980,7 @@
   function showStateCard() {
     const box = $('stateCard'); if (!box) return;
     const s = state.pol && state.pol.states.find(q => q.id === state.activeId);
-    if (state.tool !== 'view' || !s) { box.style.display = 'none'; return; }
+    if (state.tool !== 'view' || !s || !state.map) { box.style.display = 'none'; return; }   // при открытии мира state.map временно null
     const m = state.map, own = state.pol.owner, N = m.W * m.H;
     let cells = 0, land = 0; const bc = {};
     for (let i = 0; i < N; i++) { if (m.h[i] > 0) land++; if (own[i] === s.id) { cells++; const b = m.biome[i]; bc[b] = (bc[b] || 0) + 1; } }

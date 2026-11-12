@@ -1,12 +1,12 @@
 'use strict';
 // Шаг 4 docs/DEVELOPMENT_PLAN.md: замеры на небольшом фиксированном наборе. Это измерение окружения, а не критерий и не заявление об улучшении.
-// Запуск: NODE_PATH=<путь к playwright> node tools/world-atlas-perf.cjs [--sizes 1,2] [--seeds perf-a,perf-b,perf-c] [--reps 3]
+// Запуск: NODE_PATH=<путь к playwright> node tools/world-atlas-perf.cjs [--sizes 3] [--seeds perf-a,perf-b,perf-c] [--reps 3]
 // Выход: короткая таблица в stdout и один JSON-отчёт artifacts/world-atlas-perf/report-<время>.json (создаётся эксклюзивно, не перезаписывается).
 // Память: только JS-куча страницы (performance.memory, опрос каждые 50 мс); холсты и память процесса браузера НЕ входят.
 const { chromium } = require('playwright'), fs = require('node:fs/promises'), os = require('node:os'), path = require('node:path'), http = require('node:http');
 require('../scripts/prepare-world-atlas.cjs').prepare();
 const arg = (n, d) => { const i = process.argv.indexOf('--' + n); return i > 0 ? process.argv[i + 1] : d; };
-const sizes = arg('sizes', '1,2').split(','), seeds = arg('seeds', 'perf-a,perf-b,perf-c').split(','), reps = +arg('reps', '3');
+const sizes = arg('sizes', '3').split(','), seeds = arg('seeds', 'perf-a,perf-b,perf-c').split(','), reps = +arg('reps', '3');
 const root = path.resolve(__dirname, '../src'), outDir = path.resolve('artifacts/world-atlas-perf');
 const med = (a) => { const s = a.slice().sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; }, r1 = (v) => Math.round(v * 10) / 10;
 

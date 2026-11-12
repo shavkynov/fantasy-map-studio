@@ -4,7 +4,7 @@
 // Не проверяются: нативные диалоги Mac/Electron, визуальная приёмка, производительность.
 const { chromium } = require('playwright'), assert = require('node:assert/strict'), fs = require('node:fs/promises'), path = require('node:path'), http = require('node:http');
 require('../scripts/prepare-world-atlas.cjs').prepare();
-const root = path.resolve(__dirname, '../src'), out = path.resolve('artifacts/world-atlas-export'), results = [], errors = [], knownOpenErrors = [];
+const root = path.resolve(__dirname, '../src'), out = path.resolve('artifacts/world-atlas-export'), results = [], errors = [];
 let server, browser, page;
 let stage = ''; async function test(name, fn) { stage = name; await fn(); results.push({ name, status: 'passed' }); console.log('PASS ' + name); }
 
@@ -29,7 +29,7 @@ const pngDiff = (a, b) => page.evaluate(async ([x, y]) => {
 }, [a.toString('base64'), b.toString('base64')]);
 const exportPng = async () => { const ev = page.waitForEvent('download'); await page.locator('#export').click(); return fs.readFile(await (await ev).path()); };
 // экранная точка клетки карты (холст показан целиком, масштаб «вписать»)
-const screenOf = async (cell) => { await page.locator('#cv').scrollIntoViewIfNeeded(); return page.evaluate((c) => { const m = window.__atlasCapture.map, r = document.getElementById('cv').getBoundingClientRect(); return { x: r.left + (c.x + .5) / m.W * r.width, y: r.top + (c.y + .5) / m.H * r.height, inView: r.top >= 0 && r.bottom <= innerHeight }; }, cell); };
+const clickCell = async (cell) => { const pos = await page.evaluate((c) => { const m = window.__atlasCapture.map, r = document.getElementById('cv').getBoundingClientRect(); return { x: (c.x + .5) / m.W * r.width, y: (c.y + .5) / m.H * r.height }; }, cell); await page.locator('#cv').click({ position: pos }); };   // холст самого большого размера больше окна: Playwright прокручивает сам
 // суша, достаточно далеко от городов и воды
 const landCells = (n) => page.evaluate((count) => {
   const { map: m, pol: p } = window.__atlasCapture, W = m.W, H = m.H, cities = FM.allCities(p), picks = [];
@@ -42,14 +42,14 @@ const landCells = (n) => page.evaluate((count) => {
   server = http.createServer(async (req, res) => { try { const f = path.resolve(root, '.' + new URL(req.url, 'http://localhost').pathname); if (!f.startsWith(root + path.sep)) throw Error(); res.setHeader('Content-Type', f.endsWith('.js') ? 'application/javascript' : 'text/html; charset=utf-8'); res.end(await fs.readFile(f)); } catch { res.statusCode = 404; res.end(); } });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   browser = await chromium.launch({ headless: true });
-  page = await browser.newPage({ viewport: { width: 1440, height: 2600 }, acceptDownloads: true }); page.setDefaultTimeout(180000);
+  page = await browser.newPage({ viewport: { width: 1440, height: 900 }, acceptDownloads: true }); page.setDefaultTimeout(180000);
   page.on('pageerror', e => errors.push(stage + ' :: ' + String(e) + ' :: ' + String(e.stack || '').split('\n').slice(1, 4).join(' | '))); page.on('dialog', d => d.accept());
   await page.goto('http://127.0.0.1:' + server.address().port + '/index.html');
   // журнал вызовов внешнего рендерера: тема, версия политики и совпадение объекта политики
   await page.evaluate(() => { const render = FM.renderMap; window.__renderLog = []; FM.renderMap = (map, opts) => { window.__atlasCapture = { map, pol: opts.political }; const r = render(map, opts); window.__renderLog.push({ theme: opts.theme, rv: opts.political && opts.political.rv, cities: opts.political && opts.political.cities.length, roads: opts.political && opts.political.roads.length, atlas: FM.WorldAtlas.inspect() && FM.WorldAtlas.inspect().mode }); return r; }; });
 
   await test('Generate complete world with states, cities and automatic roads', async () => {
-    await page.fill('#seed', 'world-atlas-export'); await page.locator('#sizeSeg button[data-s="1"]').click(); await page.locator('#setupGo').click();
+    await page.fill('#seed', 'world-atlas-export'); await page.locator('#sizeSeg button[data-s="3"]').click(); await page.locator('#setupGo').click();
     await page.waitForFunction(() => window.__atlasCapture && window.__atlasCapture.map && document.getElementById('stats').textContent.includes('Городов:'));
     await page.locator('#viewSeg button[data-v="states"]').click(); await page.fill('#autoN', '3'); await page.locator('#autoStates').click(); await page.waitForFunction(() => window.__atlasCapture.pol.states.length > 0);
     await page.locator('#viewSeg button[data-v="cities"]').click(); await page.locator('#autoCities').click(); await page.waitForFunction(() => window.__atlasCapture.pol.cities.length > 0);
@@ -62,7 +62,7 @@ const landCells = (n) => page.evaluate((count) => {
     const before = await snapshot(), rvBefore = await page.evaluate(() => window.__atlasCapture.pol.rv), n0 = before ? JSON.parse(before.political).cities.length : 0;
     await page.locator('#viewSeg button[data-v="map"]').click(); await page.locator('#exLegend').uncheck(); pngBeforeEdits = await exportPng(); await page.locator('#viewSeg button[data-v="cities"]').click();
     const [a] = await landCells(1); await page.locator('button[data-ct="city"]').click();
-    const pt = await screenOf(a); assert(pt.inView, 'canvas fully in viewport'); await page.mouse.click(pt.x, pt.y);
+    await clickCell(a);
     await page.waitForFunction((n) => window.__atlasCapture.pol.cities.length > n, n0);
     const cap = await page.evaluate(() => { const p = window.__atlasCapture.pol; return { rv: p.rv, manual: p.cities.filter(c => c.manual).length, last: window.__renderLog[window.__renderLog.length - 1] }; });
     assert(cap.manual >= 1, 'manual city flag'); assert(cap.rv > rvBefore, 'citiesChanged must bump pol.rv'); assert.equal(cap.last.theme, 'atlas'); assert.equal(cap.last.atlas, 'atlas-ui1'); assert.equal(cap.last.cities, n0 + 1);
@@ -72,7 +72,7 @@ const landCells = (n) => page.evaluate((count) => {
   await test('Manual road through the real UI is kept and rendered by atlas', async () => {
     const r0 = await page.evaluate(() => window.__atlasCapture.pol.roads.length), [a, b] = await landCells(2);
     assert(a && b && (a.x !== b.x || a.y !== b.y), 'two distinct land waypoints');
-    await page.locator('button[data-ct="road"]').click(); for (const c of [a, b]) { const pt = await screenOf(c); await page.mouse.click(pt.x, pt.y); }
+    await page.locator('button[data-ct="road"]').click(); for (const c of [a, b]) await clickCell(c);
     await page.keyboard.press('Enter'); await page.waitForFunction((n) => window.__atlasCapture.pol.roads.length > n, r0);
     const cap = await page.evaluate(() => ({ manual: window.__atlasCapture.pol.roads.filter(r => r.manual).length, last: window.__renderLog[window.__renderLog.length - 1] }));
     assert(cap.manual >= 1); assert.equal(cap.last.theme, 'atlas'); manualRoad = [a, b];
@@ -113,11 +113,8 @@ const landCells = (n) => page.evaluate((count) => {
     results.push({ name: 'measurement: pixel difference after open vs before save (state-name glyph placement and some road/city spots differ; share varies 0.2–1.1% between runs, not a pass criterion)', share: dd.share }); await fs.writeFile(path.join(out, 'export-atlas-after-open.png'), again);
   });
 
-  // Известные ошибки при ОТКРЫТИИ мира с государствами (воспроизведены контрольным прогоном и в теме «чернила»): loadWorld обнуляет state.map,
-  // после чего showStateCard и отрисовка обращаются к карте. Мир при этом открывается верно (проверено выше). Это находка, а не исправление:
-  // тест фиксирует их в report.json и падает на любых других ошибках страницы.
-  const known = errors.filter(e => e.startsWith('Save and open') && /showStateCard|reading 'W'|Invalid complete-world grid/.test(e)); knownOpenErrors.push(...known);
-  assert.deepEqual(errors.filter(e => !known.includes(e)), []);
+  // Регрессия: при открытии мира state.map временно null (showStateCard падал). Любая ошибка страницы теперь проваливает тест.
+  assert.deepEqual(errors, []);
   await page.screenshot({ path: path.join(out, 'screen.png'), fullPage: true });
 })().catch(async e => { results.push({ status: 'failed', error: String(e.stack || e) }); console.error(e); process.exitCode = 1; if (page) await page.screenshot({ path: path.join(out, 'failure.png'), fullPage: true }).catch(() => {}); })
-  .finally(async () => { await fs.mkdir(out, { recursive: true }); await fs.writeFile(path.join(out, 'report.json'), JSON.stringify({ results, errors, knownOpenErrors, notChecked: 'Electron/Mac native dialogs, visual acceptance, performance' }, null, 2)); if (browser) await browser.close(); if (server) await new Promise(r => server.close(r)); });
+  .finally(async () => { await fs.mkdir(out, { recursive: true }); await fs.writeFile(path.join(out, 'report.json'), JSON.stringify({ results, errors, notChecked: 'Electron/Mac native dialogs, visual acceptance, performance' }, null, 2)); if (browser) await browser.close(); if (server) await new Promise(r => server.close(r)); });
