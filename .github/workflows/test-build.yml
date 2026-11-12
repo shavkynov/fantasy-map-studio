@@ -1,0 +1,57 @@
+name: Тестовая сборка (ветка)
+
+# Только тестовая сборка для ручной приёмки. Не выпуск, не метка, не слияние.
+# Запуск: вручную (Actions -> Тестовая сборка -> Run workflow, выбрать ветку) или пуш в feature/natural-world-v3.
+on:
+  push:
+    branches: [feature/natural-world-v3]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-zip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node scripts/prepare-contact-page.cjs && node scripts/prepare-world-atlas.cjs   # то же, что делает npm start
+      - name: Собрать ZIP (распаковать и npm start, как обычно)
+        run: |
+          short=$(echo "$GITHUB_SHA" | cut -c1-7)
+          mkdir -p out/fantasy-map-studio
+          cp -r main.js preload.js package.json package-lock.json README.txt CHANGELOG.txt src scripts build out/fantasy-map-studio/
+          cd out && zip -qr "fantasy-map-studio-test-$short.zip" fantasy-map-studio && rm -rf fantasy-map-studio
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test-source-zip-${{ github.sha }}
+          path: out/*.zip
+          if-no-files-found: error
+
+  mac-dmg:
+    needs: source-zip
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, x64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm run prepare:contacts
+      - run: npx electron-builder --mac dmg --${{ matrix.arch }} --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test-mac-${{ matrix.arch }}-${{ github.sha }}
+          path: dist-test/*.dmg
+          if-no-files-found: error
