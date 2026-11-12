@@ -49,7 +49,7 @@ const landCells = (n) => page.evaluate((count) => {
   await page.evaluate(() => { const render = FM.renderMap; window.__renderLog = []; FM.renderMap = (map, opts) => { window.__atlasCapture = { map, pol: opts.political }; const r = render(map, opts); window.__renderLog.push({ theme: opts.theme, rv: opts.political && opts.political.rv, cities: opts.political && opts.political.cities.length, roads: opts.political && opts.political.roads.length, atlas: FM.WorldAtlas.inspect() && FM.WorldAtlas.inspect().mode }); return r; }; });
 
   await test('Generate complete world with states, cities and automatic roads', async () => {
-    await page.fill('#seed', 'world-atlas-export'); await page.locator('#sizeSeg button[data-s="3"]').click(); await page.locator('#setupGo').click();
+    await page.fill('#seed', 'world-atlas-export'); await page.locator('#setupGo').click();
     await page.waitForFunction(() => window.__atlasCapture && window.__atlasCapture.map && document.getElementById('stats').textContent.includes('Городов:'));
     await page.locator('#viewSeg button[data-v="states"]').click(); await page.fill('#autoN', '3'); await page.locator('#autoStates').click(); await page.waitForFunction(() => window.__atlasCapture.pol.states.length > 0);
     await page.locator('#viewSeg button[data-v="cities"]').click(); await page.locator('#autoCities').click(); await page.waitForFunction(() => window.__atlasCapture.pol.cities.length > 0);

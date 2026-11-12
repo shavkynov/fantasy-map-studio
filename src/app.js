@@ -6,7 +6,8 @@
   { const v = document.getElementById('ver'); if (v) v.textContent = ' v' + FM.VERSION; }                       // пикселей холста на клетку сетки
 
   const state = {
-    seed: '', plateCount: 9, land: 34, epochs: 2, continents: 2, islands: 3, catCfg: FM.defaultCatCfg(), catManual: [], landEdits: [], landPending: [], landUndo: [], landTool: 'add', landSize: 40, landRough: 65, catTool: 'meteor', catSize: 50, worldScale: 1.5, sizeSel: 0,
+    seed: '', plateCount: 9, land: 34, epochs: 2, continents: 2, islands: 3, catCfg: FM.defaultCatCfg(), catManual: [], landEdits: [], landPending: [], landUndo: [], landTool: 'add', landSize: 40, landRough: 65, catTool: 'meteor', catSize: 50, worldScale: 3,   // размер мира один: самый большой (1440×960); выбора размера нет
+   
     view: 'map', theme: 'sepia', lang: 'ru',
     layers: { rivers: true, forests: true, roads: true, currents: false, tides: false, ice: true, seas: true, routes: true, sbGeo: true, sbBio: true, sbRes: true, sbNames: true },
     plates: null,                       // отредактированные плиты (null = из seed)
@@ -1072,7 +1073,7 @@
     let d; try { d = JSON.parse(text); } catch (e) { alert(FM.T('Файл не удалось прочитать.')); return; }
     if (!d || d.format !== 'fantasy-map-studio-world') { alert(FM.T('Это не файл мира Fantasy Map Studio.')); return; }
     Object.assign(state, d.params || {}); delete state.genVersion;
-    if (d.planet) planetWrite(d.planet); else planetAuto(); state.sizeSel = null;
+    if (d.planet) planetWrite(d.planet); else planetAuto();
     state.catManual = (d.params && Array.isArray(d.params.catManual)) ? d.params.catManual : [];
     state.landEdits = (d.params && Array.isArray(d.params.landEdits)) ? d.params.landEdits : []; state.landPending = []; state.landUndo = [];
     state.catCfg = (d.params && d.params.catCfg) ? FM.normCatCfg(d.params.catCfg) : Object.fromEntries(FM.CATASTROPHES.map(k => [k.id, 0]));   // файл без катастроф — прежняя карта   // файл без флага — legacy: прежняя география
@@ -1096,7 +1097,6 @@
 
   // число плит по числу материков: «авто» (0) — 9; иначе как минимум столько, сколько нужно генератору для K материков (3 плиты на материк, 4 при K ≥ 4, плюс 3), но не меньше 9
   // размер мира по числу континентов («Авто»): чем больше материков, тем крупнее карта, чтобы они не сжимались в кашу
-  const autoScale = (K) => K >= 7 ? 3 : K >= 5 ? 2.5 : K >= 3 ? 2 : 1.5;
   const plateCountFor = (K) => K > 0 ? Math.max(9, K * (K >= 4 ? 4 : 3) + 3) : 9;
   // ---------- панель ----------
   function bind() {
@@ -1114,16 +1114,9 @@
       seed.value = state.seed;
       for (const k of FM.CATASTROPHES) { const v = (state.catCfg || {})[k.id] || 0; catRows[k.id].value = v; catRv[k.id].textContent = v; }
       for (const [id, vid, key] of sliders) { $(id).value = state[key]; $(vid).textContent = (id === 'continents' && +$(id).value === 0) ? FM.T('авто') : $(id).value; }
-      { const sel = state.sizeSel != null ? state.sizeSel : state.worldScale; [...$('sizeSeg').children].forEach(x => x.classList.toggle('on', +x.dataset.s === sel)); updSizeHint(); }
       $('langSel').value = state.lang;
     };
     for (const [id, vid] of sliders) $(id).addEventListener('input', () => { $(vid).textContent = (id === 'continents' && +$(id).value === 0) ? FM.T('авто') : $(id).value; });
-    const updSizeHint = () => {   // подсказка под выбором размера: итоговые клетки и ориентир по времени
-      const on = [...$('sizeSeg').children].find(x => x.classList.contains('on')), sel = on ? +on.dataset.s : 1.5, sc = sel > 0 ? sel : autoScale(+$('continents').value);
-      $('sizeHint').textContent = (sel > 0 ? '' : FM.T('Авто') + ' → ') + Math.round(480 * sc) + '×' + Math.round(320 * sc) + (sc >= 3 ? FM.T(' — генерация до минуты и больше') : sc >= 2 ? FM.T(' — генерация 5–20 с') : '') + (sel > 0 && sel < autoScale(+$('continents').value) ? FM.T(' · для {0} континентов тесновато, лучше «Авто»', $('continents').value) : '');
-    };
-    $('sizeSeg').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; [...$('sizeSeg').children].forEach(x => x.classList.toggle('on', x === b)); updSizeHint(); });
-    $('continents').addEventListener('input', updSizeHint);
     { const ls = $('langSel'); let sv = 'ru'; try { sv = localStorage.getItem('fms-ui-lang') || 'ru'; } catch (e) {}
       if (sv !== 'ru' && sv !== 'en') sv = 'ru'; state.lang = sv; FM.uiLang = sv; FM.setUiLang(sv);
       ls.innerHTML = '<option value="ru">Русский (кириллица)</option><option value="en">English (Latin script)</option>'; ls.value = sv; }
@@ -1150,7 +1143,6 @@
       for (const e of resLbl) { e.nm.innerHTML = `<i class="dot" style="background:${e.r.color}"></i>${e.r.label} <em class="kn">(${e.kinds.length})</em>`; e.nm.title = FM.T('Нажмите, чтобы выбрать отдельные виды: {0}', e.kinds.map(q => q.label).join(', ')); for (const [lb, q] of e.kl) { lb.title = q.why; lb.lastChild.nodeValue = ' ' + q.label; } e.upd(); }
       { const ls = $('langSel'); if (ls && ls.options.length) ls.options[1].textContent = 'English (Latin script)'; }
       if (+$('continents').value === 0) $('continentsV').textContent = FM.T('авто');
-      updSizeHint();
       landPanelSync();
       if (state.map && state.pol) { renderList(); updateStats(); catPanelSync(); showStateCard(); }
     };
@@ -1161,7 +1153,7 @@
       for (const [id, , key] of sliders) state[key] = +$(id).value; readRes();
       state.plateCount = plateCountFor(state.continents);   // число плит выбирать нельзя: оно следует из числа материков
       state.catCfg = Object.fromEntries(FM.CATASTROPHES.map(k => [k.id, +catRows[k.id].value])); state.catManual = []; state.landEdits = []; state.landPending = []; state.landUndo = [];
-      const on = [...$('sizeSeg').children].find(x => x.classList.contains('on')); if (on) { state.sizeSel = +on.dataset.s; state.worldScale = state.sizeSel > 0 ? state.sizeSel : autoScale(state.continents); }
+      state.worldScale = 3;
       state.lang = FM.uiLang = $('langSel').value; FM.setUiLang(state.lang); try { localStorage.setItem('fms-ui-lang', state.lang); } catch (e) {}
       state.plates = null; state.pol = null; $('setup').classList.remove('on'); planetAuto(); regenerate();
     };

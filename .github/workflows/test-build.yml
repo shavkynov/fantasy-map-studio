@@ -18,7 +18,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: node scripts/prepare-contact-page.cjs && node scripts/prepare-world-atlas.cjs   # то же, что делает npm start
+      - run: npm ci --ignore-scripts && npm run check
+      - run: node scripts/prepare-test-build.cjs   # v3 + атлас, без прототипов; размер мира всегда самый большой
+      - name: Смоук собранного дерева (v3, 1440x960, без экспериментальных ссылок)
+        run: |
+          npm install --prefix "$RUNNER_TEMP/atlas-browser" --no-save --package-lock=false playwright@1.56.1
+          "$RUNNER_TEMP/atlas-browser/node_modules/.bin/playwright" install --with-deps chromium
+          node tools/test-build-smoke.cjs
+        env:
+          NODE_PATH: ${{ runner.temp }}/atlas-browser/node_modules
       - name: Собрать ZIP (распаковать и npm start, как обычно)
         run: |
           short=$(echo "$GITHUB_SHA" | cut -c1-7)
@@ -27,7 +35,7 @@ jobs:
           cd out && zip -qr "fantasy-map-studio-test-$short.zip" fantasy-map-studio && rm -rf fantasy-map-studio
       - uses: actions/upload-artifact@v4
         with:
-          name: test-source-zip-${{ github.sha }}
+          name: test-zip-natural-v3-${{ github.sha }}
           path: out/*.zip
           if-no-files-found: error
 
@@ -46,12 +54,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
-      - run: npm run prepare:contacts
+      - run: node scripts/prepare-test-build.cjs
       - run: npx electron-builder --mac dmg --${{ matrix.arch }} --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       - uses: actions/upload-artifact@v4
         with:
-          name: test-mac-${{ matrix.arch }}-${{ github.sha }}
+          name: test-mac-${{ matrix.arch }}-natural-v3-${{ github.sha }}
           path: dist-test/*.dmg
           if-no-files-found: error

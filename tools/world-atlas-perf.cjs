@@ -1,6 +1,6 @@
 'use strict';
 // Шаг 4 docs/DEVELOPMENT_PLAN.md: замеры на небольшом фиксированном наборе. Это измерение окружения, а не критерий и не заявление об улучшении.
-// Запуск: NODE_PATH=<путь к playwright> node tools/world-atlas-perf.cjs [--sizes 3] [--seeds perf-a,perf-b,perf-c] [--reps 3]
+// Запуск: NODE_PATH=<путь к playwright> node tools/world-atlas-perf.cjs [--seeds perf-a,perf-b,perf-c] [--reps 3]
 // Выход: короткая таблица в stdout и один JSON-отчёт artifacts/world-atlas-perf/report-<время>.json (создаётся эксклюзивно, не перезаписывается).
 // Память: только JS-куча страницы (performance.memory, опрос каждые 50 мс); холсты и память процесса браузера НЕ входят.
 const { chromium } = require('playwright'), fs = require('node:fs/promises'), os = require('node:os'), path = require('node:path'), http = require('node:http');
@@ -19,7 +19,7 @@ const med = (a) => { const s = a.slice().sort((x, y) => x - y); return s[Math.fl
     await page.goto('http://127.0.0.1:' + server.address().port + '/index.html');
     await page.evaluate(() => { window.__peak = 0; setInterval(() => { const m = performance.memory; if (m && m.usedJSHeapSize > window.__peak) window.__peak = m.usedJSHeapSize; }, 50); const render = FM.renderMap; window.__cap = null; FM.renderMap = (map, opts) => { window.__cap = { map, opts }; return render(map, opts); }; });
     const row = { size, seed }, wall = async (fn) => { const t = Date.now(); await fn(); return Date.now() - t; };
-    await page.fill('#seed', seed); await page.locator('#sizeSeg button[data-s="' + size + '"]').click();
+    await page.fill('#seed', seed);
     row.generateMs = await wall(async () => { await page.locator('#setupGo').click(); await page.waitForFunction(() => window.__cap && window.__cap.map && document.getElementById('stats').textContent.includes('Городов:')); });
     Object.assign(row, await page.evaluate(() => ({ grid: window.__cap.map.W + 'x' + window.__cap.map.H, statsText: document.getElementById('stats').textContent.replace(/\s+/g, ' ').slice(0, 220) })));
     await page.locator('#viewSeg button[data-v="states"]').click(); await page.fill('#autoN', '3');

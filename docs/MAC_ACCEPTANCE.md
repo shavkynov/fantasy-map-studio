@@ -1,10 +1,9 @@
 # Plan step 5: one combined acceptance session on Mac
 
-Commit under test: e009a2d (branch feature/natural-world-v3). CI for this commit is green; that covers automated checks only, not this session.
-Get the sources: download the branch ZIP from GitHub (Code -> Download ZIP on this branch), extract, `cd fantasy-map-studio && npm start`. Do not git pull/switch. Use only the largest map size (size button 3, 1440x960).
+Build under test: artifact `test-zip-natural-v3-<sha>` (or the DMG) of workflow "Тестовая сборка (ветка)" on feature/natural-world-v3. It is the integrated build: main app, Natural World v3 as the only generation model, atlas theme, no prototypes/candidate pages. Map size is fixed at 1440x960 (no size selector). Extract the ZIP, `cd fantasy-map-studio && npm start`. CI checks are automated only, not this session.
 
 Checklist (mark each as passed / failed / not checked, with a note):
-1. Generate a world at the largest size (seed any). Note generation time by feel; record if it freezes the window.
+1. Generate a world (seed any; it is always 1440x960). Note: v3 may produce a different number of continents than requested (known limitation). Note generation time by feel; record if it freezes the window.
 2. Auto states (3), auto cities, auto roads. Add one manual city and one manual road.
 3. Switch theme to "Мировой атлас". Look at coast, relief symbols, rivers, labels: acceptable / not, and why.
 4. Export PNG in atlas theme: opens, sea colour is the atlas blue, manual city and road present.
