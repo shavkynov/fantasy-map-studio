@@ -11,7 +11,7 @@ const once = (file, before, after) => { const p = path.join(root, file), s = fs.
 
 run('enable-natural-v3.cjs'); run('prepare-world-atlas.cjs');
 // мост сферического генератора (genVersion 4): подключение модулей и маршрут в генераторе; v3 остаётся только как поставщик финализатора
-once('src/index.html', '<script src="natural-world-v3.js"></script>', '<script src="natural-world-v3.js"></script>\n  <script src="terrain-edit-spherical-base.js"></script>\n  <script src="spherical-bridge.js"></script>');
+once('src/index.html', '<script src="natural-world-v3.js"></script>', '<script src="natural-world-v3.js"></script>\n  <script src="terrain-edit-spherical-base.js"></script>\n  <script src="spherical-moisture-transport.js"></script>\n  <script src="spherical-drainage.js"></script>\n  <script src="spherical-bridge.js"></script>');
 once('src/generator.js', 'if (params.genVersion === 3) return yield* FM.naturalWorld.stages(params);', 'if (params.genVersion === 4) return yield* FM.sphericalBridge.stages(params);\n    if (params.genVersion === 3) return yield* FM.naturalWorld.stages(params);');
 once('src/generator.js', "if (params.genVersion === 3 || (params.continents || 0) < 2 || (params.plates && params.plates.length)) return generateOnce(params);", "if (params.genVersion === 3 || params.genVersion === 4 || (params.continents || 0) < 2 || (params.plates && params.plates.length)) return generateOnce(params);");
 once('src/generator.js', "if (params.genVersion === 3 || (params.continents || 0) < 2 || (params.plates && params.plates.length)) return step(params, 0);", "if (params.genVersion === 3 || params.genVersion === 4 || (params.continents || 0) < 2 || (params.plates && params.plates.length)) return step(params, 0);");
