@@ -25,13 +25,21 @@ once('src/app.js', "seed: state.seed, plateCount: state.plateCount, landRatio: s
 { const p = path.join(src, 'terrain-edit-spherical-base.js'), t = fs.readFileSync(p, 'utf8'), i = t.indexOf('function layout(p,attempt){'), j = t.indexOf('function motion(');
   if (i < 0 || j < i || !t.includes('p.continents>7')) throw Error('terrain-edit-spherical-base.js contract changed (layout)');
   const layout = `function layout(p,attempt){
- const r=random(p.seed+'|'+LAYOUT_VERSION+'|layout|'+attempt),centers=[],ZB=Math.sin(42*Math.PI/180),share=p.landRatio/p.continents;
+ const r=random(p.seed+'|'+LAYOUT_VERSION+'|layout|'+attempt),centers=[],ZB=Math.sin(42*Math.PI/180),K=p.continents,share=p.landRatio/K;
+ const gauss=()=>Math.sqrt(-2*Math.log(1-r()*.999999))*Math.cos(2*Math.PI*r());
+ const ws=Array.from({length:K},()=>clamp(Math.exp(.6*gauss()),.28,3.2)).sort((a,b)=>b-a),mw=ws.reduce((a,b)=>a+b,0)/K;
  const point=()=>{const z=(2*r()-1)*ZB,a=2*Math.PI*r(),c=Math.sqrt(1-z*z);return [c*Math.cos(a),c*Math.sin(a),z];};
- for(let k=0;k<p.continents;k++){
-  const size=.88+.24*r(),rho=Math.acos(clamp(1-2*share*size*1.2,-1,1));let best=null,fallback=null,fb=-Infinity;
-  for(let j=0;j<400&&!best;j++){const q=point(),gap=.1*(1-j/400);let ok=true,m=Infinity;for(const c of centers){const d=Math.acos(clamp(dot(c.center,q),-1,1)),need=c.rho+rho+gap;if(d<need)ok=false;m=Math.min(m,d-need);}if(ok)best=q;else if(m>fb){fb=m;fallback=q;}}
+ const frame=q=>{const e=unit(cross(Math.abs(q[2])<.9?[0,0,1]:[1,0,0],q));return {e,n:cross(q,e)};};
+ for(let k=0;k<K;k++){
+  const wk=ws[k]/mw,size=Math.sqrt(wk),rho=Math.acos(clamp(1-2*share*wk*1.2,-1,1));let best=null,fallback=null,fb=-Infinity;
+  const near=k>0&&r()<.5?centers[Math.floor(r()*k)]:null;
+  for(let j=0;j<500&&!best;j++){
+   let q;if(near&&j<250){const d=near.rho+rho+.03+.14*r(),th=2*Math.PI*r(),u=Math.cos(th),v=Math.sin(th);q=[0,1,2].map(m=>Math.cos(d)*near.center[m]+Math.sin(d)*(u*near.e[m]+v*near.n[m]));if(Math.abs(q[2])>ZB){continue;}}else q=point();
+   let ok=true,m=Infinity;for(const c of centers){const d=Math.acos(clamp(dot(c.center,q),-1,1)),need=c.rho+rho+.02;if(d<need)ok=false;m=Math.min(m,d-need);}
+   if(ok)best=q;else if(m>fb){fb=m;fallback=q;}
+  }
   best=best||fallback||point();
-  const e=unit(cross(Math.abs(best[2])<.9?[0,0,1]:[1,0,0],best)),n=cross(best,e);centers.push({center:best,e,n,rho,phase:2*Math.PI*r(),stretch:.82+.36*r(),size,a:2*Math.PI*r(),b:2*Math.PI*r(),c:2*Math.PI*r()});
+  const f=frame(best);centers.push({center:best,e:f.e,n:f.n,rho,phase:2*Math.PI*r(),stretch:.82+.36*r(),size,a:2*Math.PI*r(),b:2*Math.PI*r(),c:2*Math.PI*r()});
  }return centers;
 }
 `;
