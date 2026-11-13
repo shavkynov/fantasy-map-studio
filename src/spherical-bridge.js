@@ -103,8 +103,8 @@
     if (!Number.isInteger(W) || !Number.isInteger(H) || W < 96 || H < 64 || W > 4096 || H > 4096 || W * H > 6000000) throw Error('Unsupported grid');
     const land = p.landRatio == null ? 0.34 : p.landRatio;
     if (!Number.isFinite(land) || land < 0.18 || land > 0.45) throw Error('Land ratio for the spherical model must be 0.18..0.45');
-    const K = p.continents == null || p.continents === 0 ? 2 + Math.floor(rng(String(p.seed), 'auto-K')() * 3) : p.continents;
-    if (!Number.isInteger(K) || K < 1 || K > 7) throw Error('Continents must be 1..7');
+    const K = p.continents == null || p.continents === 0 ? 2 + Math.floor(rng(String(p.seed), 'auto-K')() * 3) : clamp(Math.round(p.continents), 1, 8);
+    if (!Number.isInteger(K) || K < 1 || K > 8) throw Error('Continents must be 1..8');
     return { W, H, land, K };
   }
 
@@ -135,7 +135,7 @@
         void wl;
       }
     }
-    let islandCells = 0;
+    let islandCells = 0; const islMark = new Uint8Array(N);
     // вулканические дуги и острова: центры берутся там, где граница плит даёт сильное поднятие в океане (сфера, uplift) и берег не рядом; вокруг центра растёт островок
     // с неровным контуром. Цепочки возникают, потому что центры тянутся вдоль границы. Суммарная площадь ~3% площади материков (малые острова Земли ~2-4%).
     {
@@ -145,7 +145,7 @@
       cand.sort((p, q) => q[0] - p[0] || p[1] - q[1]);
       const want = Math.floor(landN * 0.03), centers = [], sp = W * 0.03; let area = 0;
       for (const c of cand) { if (area >= want || centers.length >= 40) break; const cx = c[1] % W, cy = (c[1] / W) | 0; if (centers.some(q => Math.hypot(q.x - cx, q.y - cy) < sp)) continue; const r = W * (0.004 + 0.011 * rr()); centers.push({ x: cx, y: cy, r }); area += Math.PI * r * r; }
-      for (const q of centers) { const R = Math.ceil(q.r * 1.5); for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) { const x = q.x + dx, y = q.y + dy; if (x < x0 || x >= x1 || y < y0 || y >= y1) continue; const i = y * W + x; if (lndMask[i] || sdm[i] > -5) continue; const d = Math.hypot(dx, dy) / q.r + 0.55 * (FM.fbm(isl, x / (W * 0.012) + 7, y / (W * 0.012) + 3, 2) - 0.5); if (d < 1) { lndMask[i] = 1; sdm[i] = 1.5; hs[i] = 0.04 + 0.1 * (1 - d); islandCells++; } } }
+      for (const q of centers) { const R = Math.ceil(q.r * 1.5); for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) { const x = q.x + dx, y = q.y + dy; if (x < x0 || x >= x1 || y < y0 || y >= y1) continue; const i = y * W + x; if (lndMask[i] || sdm[i] > -5) continue; const d = Math.hypot(dx, dy) / q.r + 0.55 * (FM.fbm(isl, x / (W * 0.012) + 7, y / (W * 0.012) + 3, 2) - 0.5); if (d < 1) { lndMask[i] = 1; islMark[i] = 1; sdm[i] = 1.5; hs[i] = 0.04 + 0.1 * (1 - d); islandCells++; } } }
     }
     const sea = new Uint8Array(N); for (let i = 0; i < N; i++) sea[i] = lndMask[i] ? 0 : 1;
     const dSea = chamfer(sea, W, H, false), dLand = chamfer(lndMask, W, H, false);   // dSea: для суши расстояние до моря; dLand: для моря до суши
@@ -164,7 +164,7 @@
         const A = plateAge[id[i]], rf = 1.18 - 0.5 * A, base = Math.max(hs[i], 0.02) * rf;
         upMain[i] *= rf;
         h[i] = Math.max(0.0005, coast * (base * (1 + 0.28 * n) + 0.05 * b * Math.min(1, d / 0.05)));
-        crust[i] = smooth(-0.035 + active * 0.02, 0.015, d); old[i] = 0.11 * (0.85 + 0.4 * A) * coast * (1 - Math.abs(FM.fbm(reg, x / (W * 0.13) + 51, y / (W * 0.13) + 23, 3)));
+        crust[i] = smooth(-0.035 + active * 0.02, 0.015, d); old[i] = 0.11 * (0.85 + 0.4 * A) * coast * (1 - Math.abs(FM.fbm(reg, x / (W * 0.045) + 51, y / (W * 0.045) + 23, 3)));
       } else {
         const d = -(Math.max(0.5, dLand[i]) - 0.5) / W;
         h[i] = -0.015 - 0.9 * (1 - Math.exp(d / (0.018 + 0.018 * (1 - active)))); crust[i] = smooth(-0.035 + active * 0.02, 0.015, d);
@@ -176,8 +176,14 @@
       const idx = []; for (let i = 0; i < N; i++) if (lndMask[i]) idx.push(i);
       const vals = idx.map(i => upMain[i]).sort((p, q) => q - p), t = vals[Math.min(vals.length - 1, Math.floor(vals.length * 0.11))] || 0;
       const g = t > 1e-6 ? clamp(0.24 / t, 1, 6) : 6; for (const i of idx) upMain[i] = clamp(upMain[i] * g, 0, 1.5);
+      for (const i of idx) if (islMark[i] && upMain[i] > 0.22) upMain[i] = 0.22;   // вулканические островки: невысокие, без плотных гор из значков
       { const need = Math.floor(0.08 * idx.length); let have = 0; for (const i of idx) if (upMain[i] > 0.2) have++;
         if (have < need) { const ord = idx.slice().sort((p, q) => upMain[q] - upMain[p] || p - q); for (let k = 0; k < need; k++) upMain[ord[k]] = Math.max(upMain[ord[k]], 0.2 + 0.12 * (1 - k / need)); bridgeMountainGain = -g; } }   // слабая тектоника: минимум 8% суши — самые сильные поднятия (g<0 в метаданных)
+      { // холмы чаще у гор (предгорья), остальное — разреженные группы: иначе большие сплошные области холмов выглядели аномалией
+        const mt = new Uint8Array(N); for (const i of idx) if (upMain[i] > 0.2) mt[i] = 1;
+        const dM = chamfer(mt, W, H, false), fw = 0.04 * W;
+        for (const i of idx) { const foot = Math.pow(Math.max(0, 1 - dM[i] / fw), 1.5); old[i] = 0.4 * (old[i] / 0.15) + 0.6 * foot; }
+      }
       idx.sort((p, q) => old[p] - old[q] || p - q);
       const Q = [0, 0.5, 0.9, 0.99, 1], V = [0, 0.04, 0.15, 0.23, 0.3], M = idx.length;
       for (let r = 0; r < M; r++) { const q = M > 1 ? r / (M - 1) : 0; let k = 1; while (k < Q.length - 1 && q > Q[k]) k++; old[idx[r]] = V[k - 1] + (V[k] - V[k - 1]) * (q - Q[k - 1]) / (Q[k] - Q[k - 1]); }

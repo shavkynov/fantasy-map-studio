@@ -19,6 +19,24 @@ once('src/natural-world-v3.js', 'anchor.before(label,select,hint);', '/* выб�
 once('src/app.js', "view: 'map', theme: 'sepia', lang: 'ru',", "view: 'map', theme: 'atlas', lang: 'ru',");   // тема «Мировой атлас» по умолчанию
 once('src/app.js', "seed: state.seed, plateCount: state.plateCount, landRatio: state.land / 100,", "genVersion: 4, seed: state.seed, plateCount: state.plateCount, landRatio: state.land / 100,");
 
+// Раскладка материков для карты-полосы. Исходный генератор ставит центры «максимально далеко друг от друга» по всей сфере: при K=4 получается решётка (тетраэдр), при K=7 — шахматный порядок,
+// а после ухода суши от полюсов всё ложится в одну линию вдоль экватора. Здесь центры ставятся случайно в поясе |широта|<42° с минимальным зазором по угловым радиусам материков
+// (по площади), поэтому встречаются и группы, и одиночные материки; число материков до 8 (прежний предел 7 вешал генерацию с ошибкой). Форма материков (эллипс + гармоники) не меняется.
+{ const p = path.join(src, 'terrain-edit-spherical-base.js'), t = fs.readFileSync(p, 'utf8'), i = t.indexOf('function layout(p,attempt){'), j = t.indexOf('function motion(');
+  if (i < 0 || j < i || !t.includes('p.continents>7')) throw Error('terrain-edit-spherical-base.js contract changed (layout)');
+  const layout = `function layout(p,attempt){
+ const r=random(p.seed+'|'+LAYOUT_VERSION+'|layout|'+attempt),centers=[],ZB=Math.sin(42*Math.PI/180),share=p.landRatio/p.continents;
+ const point=()=>{const z=(2*r()-1)*ZB,a=2*Math.PI*r(),c=Math.sqrt(1-z*z);return [c*Math.cos(a),c*Math.sin(a),z];};
+ for(let k=0;k<p.continents;k++){
+  const size=.88+.24*r(),rho=Math.acos(clamp(1-2*share*size*1.2,-1,1));let best=null,fallback=null,fb=-Infinity;
+  for(let j=0;j<400&&!best;j++){const q=point(),gap=.1*(1-j/400);let ok=true,m=Infinity;for(const c of centers){const d=Math.acos(clamp(dot(c.center,q),-1,1)),need=c.rho+rho+gap;if(d<need)ok=false;m=Math.min(m,d-need);}if(ok)best=q;else if(m>fb){fb=m;fallback=q;}}
+  best=best||fallback||point();
+  const e=unit(cross(Math.abs(best[2])<.9?[0,0,1]:[1,0,0],best)),n=cross(best,e);centers.push({center:best,e,n,rho,phase:2*Math.PI*r(),stretch:.82+.36*r(),size,a:2*Math.PI*r(),b:2*Math.PI*r(),c:2*Math.PI*r()});
+ }return centers;
+}
+`;
+  fs.writeFileSync(p, (t.slice(0, i) + layout + t.slice(j)).replace('p.continents>7', 'p.continents>8').replace("Continents must be 1..7", "Continents must be 1..8")); }
+
 // main.js: без меню «Прототип» и без окон прототипов
 let m = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
 const a = m.indexOf('function openThreeBlockPrototype'), b = m.indexOf("ipcMain.handle('save-png'");
