@@ -151,15 +151,20 @@
     const dSea = chamfer(sea, W, H, false), dLand = chamfer(lndMask, W, H, false);   // dSea: для суши расстояние до моря; dLand: для моря до суши
     const nz = noise(seed, 'detail'), h = new Float32Array(N), crust = new Float32Array(N), old = new Float32Array(N), reg = noise(seed, 'provinces');
     let bridgeMountainGain = 1;
+    // материал плит: возраст коры каждой плиты (0 молодая .. 1 древний щит). Древняя кора выветрена: ниже, холмистее, с низкими горами; молодая — выше и с живым рельефом.
+    // Это аналог «региональному/материальному рельефу» для любого мира (прототип привязан к одному тестовому миру Vondoran-227 и его дрейфу). Возраст детерминирован от зерна.
+    let plateMax = 0; for (let i = 0; i < N; i++) if (id[i] > plateMax) plateMax = id[i];
+    const plateCount = plateMax + 1, plateAgeRng = rng(seed, 'plate-age'), plateAge = Float32Array.from({ length: plateCount }, () => plateAgeRng());
     const conv = new Float32Array(N), upMain = new Float32Array(N), riftMain = new Float32Array(N);
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       const i = y * W + x, active = clamp(up[i] * 1.8, 0, 1);
       conv[i] = active; upMain[i] = clamp(up[i], 0, 1.5); riftMain[i] = clamp(rift[i], 0, 1.5);
       if (lndMask[i]) {
         const d = (dSea[i] - 0.5) / W, coast = smooth(0, 0.014, d), n = FM.fbm(nz, x / (W * 0.05), y / (W * 0.05), 4), b = FM.fbm(reg, x / (W * 0.24) + 19, y / (W * 0.24) + 7, 3);
-        const base = Math.max(hs[i], 0.02);
+        const A = plateAge[id[i]], rf = 1.18 - 0.5 * A, base = Math.max(hs[i], 0.02) * rf;
+        upMain[i] *= rf;
         h[i] = Math.max(0.0005, coast * (base * (1 + 0.28 * n) + 0.05 * b * Math.min(1, d / 0.05)));
-        crust[i] = smooth(-0.035 + active * 0.02, 0.015, d); old[i] = 0.11 * coast * (1 - Math.abs(FM.fbm(reg, x / (W * 0.13) + 51, y / (W * 0.13) + 23, 3)));
+        crust[i] = smooth(-0.035 + active * 0.02, 0.015, d); old[i] = 0.11 * (0.85 + 0.4 * A) * coast * (1 - Math.abs(FM.fbm(reg, x / (W * 0.13) + 51, y / (W * 0.13) + 23, 3)));
       } else {
         const d = -(Math.max(0.5, dLand[i]) - 0.5) / W;
         h[i] = -0.015 - 0.9 * (1 - Math.exp(d / (0.018 + 0.018 * (1 - active)))); crust[i] = smooth(-0.035 + active * 0.02, 0.015, d);
@@ -186,7 +191,7 @@
       const Q = [0, 0.1, 0.25, 0.5, 0.75, 0.9, 0.97, 0.99, 1], V = [0.004, 0.2, 0.5, 0.65, 0.73, 0.86, 1.05, 1.25, 1.6], M = idx.length;
       for (let r = 0; r < M; r++) { const q = M > 1 ? r / (M - 1) : 0; let k = 1; while (k < Q.length - 1 && q > Q[k]) k++; h[idx[r]] = V[k - 1] + (V[k] - V[k - 1]) * (q - Q[k - 1]) / (Q[k] - Q[k - 1]); }
     }
-    return { islandCells, mountainGain: bridgeMountainGain, W, H, N, seed, K, land, h, crust, old, id, conv, up: upMain, rift: riftMain, shear: shr, lndMask, sphere, seamColumn: col0 };
+    return { plateAge: Array.from(plateAge), islandCells, mountainGain: bridgeMountainGain, W, H, N, seed, K, land, h, crust, old, id, conv, up: upMain, rift: riftMain, shear: shr, lndMask, sphere, seamColumn: col0 };
   }
 
   // ---------- климат сферы: перенос влажности и сток ----------
@@ -194,22 +199,22 @@
   // Ветры заданы (не решение циркуляции): u = -U cos(4φ) (пассаты, западные, полярные восточные), v = V sin(6φ) (сход к экватору, расхождение у 30° и 60°).
   // Испарение — с океана, растёт с теплом (cos φ); коэффициент дождя — зональный множитель основной модели (экватор, штормовой пояс ~55°, сухо у ~28°) с орографической добавкой
   // от подъёма суши навстречу ветру. Рассчитывается модулем SphericalMoistureTransport, осадки усредняются по последним шагам и переносятся обратно на сетку карты.
-  const SGW = 360, SGH = 180;
-  function sphereGrid(b) {
-    const { W, H, h: hm, seamColumn: col0, sphere } = b, sw = sphere.w, land = new Uint8Array(SGW * SGH), hgt = new Float32Array(SGW * SGH);
-    for (let sy = 0; sy < SGH; sy++) {
-      const lat = 90 - (sy + 0.5) * 180 / SGH; if (Math.abs(lat) >= LAT_SPAN) continue;
+  const SGW = 180, SGH = 90;
+  function sphereGrid(b, GW, GH) {
+    const { W, H, h: hm, seamColumn: col0, sphere } = b, sw = sphere.w, land = new Uint8Array(GW * GH), hgt = new Float32Array(GW * GH);
+    for (let sy = 0; sy < GH; sy++) {
+      const lat = 90 - (sy + 0.5) * 180 / GH; if (Math.abs(lat) >= LAT_SPAN) continue;
       const y = clamp(Math.round((1 - lat / LAT_SPAN) / 2 * H - 0.5), 0, H - 1);
-      for (let sx = 0; sx < SGW; sx++) {
-        const u = (sx + 0.5) / SGW * sw, x = Math.round(((u - col0 + sw) % sw) / sw * W - 0.5), xi = ((x % W) + W) % W, v = hm[y * W + xi];
-        if (v > 0) { land[sy * SGW + sx] = 1; hgt[sy * SGW + sx] = v; }
+      for (let sx = 0; sx < GW; sx++) {
+        const u = (sx + 0.5) / GW * sw, x = Math.round(((u - col0 + sw) % sw) / sw * W - 0.5), xi = ((x % W) + W) % W, v = hm[y * W + xi];
+        if (v > 0) { land[sy * GW + sx] = 1; hgt[sy * GW + sx] = v; }
       }
     }
     return { land, hgt };
   }
   function transportRain(b) {
     const T = root().SphericalMoistureTransport; if (!T) throw Error('spherical-moisture-transport.js is not loaded');
-    const { land, hgt } = sphereGrid(b), w = SGW, h = SGH, n = w * h, model = T.create({ w, h, land });
+    const { land, hgt } = sphereGrid(b, SGW, SGH), w = SGW, h = SGH, n = w * h, model = T.create({ w, h, land });
     const east = new Float64Array(n), south = new Float64Array(w * (h - 1)), evap = new Float64Array(n), rate = new Float64Array(n);
     const U = 0.6, V = 0.12, E0 = 0.5, R0 = 0.55, deg = Math.PI / 180;
     for (let y = 0; y < h; y++) {
@@ -222,7 +227,7 @@
       }
       if (y < h - 1) { const fl = (90 - (y + 1) * 180 / h) * deg, v = V * Math.sin(6 * fl); for (let x = 0; x < w; x++) south[y * w + x] = v; }
     }
-    const forcing = { east, south, oceanEvaporation: evap, rainRate: rate }, steps = 40, dt = 0.5, avg = new Float64Array(n); let state = model.empty(0.3), nav = 0, ledger = null;
+    const forcing = { east, south, oceanEvaporation: evap, rainRate: rate }, steps = 30, dt = 0.5, avg = new Float64Array(n); let state = model.empty(0.3), nav = 0, ledger = null;
     for (let k = 0; k < steps; k++) { const r = model.advance(state, forcing, dt); state = r; ledger = r.ledger; if (k >= steps / 2) { for (let i = 0; i < n; i++) avg[i] += r.precipitation[i]; nav++; } }
     for (let i = 0; i < n; i++) avg[i] /= nav;
     // обратно на карту: билинейно по (долгота, широта) с замыканием по долготе
@@ -234,18 +239,39 @@
         rain[y * W + x] = (avg[y0 * w + xa] * (1 - tx) + avg[y0 * w + xb] * tx) * (1 - ty) + (avg[y1 * w + xa] * (1 - tx) + avg[y1 * w + xb] * tx) * ty;
       }
     }
-    return { rain, ledger: { residual: ledger.residual, oceanSourceTotal: ledger.oceanSourceTotal, rainLandTotal: ledger.rainLandTotal, rainOceanTotal: ledger.rainOceanTotal }, grid: { land, hgt } };
+    return { rain, precip: avg, pw: w, ph: h, ledger: { residual: ledger.residual, oceanSourceTotal: ledger.oceanSourceTotal, rainLandTotal: ledger.rainLandTotal, rainOceanTotal: ledger.rainOceanTotal }, grid: null };
   }
   // сток на сфере (диагностика согласованности): каждая клетка суши сливается к воде или в замкнутую впадину, баланс площади сходится; на реки основной гидрологии не влияет
-  function sphereDrainage(grid) {
+  function sphereDrainage(b, tr) {
     const D = root().SphericalDrainage; if (!D) return null;
-    const w = SGW, h = SGH, n = w * h, { land, hgt } = grid, area = new Float64Array(n), dlon = 2 * Math.PI / w, dlat = Math.PI / h;
+    const w = 360, h = 180, n = w * h, { land, hgt } = sphereGrid(b, w, h), precip = new Float64Array(n);   // стоку нужна мельче сетка (на 180x90 модель разливов упирается в предел операций)
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) precip[y * w + x] = tr.precip[Math.min(tr.ph - 1, y * tr.ph / h | 0) * tr.pw + Math.min(tr.pw - 1, x * tr.pw / w | 0)];
+    const area = new Float64Array(n), dlon = 2 * Math.PI / w, dlat = Math.PI / h;
     for (let y = 0; y < h; y++) { const a = dlon * (Math.sin(Math.PI * (0.5 - y / h)) - Math.sin(Math.PI * (0.5 - (y + 1) / h))); for (let x = 0; x < w; x++) area[y * w + x] = a; }
     const hh = Float64Array.from(hgt, (v, i) => land[i] ? Math.max(v, 1e-6) + 1e-9 * (i % 977) : 0);   // микро-разбиение плато детерминированно: ровных клеток без выхода быть не должно
     const lat = y => (0.5 - (y + 0.5) / h) * Math.PI, nb = i => { const x = i % w, y = (i / w) | 0, r = [(y * w + (x + 1) % w), (y * w + (x + w - 1) % w)]; if (y > 0) r.push(i - w); if (y < h - 1) r.push(i + w); return r; };
     const ang = (i, j) => { const yi = (i / w) | 0, yj = (j / w) | 0; return yi === yj ? dlon * Math.cos(lat(yi)) + 1e-9 : dlat; };
-    const r = D.build({ w, h, land, height: hh, area, neighbors: nb, angularDistance: ang });
-    return { landCells: r.stats.landCount, basins: r.stats.basinCount, closedAreaShare: r.stats.closedAreaSteradians / Math.max(1e-12, r.stats.totalAreaSteradians), balanceError: r.stats.balanceError };
+    const field = { w, h, land, height: hh, area, neighbors: nb, angularDistance: ang }, r = D.build(field);
+    const out = { landCells: r.stats.landCount, basins: r.stats.basinCount, closedAreaShare: r.stats.closedAreaSteradians / Math.max(1e-12, r.stats.totalAreaSteradians), balanceError: r.stats.balanceError };
+    try { out.water = lakeWater(field, r, precip, lat); } catch (e) { out.water = { error: String(e && e.message || e).slice(0, 160) }; }   // диагностика не должна ломать генерацию
+    return out;
+  }
+  // водный цикл на сфере (диагностика озёр): связанные бассейны, разливы и спад. Единицы относительные (высота*стерадиан за модельное время), не м³ и не годы:
+  // масштабы осадков и испарения заданы здесь условно (осадки нормируются на медиану суши), поэтому цифры сравнивают миры между собой, а не измеряют реальные озёра.
+  function lakeWater(field, drainage, precip, latOf) {
+    const H = root().BasinSpillHierarchy, F = root().BasinFillSpill, C = root().CoupledBasinWater; if (!H || !F || !C) return null;
+    const { w, h, land } = field, n = w * h, hier = H.build(field, drainage), model = C.create(field, hier, F);
+    const lp = []; for (let i = 0; i < n; i++) if (land[i]) lp.push(precip[i]); lp.sort((a, b) => a - b); const med = Math.max(1e-12, lp[lp.length >> 1] || 1e-12);
+    const ev = new Float64Array(n); for (let y = 0; y < h; y++) { const c = Math.max(0, Math.cos(latOf(y))); for (let x = 0; x < w; x++) ev[y * w + x] = 0.03 * (0.2 + 0.8 * c); }
+    // масштаб осадков условный; если модель разливов упирается в предел операций, масштаб уменьшается вдвое (результат записывает использованный масштаб)
+    const t0 = Date.now(); let st = null, maxRes = 0, scale = 0.02, err = null;
+    for (let attempt = 0; attempt < 5 && !st; attempt++, scale /= 2) {
+      try { const pr = Float64Array.from(precip, v => scale * v / med); let s2 = model.empty(); maxRes = 0; for (let k = 0; k < 8; k++) { s2 = model.advance(s2, { precipitation: pr, evaporation: ev, runoffCoefficient: 0.35 }, 1); maxRes = Math.max(maxRes, Math.abs(s2.ledger.residual)); } st = s2; } catch (e) { err = String(e && e.message || e).slice(0, 120); }
+    }
+    if (!st) throw Error('basin water failed at all scales: ' + err);
+    scale *= 2;
+    const dep = st.redistribution.depth; let wet = 0, landN = 0; for (let i = 0; i < n; i++) if (land[i]) { landN++; if (dep[i] > 0) wet++; }
+    return { units: 'relative, uncalibrated', precipitationScale: scale, steps: 8, ms: Date.now() - t0, wettedLandShare: wet / Math.max(1, landN), storedTotal: st.ledger.storedTotal, boundaryTotal: st.ledger.boundaryTotal, evapTotal: st.ledger.evapTotal, maxLedgerResidual: maxRes, spillBasins: hier.basins.length };
   }
 
   function root() { return typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : {}); }
@@ -276,7 +302,7 @@
     for (const i of cand) { if (volcanoes.length >= want) break; const x = i % W, y = (i / W) | 0; if (volcanoes.every(v => Math.hypot(v.x - x, v.y - y) > W * 0.09)) volcanoes.push({ x, y, size: 1, active: true, kind: 'arc' }); }
     yield 'inlets';
     const S = { W, H, N, seed, genVersion: 3, params: Object.assign({}, params, { genVersion: 4 }), crust: b.crust, mfld, plates, id, bd: { conv: mfld.conv, shear: mfld.shear, edge, other, btype }, seaLevel: 0, young: { up: b.up, rift: b.rift }, old: b.old, volcanoes, islandGroups: [], noiseB: noise(seed, 'climate'), noiseC: noise(seed, 'routing'), lakePot: new Float32Array(N).fill(0.3), cat: null, inl: { events: [], mask: null }, t0, checkMasses: () => { }, landRatio: land, epochs: 0, h };
-    const tr = transportRain(b), drain = sphereDrainage(tr.grid);
+    const tr = transportRain(b), drain = sphereDrainage(b, tr);
     S.climHook = clim => {   // влажность и биомы из переноса влаги на сфере (вместо упрощённой развёртки основной модели)
       // Рисунок осадков (берег-глубь материка, дождевая тень, пояса) берётся из переноса; распределение значений калибруется по основной модели перестановкой по рангу
       // (иначе пустыни занимали 27-34% суши при 8-13% в основной модели: сильная скошенность осадков). Пороги биомов — как в основной модели.
@@ -299,7 +325,7 @@
       }
     };
     let landCells = 0; for (let i = 0; i < N; i++) if (h[i] > 0) landCells++;
-    S.postHook = map => { map.natural = { version: 1, bridge: VERSION, requestedContinents: K, measuredLandBeforeHydrology: landCells / N, sphere: { orientation: b.sphere.orientation, generator: b.sphere.metadata.generator, attempt: b.sphere.metadata.attempt, components: b.sphere.metadata.components, seamColumn: b.seamColumn, grid: '720x360', latitudeBand: LAT_SPAN, moisture: { model: 'spherical-moisture-transport 360x180, prescribed winds', ledger: tr.ledger }, drainage: drain, islandCells: b.islandCells, mountainGain: b.mountainGain } }; map.params.genVersion = 4; };
+    S.postHook = map => { map.natural = { version: 1, bridge: VERSION, requestedContinents: K, measuredLandBeforeHydrology: landCells / N, sphere: { orientation: b.sphere.orientation, generator: b.sphere.metadata.generator, attempt: b.sphere.metadata.attempt, components: b.sphere.metadata.components, seamColumn: b.seamColumn, grid: '720x360', latitudeBand: LAT_SPAN, moisture: { model: 'spherical-moisture-transport 180x90, prescribed winds', ledger: tr.ledger }, drainage: drain, islandCells: b.islandCells, plateAge: b.plateAge, mountainGain: b.mountainGain } }; map.params.genVersion = 4; };
     return yield* FM.finishNaturalWorld(S);
   }
 

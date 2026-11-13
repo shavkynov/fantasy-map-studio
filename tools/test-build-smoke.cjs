@@ -21,6 +21,7 @@ const root = path.resolve(__dirname, '../src');
     const r = await p.evaluate(() => ({ bridge: __m.natural && __m.natural.bridge, W: __m.W, H: __m.H, continents: __m.natural && __m.natural.requestedContinents, version: FM.VERSION }));
     assert.deepEqual([r.bridge, r.W, r.H], ['sphere-bridge-v1', 1440, 960], 'spherical bridge (genVersion 4) at the largest size');
     await p.waitForFunction(() => FM.WorldAtlas && FM.WorldAtlas.inspect() && FM.WorldAtlas.inspect().mode === 'atlas-ui1', null, { timeout: 120000 });
+    const sp = await p.evaluate(() => __m.natural.sphere); assert.ok(sp.moisture && Math.abs(sp.moisture.ledger.residual) < 1e-6, 'moisture transport ledger balances'); assert.ok(sp.drainage && sp.drainage.balanceError < 1e-9, 'sphere drainage area balance'); assert.ok(sp.drainage.water && !sp.drainage.water.error && sp.drainage.water.maxLedgerResidual < 1e-9, 'basin water ledger balances: ' + JSON.stringify(sp.drainage.water)); assert.equal(sp.plateAge.length, 12, 'plate ages');
     await p.locator('#layersSec .fold-h').click(); assert.equal(await p.locator('#themeSeg button[data-t="atlas"].on').count(), 1, 'atlas theme is the default');
     assert.deepEqual(errs, [], 'page errors'); assert.deepEqual(bad, [], 'HTTP >= 400');
     console.log('PASS test build smoke: ' + JSON.stringify(r));
