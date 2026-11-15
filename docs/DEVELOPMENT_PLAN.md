@@ -19,6 +19,9 @@ The spherical-editor-to-main bridge is NOT implemented. An atlas pass is not a s
 5. After relevant CI passes, perform ONE combined Mac acceptance: generate, edit, water, cities/routes where supported, style switch, zoom, PNG, save/open and seabed. Preserve evidence of failures.
 6. Explicitly agree next release scope: atlas/main-app improvement versus integrated spherical generation. If the latter is chosen, specify and implement the bridge before adding more independent features. Do not merge/release merely because this list exists.
 
+## DIRECTION CHANGE PROPOSED 2026-11-16 (pending owner approval)
+The owner reframed the goal as a realistic snapshot of the world; mechanics that do not affect the snapshot are to be simplified. The queue below, especially items 1, 2 and 4 (time-stepped water, tracking, regime), is superseded by SNAPSHOT_SIMPLIFICATION_PLAN.md once approved. Until then no new work on those items.
+
 ## Spherical-editor queue (track 2), in order
 Added 2026-11-15. Order reflects dependencies, not a release decision. Items 1-2 are the handoff section 7 stage; item 3 was agreed with the owner on 2026-11-15.
 1. DONE (1582016, not yet CI-confirmed): stable identity of surface water bodies across water-run steps (anchor-cell ids; merge/split/appear/dry events). Merge/split are verified on synthetic fields only; real 144x72 runs produced 3 lakes and no events.
