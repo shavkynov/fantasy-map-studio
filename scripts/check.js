@@ -57,5 +57,9 @@ const waterIdentityRealTest = spawnSync(process.execPath, [path.join(root, 'tool
 process.stdout.write(waterIdentityRealTest.stdout || '');
 if (waterIdentityRealTest.status !== 0) fail(`идентичность водоёмов на настоящих модулях\n${waterIdentityRealTest.stderr}`);
 
+const elevationScaleTest = spawnSync(process.execPath, [path.join(root, 'tools', 'elevation-scale-test.cjs')], { encoding: 'utf8' });
+process.stdout.write(elevationScaleTest.stdout || '');
+if (elevationScaleTest.status !== 0) fail(`физическая шкала высот\n${elevationScaleTest.stderr}`);
+
 if (failed) { console.error(`\nПроверка не пройдена: ${failed}`); process.exit(1); }
 console.log('✓ Проверка пройдена');
