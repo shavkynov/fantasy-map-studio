@@ -17,8 +17,8 @@ A stored record `{version:'elevation-scale-v1', radiusKm, metersPerUnit, datum:'
 Nothing in the field, the session or the water model is changed by it.
 
 ## Decisions that are conventions, not facts
-- `metersPerUnit` defaults to 10 000 (relative 1.0 = 10 km). The generator's heights were never calibrated; with this default a 144×72 test world gives about 50 m minimum, 2 000 m mean and 4 900 m maximum land height. The owner should confirm or change the default.
-- `radiusKm` is accepted in 500–50 000 km. It must come from the map's planet parameters; no value is assumed by the module except in tests (6371).
+- `metersPerUnit` defaults to 8 000 (relative 1.0 = 8 km). The owner delegated the choice and named Earth as the reference. The generator's relative heights are flatter-topped than Earth's (its max/mean ratio is about 3, Earth's about 6 at cell-mean resolution), so no single linear factor matches both. 8 000 is a compromise: on 6 test seeds (144x72) the 95th percentile of land height is about 2.5-3.1 km and the cell-mean maximum 3.8-4.4 km, while the mean land height is 1.2-1.6 km against Earth's about 0.84 km. Earth figures are from memory, not checked against a source in this session. A non-linear height curve could fix the shape later; it is not part of this step.
+- `radiusKm` must lie in the terrestrial range: 2 440 km (Mercury) to 6 378 km (Earth, equatorial). Earth (6 371) is the reference; Mars 3 390 and Venus 6 052 are inside. How a world picks its radius (e.g. a band close to Earth) belongs to the planet parameters, not to this module. A band close to Earth's but not above it is an interpretation of the owner's wording and can be changed.
 - The record must be saved with the map together with the grid size, so an old save is never reinterpreted under another scale.
 
 ## Limits to keep in results

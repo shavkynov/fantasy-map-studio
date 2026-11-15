@@ -5,8 +5,13 @@
 // The metres-per-unit factor is a stored CONVENTION (the generator's heights are relative), not a derived fact.
 
 const VERSION = 'elevation-scale-v1';
-const DEFAULT_METERS_PER_UNIT = 10000;   // convention: relative height 1.0 = 10 000 m; review with the owner
-const MIN_RADIUS_KM = 500, MAX_RADIUS_KM = 50000;
+// Convention (owner delegated the choice, Earth is the reference): relative height 1.0 = 8 000 m. A compromise: on test worlds it
+// puts the 95th percentile of land height near Earth's (~2.7 km) and the cell-mean maximum near 4 km, while the mean land height
+// (~1.2-1.6 km on the seeds tried) stays above Earth's 0.84 km because the generator's heights are flatter-topped than Earth's.
+const DEFAULT_METERS_PER_UNIT = 8000;
+const EARTH_RADIUS_KM = 6371;
+// Allowed planet radii: the terrestrial group, Mercury (2 440 km) up to Earth's equatorial radius (6 378 km).
+const MIN_RADIUS_KM = 2440, MAX_RADIUS_KM = 6378.137;
 
 function positive(v, name) {
   if (!Number.isFinite(v) || v <= 0) throw Error('Invalid ' + name);
@@ -18,7 +23,7 @@ function create(options) {
   const allowed = ['radiusKm', 'metersPerUnit'];
   if (Object.keys(options).some(k => !allowed.includes(k))) throw Error('Unknown scale option');
   const radiusKm = positive(options.radiusKm, 'radiusKm');
-  if (radiusKm < MIN_RADIUS_KM || radiusKm > MAX_RADIUS_KM) throw Error('radiusKm must be within ' + MIN_RADIUS_KM + '..' + MAX_RADIUS_KM);
+  if (radiusKm < MIN_RADIUS_KM || radiusKm > MAX_RADIUS_KM) throw Error('radiusKm must be within the terrestrial range ' + MIN_RADIUS_KM + '..' + MAX_RADIUS_KM);
   const metersPerUnit = options.metersPerUnit === undefined ? DEFAULT_METERS_PER_UNIT : positive(options.metersPerUnit, 'metersPerUnit');
   const km2PerSteradian = radiusKm * radiusKm, kmPerRadian = radiusKm;
 
@@ -59,6 +64,6 @@ function fromRecord(record) {
   return create({ radiusKm: record.radiusKm, metersPerUnit: record.metersPerUnit });
 }
 
-const api = { create, fromRecord, VERSION, DEFAULT_METERS_PER_UNIT };
+const api = { create, fromRecord, VERSION, DEFAULT_METERS_PER_UNIT, EARTH_RADIUS_KM, MIN_RADIUS_KM, MAX_RADIUS_KM };
 if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.ElevationScale = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
