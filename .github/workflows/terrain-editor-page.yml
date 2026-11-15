@@ -67,6 +67,10 @@ jobs:
         env:
           NODE_PATH: ${{ runner.temp }}/editor-browser/node_modules
         run: node tools/terrain-editor-water-scenarios-browser-test.cjs
+      - name: Elevation scale panel in Chromium - scale, metres readout, 16-bit PNG import
+        env:
+          NODE_PATH: ${{ runner.temp }}/editor-browser/node_modules
+        run: node tools/terrain-editor-elevation-browser-test.cjs
       - name: Browser reports, screenshots and actual exported PNGs
         if: always()
         uses: actions/upload-artifact@v4
@@ -76,5 +80,6 @@ jobs:
             artifacts/editor
             artifacts/editor-workspace
             artifacts/editor-water-scenarios
+            artifacts/editor-elevation
           if-no-files-found: ignore
           retention-days: 7

@@ -45,7 +45,15 @@ Implemented in `src/terrain-edit-shaping.js`; tests: `tools/elevation-scale-pers
 - Verified: import -> save document -> open in a fresh workspace gives the same heights and scale, not dirty; v1 round trip unchanged; setScale/validation; brush edits keep the scale; 10 kinds of malformed v2/v1 documents are refused.
 - Found while testing: `fromRecord` used to ignore unknown keys in a record; it is now strict.
 
+## Editor panel and file import (plan 3b UI)
+Files: `src/elevation-ui.js` (panel "Шкала высот"), `src/elevation-raster-file.js` (file decoding), `src/elevation-import.js`, hooks in `src/terrain-edit-shaping.js`. Tests: `tools/elevation-raster-file-test.cjs` (Node), `tools/terrain-editor-elevation-browser-test.cjs` (real Chromium; added to the CI workflow file, result not confirmed).
+- Panel: status of the scale (radius, metres per unit, equator cell width in km, land area in km2 and land share, min / area-weighted mean / max land height in metres); fields radius (2 440..6 378 km, default 6 371) and metres per unit (default 8 000); buttons "Задать шкалу карте" / "Снять шкалу"; file input for the raster; PNG range fields (metres for black and white) and water level.
+- The pointer readout shows "N м над уровнем воды (относительная x)" when the map has a scale, otherwise the old "условные единицы" text.
+- Files: 16-bit greyscale PNG (all five PNG filters, CRC checked; 8-bit, colour, indexed and interlaced PNG are refused because 8 bits give only 256 levels) or JSON `{w,h,meters:[...]}`; limit 32 MiB per file and 8 388 608 cells. A PNG value v maps linearly to minMeters + v/65535 x (maxMeters - minMeters), so the metre range must be entered by the user: a PNG itself carries no metres.
+- Import replaces the current map (confirmation when it has unsaved changes), applies the scale from the panel fields, reports source and target size, reduction factor, land cells, max/mean metres and clamped cells. Any refusal leaves the map unchanged.
+- Verified (Chromium): set and clear the scale (file switches between v2 and v1); metres readout; 360x180 PNG import; 720x360 import reduced 2x2; refusal of an 8-bit PNG and of a non-raster file; declined replacement; water run after import. Node: decoder with all filters, corrupt/truncated/mismatched files, option and range checks.
+- Found while testing: the workspace refuses staging while it is locked, so the panel releases its lock after decoding and before the synchronous stage + commit.
+
 ## Not done (next)
-- The editor page shows no scale and has no control to set it; no file picker / PNG decoding for rasters (only a JS raster object is accepted).
-- Real Mac/Electron disk and dialog acceptance of v2 files (the browser test mocks the native save adapter).
-- Per-cell edit and readout in metres/km, the parent→child rule for location maps, resolutions other than the workspace grid.
+- Electron/Mac acceptance of the panel and of v2 files (the browser tests mock the native save adapter and use Chromium only); CI result of the new workflow step.
+- Per-cell numeric edit in metres (the readout is there, an input is not); bathymetry; the parent→child rule for location maps; resolutions other than the workspace grid (the page grid is 360x180; sources must be that size or an integer multiple).

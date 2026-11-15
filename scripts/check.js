@@ -69,5 +69,9 @@ const elevationPersistTest = spawnSync(process.execPath, [path.join(root, 'tools
 process.stdout.write(elevationPersistTest.stdout || '');
 if (elevationPersistTest.status !== 0) fail(`запись шкалы высот в файле карты\n${elevationPersistTest.stderr}`);
 
+const elevationRasterTest = spawnSync(process.execPath, [path.join(root, 'tools', 'elevation-raster-file-test.cjs')], { encoding: 'utf8' });
+process.stdout.write(elevationRasterTest.stdout || '');
+if (elevationRasterTest.status !== 0) fail(`чтение файла растра высот\n${elevationRasterTest.stderr}`);
+
 if (failed) { console.error(`\nПроверка не пройдена: ${failed}`); process.exit(1); }
 console.log('✓ Проверка пройдена');

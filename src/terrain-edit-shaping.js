@@ -48,7 +48,7 @@ function createWorkspace(base,deps,Factory){
  function notify(type){for(const fn of listeners)try{fn(type,info());}catch(error){if(typeof console!=='undefined')console.error('Workspace observer:',error);}}
  function changed(){revision++;current=signature();notify('change');}
  function available(){if(locked)throw Error('Операция с файлом ещё не завершена');}
- const session={snapshot:()=>({...active.snapshot(),revision,busy:locked||active.snapshot().busy}),save:()=>active.save(),cancel:()=>active.cancel(),clearWater:()=>active.clearWater(),runWater:(...args)=>locked?Promise.resolve({status:'busy'}):active.runWater(...args)};
+ const session={get scale(){return scale?{...scale}:null;},snapshot:()=>({...active.snapshot(),revision,busy:locked||active.snapshot().busy}),save:()=>active.save(),cancel:()=>active.cancel(),clearWater:()=>active.clearWater(),runWater:(...args)=>locked?Promise.resolve({status:'busy'}):active.runWater(...args)};
  for(const method of ['stroke','undo','redo','load'])session[method]=(...args)=>{available();const result=active[method](...args);if(result)changed();return result;};
  function stage(nextName,nextBase,patch,fromFile,nextScale=null){
   validName(nextName);const candidate=Factory.create(nextBase,deps,patch),expected=revision;let used=false;
@@ -85,6 +85,7 @@ function installWorkspace(doc,win){
  get('saveMap').onclick=async()=>{if(!work||get('saveMap').disabled)return;const text=JSON.stringify(work.document()),filename=work.info().name.replace(/[\\/:*?"<>|]/g,'_')+'.fmworld';work.hold(true);repaint();try{if(win.api?.saveWorld){const result=await win.api.saveWorld(text,filename);if(result){work.markSaved(text);get('mapFileStatus').textContent='Полная карта сохранена.';}else get('mapFileStatus').textContent='Сохранение отменено. Статус изменений не сброшен.';}else{const url=win.URL.createObjectURL(new win.Blob([text],{type:'application/json'})),a=doc.createElement('a');a.href=url;a.download=filename;a.click();win.setTimeout(()=>win.URL.revokeObjectURL(url),1000);get('mapFileStatus').textContent='Файл передан браузеру. Запись на диск не подтверждена; статус изменений не сброшен.';}}catch(e){get('mapFileStatus').textContent='Ошибка сохранения; изменения остаются в карте. '+e.message;}finally{work.hold(false);repaint();}};
  const observer=new win.MutationObserver(refresh);observer.observe(get('brushRadius'),{attributes:true,attributeFilter:['disabled']});win.addEventListener('pagehide',()=>observer.disconnect());refresh();
  const loader=doc.createElement('script');loader.src='terrain-edit-spherical-base.js';loader.onload=()=>win.SphericalTerrainBase.installUI(doc,win,()=>work,repaint);loader.onerror=()=>{const warning=doc.createElement('p');warning.textContent='Сферический генератор не загрузился. Существующие карты и редактор остаются доступны.';panel.appendChild(warning);};doc.head.appendChild(loader);
+ if(win.ElevationUI)win.ElevationUI.installUI(doc,win,()=>work,repaint);
 }
 function install(doc,win){
  installWorkspace(doc,win);
@@ -101,7 +102,7 @@ function install(doc,win){
  mode.addEventListener('change',()=>{saved[previous]=amount.value;previous=mode.value;amount.value=saved[previous]===undefined?defaults[previous]:saved[previous];refresh();});display.addEventListener('change',refresh);
  canvas.addEventListener('pointermove',e=>{
   if(!snapshot)return;if(comparing()){readout.textContent='Просмотр сравнения: для чтения текущей высоты вернитесь к текущей карте.';return;}
-  const b=canvas.getBoundingClientRect(),u=(e.clientX-b.left)/b.width,v=(e.clientY-b.top)/b.height;if(u<0||u>=1||v<0||v>=1)return;const i=Math.floor(v*snapshot.h)*snapshot.w+Math.floor(u*snapshot.w);readout.textContent='Клетка '+i+' · '+(snapshot.land[i]?'Высота: '+snapshot.height[i].toPrecision(7)+' (условные единицы)':'Океан · высота суши не задана');
+  const b=canvas.getBoundingClientRect(),u=(e.clientX-b.left)/b.width,v=(e.clientY-b.top)/b.height;if(u<0||u>=1||v<0||v>=1)return;const i=Math.floor(v*snapshot.h)*snapshot.w+Math.floor(u*snapshot.w);const sc=live&&live.scale;readout.textContent='Клетка '+i+' · '+(snapshot.land[i]?(sc?'Высота: '+Math.round(snapshot.height[i]*sc.metersPerUnit).toLocaleString('ru-RU')+' м над уровнем воды (относительная '+snapshot.height[i].toPrecision(7)+')':'Высота: '+snapshot.height[i].toPrecision(7)+' (условные единицы)'):'Океан · высота суши не задана');
  });canvas.addEventListener('pointerleave',()=>{readout.textContent='Наведите указатель на текущую карту: высота читается из данных, не из цвета.';});
  const Session=win.TerrainEditSession,originalCreate=Session.create;
  Session.create=function(base,deps){
