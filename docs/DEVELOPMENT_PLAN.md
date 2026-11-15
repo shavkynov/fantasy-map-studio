@@ -19,6 +19,20 @@ The spherical-editor-to-main bridge is NOT implemented. An atlas pass is not a s
 5. After relevant CI passes, perform ONE combined Mac acceptance: generate, edit, water, cities/routes where supported, style switch, zoom, PNG, save/open and seabed. Preserve evidence of failures.
 6. Explicitly agree next release scope: atlas/main-app improvement versus integrated spherical generation. If the latter is chosen, specify and implement the bridge before adding more independent features. Do not merge/release merely because this list exists.
 
+## Spherical-editor queue (track 2), in order
+Added 2026-11-15. Order reflects dependencies, not a release decision. Items 1-2 are the handoff section 7 stage; item 3 was agreed with the owner on 2026-11-15.
+1. DONE (1582016, not yet CI-confirmed): stable identity of surface water bodies across water-run steps (anchor-cell ids; merge/split/appear/dry events). Merge/split are verified on synthetic fields only; real 144x72 runs produced 3 lakes and no events.
+2. Reconcile hydrology adjacency with the object catalog; link inflow -> lake -> outflow; separate rain runoff from stored-water spill without double counting.
+3. PHYSICAL ELEVATION SCALE (real-world units): heights in metres, distances and areas in km / km2 on a stated planet radius, vertical datum = external water level 0. Required before river objects, regime classification and location maps, because slope, discharge and cross-scale consistency need units that survive a change of resolution.
+   - 3a. Specify units: metres above the water level 0 (and below, for seabed); planet radius and the metres-to-internal-unit factor stored with the map (scale version + grid size) so old saves are not reinterpreted.
+   - 3b. Import a height raster (16-bit PNG or numeric array) with an explicit metres scale and datum; area-weighted for the equirectangular grid; pass through the existing core (bounds, undo) and rebuild the water context.
+   - 3c. Per-cell numeric edit and readout in metres/km on top of the same entry point.
+   - 3d. Define the parent-to-child consistency rule for location maps: a child cell average must equal the parent cell value; coast, passes and major rivers of the world constrain the location; water is recomputed on the child grid with boundary inflows from the world.
+   - Caveat to record with results: a 1-degree cell (about 111 km at the equator) holds a mean height, not peaks; lakes and spill levels depend on resolution.
+   - Open: scale of the existing generator output (currently arbitrary), whether generated worlds are re-scaled to metres or only imported ones; effect on the <=7 continents rule for imported data.
+4. River objects and regime classification (only after 2 and 3). Scale-based selection stays a separate presentation layer.
+5. Spherical bridge to the main world: the plan text above says it is absent; later commits on this branch (44291c2, 44767ce, c7eb574) mention a spherical bridge. Re-verify its state before relying on this plan line.
+
 ## Acceptance matrix
 | Track | Implementation evidence | Still required |
 | --- | --- | --- |
