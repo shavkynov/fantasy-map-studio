@@ -81,5 +81,13 @@ const waterFluxRealTest = spawnSync(process.execPath, [path.join(root, 'tools', 
 process.stdout.write(waterFluxRealTest.stdout || '');
 if (waterFluxRealTest.status !== 0) fail(`потоки воды и связи озёр на настоящей сессии\n${waterFluxRealTest.stderr}`);
 
+const riverObjectsTest = spawnSync(process.execPath, [path.join(root, 'tools', 'river-objects-test.cjs')], { encoding: 'utf8' });
+process.stdout.write(riverObjectsTest.stdout || '');
+if (riverObjectsTest.status !== 0) fail(`речные объекты: русла, реки, выбор, физические величины\n${riverObjectsTest.stderr}`);
+
+const riversRealTest = spawnSync(process.execPath, [path.join(root, 'tools', 'terrain-edit-rivers-real-test.cjs')], { encoding: 'utf8' });
+process.stdout.write(riversRealTest.stdout || '');
+if (riversRealTest.status !== 0) fail(`речные объекты на настоящей сессии\n${riversRealTest.stderr}`);
+
 if (failed) { console.error(`\nПроверка не пройдена: ${failed}`); process.exit(1); }
 console.log('✓ Проверка пройдена');

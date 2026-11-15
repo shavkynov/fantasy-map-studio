@@ -21,10 +21,12 @@ function create(base,deps,initialPatch){
  if(!!deps.Routing!==!!deps.Reaches)throw Error('Routing and Reaches must be supplied together');
  if(!!deps.Identity!==!!deps.Objects)throw Error('Identity and Objects must be supplied together');
  if(deps.Links&&!deps.Objects)throw Error('Links need Objects');
+ function deepFreeze(v){if(v&&typeof v==='object'&&!Object.isFrozen(v)){Object.freeze(v);for(const k of Object.keys(v))deepFreeze(v[k]);}return v;}
  const FlowHistory=deps.FlowHistory||(deps.Routing?root.RunoffFlowHistory:null);
  if(FlowHistory&&!deps.Routing)throw Error('FlowHistory requires Routing and Reaches');
+ if(deps.Rivers&&!FlowHistory)throw Error('Rivers need Routing, Reaches and FlowHistory');
  if(deps.Routing&&root.document&&!FlowHistory)throw Error('RunoffFlowHistory not loaded');
- let changes=[],undo=[],redo=[],revision=0,epoch=0,busy=false,water=null,rivers=null,flowHistory=null,waterRun=null,waterBodies=null,waterFlux=null,waterLinks=null;
+ let changes=[],undo=[],redo=[],revision=0,epoch=0,busy=false,water=null,rivers=null,flowHistory=null,waterRun=null,waterBodies=null,waterFlux=null,waterLinks=null,riverObjects=null;
  if(initialPatch!==undefined){const candidate=Core.create(base);candidate.importPatch(initialPatch);changes=candidate.exportPatch().changes;}
  const envelope=c=>({...initial,changes:c});
  function prepare(c){
@@ -33,7 +35,7 @@ function create(base,deps,initialPatch){
   return {core,field,drainage,hierarchy};
  }
  let scene=prepare(changes);
- function install(next,c){epoch++;busy=false;water=null;rivers=null;flowHistory=null;waterRun=null;waterBodies=null;waterFlux=null;waterLinks=null;scene=next;changes=c;revision++;}
+ function install(next,c){epoch++;busy=false;water=null;rivers=null;flowHistory=null;waterRun=null;waterBodies=null;waterFlux=null;waterLinks=null;riverObjects=null;scene=next;changes=c;revision++;}
  function commit(next,c){undo.push(changes);if(undo.length>limit)undo.shift();redo=[];install(next,c);}
  function stroke(command){
   const candidate=Core.create(base);candidate.importPatch(envelope(changes));
@@ -53,7 +55,7 @@ function create(base,deps,initialPatch){
   for(const key of Object.keys(result))if(ArrayBuffer.isView(result[key]))result[key]=result[key].slice();
   return result;
  }
- function snapshot(){return {w:base.w,h:base.h,land:scene.field.land.slice(),height:scene.field.height.slice(),east:scene.field.east.slice(),north:scene.field.north.slice(),depth:water?water.redistribution.depth.slice():null,ledger:water?{...water.ledger}:null,rivers:riverSnapshot(),flowHistory:historySnapshot(),waterRun:waterRun?JSON.parse(JSON.stringify(waterRun)):null,waterBodies:waterBodies?JSON.parse(JSON.stringify(waterBodies)):null,waterFlux:waterFlux?JSON.parse(JSON.stringify(waterFlux)):null,waterLinks:waterLinks?JSON.parse(JSON.stringify(waterLinks)):null,revision,busy,canUndo:undo.length>0,canRedo:redo.length>0,basins:scene.hierarchy.basins.length};}
+ function snapshot(){return {w:base.w,h:base.h,land:scene.field.land.slice(),height:scene.field.height.slice(),east:scene.field.east.slice(),north:scene.field.north.slice(),depth:water?water.redistribution.depth.slice():null,ledger:water?{...water.ledger}:null,rivers:riverSnapshot(),flowHistory:historySnapshot(),waterRun:waterRun?JSON.parse(JSON.stringify(waterRun)):null,waterBodies:waterBodies?JSON.parse(JSON.stringify(waterBodies)):null,waterFlux:waterFlux?JSON.parse(JSON.stringify(waterFlux)):null,waterLinks:waterLinks?JSON.parse(JSON.stringify(waterLinks)):null,riverObjects,revision,busy,canUndo:undo.length>0,canRedo:redo.length>0,basins:scene.hierarchy.basins.length};}
  function cancel(){epoch++;busy=false;}
  async function runWater(onProgress=()=>{},options={}){
   if(busy)return {status:'busy'};
@@ -87,11 +89,13 @@ function create(base,deps,initialPatch){
    // Publish water, history, last-step network and forcing provenance atomically.
    const nextBodies=identity?identity.snapshot():null;
    const nextFlux=deps.Flux?{steps:fluxSteps,totals:{rainInput:fluxSteps.reduce((a,s)=>a+s.rainInput,0),exportedToWater:fluxSteps.reduce((a,s)=>a+s.exportedToWater,0),hopVolume:fluxSteps.reduce((a,s)=>a+s.hopVolume,0)},scope:'inflow phase per step; hopVolume counts relays between pools and is not water, never add it to rainInput'}:null;
-   const nextLinks=deps.Links?(()=>{const cat=deps.Objects.build(current.field,{w:base.w,h:base.h,depth:state.redistribution.depth},{adjacency:'hydrology'}),L=deps.Links.build(current.field,current.hierarchy,state.redistribution,cat);return {summary:L.summary,links:L.links,mismatches:L.mismatches,metadata:L.metadata};})():null;
-   water=state;rivers=nextRivers;flowHistory=nextHistory;waterRun=plan;waterBodies=nextBodies;waterFlux=nextFlux;waterLinks=nextLinks;return {status:'completed'};
+   let nextLinks=null,linkInputs=null;
+   if(deps.Links){const cat=deps.Objects.build(current.field,{w:base.w,h:base.h,depth:state.redistribution.depth},{adjacency:'hydrology'}),L=deps.Links.build(current.field,current.hierarchy,state.redistribution,cat);nextLinks={summary:L.summary,links:L.links,mismatches:L.mismatches,metadata:L.metadata};linkInputs={catalog:cat,links:L};}
+   const nextRiverObjects=deps.Rivers&&nextHistory?deepFreeze(deps.Rivers.build(current.field,current.drainage,nextHistory,linkInputs?{catalog:linkInputs.catalog,links:linkInputs.links}:{})):null;
+   water=state;rivers=nextRivers;flowHistory=nextHistory;waterRun=plan;waterBodies=nextBodies;waterFlux=nextFlux;waterLinks=nextLinks;riverObjects=nextRiverObjects;return {status:'completed'};
   }finally{if(token===epoch)busy=false;}
  }
- return {stroke,undo:()=>history(undo,redo),redo:()=>history(redo,undo),load,save:()=>JSON.parse(JSON.stringify(envelope(changes))),snapshot,cancel,runWater,clearWater(){cancel();water=null;rivers=null;flowHistory=null;waterRun=null;waterBodies=null;waterFlux=null;waterLinks=null;}};
+ return {stroke,undo:()=>history(undo,redo),redo:()=>history(redo,undo),load,save:()=>JSON.parse(JSON.stringify(envelope(changes))),snapshot,cancel,runWater,clearWater(){cancel();water=null;rivers=null;flowHistory=null;waterRun=null;waterBodies=null;waterFlux=null;waterLinks=null;riverObjects=null;}};
 }
 const api={create};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.TerrainEditSession=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

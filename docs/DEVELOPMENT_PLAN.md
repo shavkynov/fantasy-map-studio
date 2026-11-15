@@ -31,7 +31,7 @@ Added 2026-11-15. Order reflects dependencies, not a release decision. Items 1-2
    - Caveat to record with results: a 1-degree cell (about 111 km at the equator) holds a mean height, not peaks; lakes and spill levels depend on resolution.
    - Open: scale of the existing generator output (currently arbitrary), whether generated worlds are re-scaled to metres or only imported ones; effect on the <=7 continents rule for imported data.
    - Port note: the module contracts, tests and docs/ELEVATION_SCALE.md describe behaviour a Rust port has to reproduce; keep specifications and test vectors language-neutral where practical.
-4. River objects and regime classification (only after 2 and 3). Scale-based selection stays a separate presentation layer.
+4. (River objects, observed regime, scale selection and physical values DONE on the branch 2026-11-16, see RIVER_OBJECTS.md; browser-tested in Chromium; CI/Electron/Mac not confirmed. A meaningful perennial/ephemeral classification is NOT possible with the current water model - it has scalar forcing, no baseflow and no lake release; that needs model work, see the document.) River objects and regime classification (only after 2 and 3). Scale-based selection stays a separate presentation layer.
 5. Spherical bridge to the main world: the plan text above says it is absent; later commits on this branch (44291c2, 44767ce, c7eb574) mention a spherical bridge. Re-verify its state before relying on this plan line.
 
 ## Acceptance matrix
