@@ -123,6 +123,6 @@ sync();
 function loadRiverModule(src){return new Promise((resolve,reject)=>{const script=document.createElement('script');script.src=src;script.onload=resolve;script.onerror=()=>reject(Error('Не загружен модуль '+src));document.head.appendChild(script);});}
 Promise.all(['rainfall-runoff-routing.js','runoff-reach-network.js','runoff-reach-display.js'].map(loadRiverModule)).then(()=>ThreeBlockPrototype.create()).then(base=>{
  const model=EqualAreaABCandidate.create(base,{eastEnd:2,westEnd:2}),frame=model.frame(360,180,2,4),terrain=RegionalMaterialTerrain.create(base,MaterialReliefLayer),field=RegionalReliefIntegration.build(frame,terrain.heights(model,frame));
- session=TerrainEditSession.create(field,{Core:TerrainEditCore,Relief:RegionalReliefIntegration,Drainage:SphericalDrainage,Hierarchy:BasinSpillHierarchy,Surface:CoupledBasinWater,Fill:BasinFillSpill,Routing:RainfallRunoffRouting,Reaches:RunoffReachNetwork,Objects:SurfaceWaterObjects,Identity:SurfaceWaterIdentity,yieldStep:()=>new Promise(r=>setTimeout(r,0))});paint();
+ session=TerrainEditSession.create(field,{Core:TerrainEditCore,Relief:RegionalReliefIntegration,Drainage:SphericalDrainage,Hierarchy:BasinSpillHierarchy,Surface:CoupledBasinWater,Fill:BasinFillSpill,Routing:RainfallRunoffRouting,Reaches:RunoffReachNetwork,Scale:ElevationScale,Objects:SurfaceWaterObjects,Identity:SurfaceWaterIdentity,yieldStep:()=>new Promise(r=>setTimeout(r,0))});paint();
 }).catch(error=>{$('editorStatus').textContent='Редактор не запущен: '+error.message;});
 })();

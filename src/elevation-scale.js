@@ -60,8 +60,12 @@ function create(options) {
 }
 
 function fromRecord(record) {
-  if (!record || record.version !== VERSION) throw Error('Unsupported scale record');
-  return create({ radiusKm: record.radiusKm, metersPerUnit: record.metersPerUnit });
+  if (!record || typeof record !== 'object' || Array.isArray(record) || record.version !== VERSION) throw Error('Unsupported scale record');
+  const result = create({ radiusKm: record.radiusKm, metersPerUnit: record.metersPerUnit });
+  // The stored record must be exactly what create() would write: no unknown keys, no other datum or scope text.
+  const keys = Object.keys(record), expected = Object.keys(result.record);
+  if (keys.length !== expected.length || expected.some(k => record[k] !== result.record[k])) throw Error('Scale record does not match elevation-scale-v1');
+  return result;
 }
 
 const api = { create, fromRecord, VERSION, DEFAULT_METERS_PER_UNIT, EARTH_RADIUS_KM, MIN_RADIUS_KM, MAX_RADIUS_KM };

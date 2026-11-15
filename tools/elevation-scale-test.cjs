@@ -19,7 +19,7 @@ test('Границы радиуса: Меркурий … Земля (экват
 });
 test('Запись шкалы замкнута, неизменяема и восстанавливается',()=>{
  const s=S.create({radiusKm:5000,metersPerUnit:7000});assert(Object.isFrozen(s.record));assert.throws(()=>{'use strict';s.record.radiusKm=1;});
- const r=S.fromRecord(JSON.parse(JSON.stringify(s.record)));assert.deepEqual(r.record,s.record);assert.throws(()=>S.fromRecord({...s.record,version:'x'}));assert.throws(()=>S.fromRecord(null));
+ const r=S.fromRecord(JSON.parse(JSON.stringify(s.record)));assert.deepEqual(r.record,s.record);assert.throws(()=>S.fromRecord({...s.record,version:'x'}));assert.throws(()=>S.fromRecord(null));assert.throws(()=>S.fromRecord({...s.record,extra:1}),/match/);assert.throws(()=>S.fromRecord({...s.record,datum:'sea floor'}),/match/);assert.throws(()=>S.fromRecord({version:s.record.version,radiusKm:5000,metersPerUnit:7000}),/match/);assert.throws(()=>S.fromRecord([]));
 });
 test('Неверные входные данные отклоняются',()=>{
  for(const o of [undefined,null,[],{},{radiusKm:0},{radiusKm:-1},{radiusKm:NaN},{radiusKm:2439},{radiusKm:6378.2},{radiusKm:6371,metersPerUnit:0},{radiusKm:6371,metersPerUnit:Infinity},{radiusKm:6371,extra:1}])assert.throws(()=>S.create(o),String(JSON.stringify(o)));

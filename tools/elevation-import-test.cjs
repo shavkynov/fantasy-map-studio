@@ -37,7 +37,7 @@ const raster=(w,h,f)=>{const m=new Float64Array(w*h);for(let y=0;y<h;y++)for(let
   const r=Imp.convert(raster(8,4,()=>.001),scale);assert.equal(r.report.clampedToMinimum,32);assert(r.base.height.every(v=>v===1e-6));
  });
  // реальное рабочее пространство
- const deps={Core,Relief,Drainage,Hierarchy,Surface,Fill,yieldStep:()=>Promise.resolve()},mk=()=>Shape.createWorkspace(G.generate({seed:'imp-a',w:144,h:72,continents:4}),deps,Session);
+ const deps={Scale,Core,Relief,Drainage,Hierarchy,Surface,Fill,yieldStep:()=>Promise.resolve()},mk=()=>Shape.createWorkspace(G.generate({seed:'imp-a',w:144,h:72,continents:4}),deps,Session);
  const world=(w,h)=>raster(w,h,(x,y)=>{const lon=2*Math.PI*((x+.5)/w-.5),lat=Math.PI*(.5-(y+.5)/h),d=Math.hypot(lon*Math.cos(lat),lat-.3);return d<1.2?Math.round(3500*(1-d/1.2)+50):-2000;});
  await test('Рабочее пространство: подготовка не меняет карту, коммит заменяет, вода сброшена, высоты в метрах',async()=>{
   const w=mk(),before=JSON.stringify(w.session.snapshot().height);await w.session.runWater();assert(w.session.snapshot().depth);

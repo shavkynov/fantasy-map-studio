@@ -40,23 +40,25 @@ function heightPixels(field){
  for(let i=0;i<field.land.length;i++){const v=field.land[i]?Math.round(35+220*Math.log1p(20*field.height[i])/Math.log(201)):0;data.set(field.land[i]?[v,v,v,255]:[24,66,91,255],i*4);}return data;
 }
 function createWorkspace(base,deps,Factory){
- const procedural=deps.Core.create(base).snapshot(),listeners=new Set();let active=Factory.create(procedural,deps),name='Процедурная карта',revision=0,locked=false,persisted=false;
- const documentValue=()=>({schema:'fm-terrain-workspace-v1',name,patch:active.save()}),signature=()=>JSON.stringify(documentValue());let current=signature(),checkpoint=current;
+ const procedural=deps.Core.create(base).snapshot(),listeners=new Set();let active=Factory.create(procedural,deps),name='Процедурная карта',revision=0,locked=false,persisted=false,scale=null;
+ const documentValue=()=>scale?{schema:'fm-terrain-workspace-v2',name,patch:active.save(),scale:{...scale}}:{schema:'fm-terrain-workspace-v1',name,patch:active.save()},signature=()=>JSON.stringify(documentValue());let current=signature(),checkpoint=current;
  const validName=v=>{if(typeof v!=='string'||!v.trim()||v!==v.trim()||v.length>100||/[\u0000-\u001f\u007f]/.test(v))throw Error('Недопустимое имя карты');return v;};
- const info=()=>({name,dirty:current!==checkpoint,persisted,locked,revision});
+ const info=()=>({name,dirty:current!==checkpoint,persisted,locked,revision,scale:scale?{...scale}:null});
+ const scaleRecord=v=>{if(!deps.Scale||typeof deps.Scale.fromRecord!=='function')throw Error('Модуль шкалы высот недоступен');return {...deps.Scale.fromRecord(v).record};};
  function notify(type){for(const fn of listeners)try{fn(type,info());}catch(error){if(typeof console!=='undefined')console.error('Workspace observer:',error);}}
  function changed(){revision++;current=signature();notify('change');}
  function available(){if(locked)throw Error('Операция с файлом ещё не завершена');}
  const session={snapshot:()=>({...active.snapshot(),revision,busy:locked||active.snapshot().busy}),save:()=>active.save(),cancel:()=>active.cancel(),clearWater:()=>active.clearWater(),runWater:(...args)=>locked?Promise.resolve({status:'busy'}):active.runWater(...args)};
  for(const method of ['stroke','undo','redo','load'])session[method]=(...args)=>{available();const result=active[method](...args);if(result)changed();return result;};
- function stage(nextName,nextBase,patch,fromFile){
+ function stage(nextName,nextBase,patch,fromFile,nextScale=null){
   validName(nextName);const candidate=Factory.create(nextBase,deps,patch),expected=revision;let used=false;
-  return {commit(){if(used||revision!==expected)throw Error('Подготовленная карта устарела');used=true;active.cancel();active=candidate;name=nextName;revision++;current=signature();checkpoint=fromFile?current:null;persisted=fromFile;notify('replace');}};
+  return {commit(){if(used||revision!==expected)throw Error('Подготовленная карта устарела');used=true;active.cancel();active=candidate;name=nextName;scale=nextScale;revision++;current=signature();checkpoint=fromFile?current:null;persisted=fromFile;notify('replace');}};
  }
  function stageOpen(value){
-  if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(k=>!['schema','name','patch'].includes(k))||value.schema!=='fm-terrain-workspace-v1')throw Error('Не файл карты редактора');
+  if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(k=>!['schema','name','patch',...(value.schema==='fm-terrain-workspace-v2'?['scale']:[])].includes(k))||(value.schema!=='fm-terrain-workspace-v1'&&value.schema!=='fm-terrain-workspace-v2')||(value.schema==='fm-terrain-workspace-v2'&&(!value.scale||typeof value.scale!=='object')))throw Error('Не файл карты редактора');
+  const fileScale=value.schema==='fm-terrain-workspace-v2'?scaleRecord(value.scale):null;
   const p=value.patch;if(!p||p.w!==procedural.w||p.h!==procedural.h||!Array.isArray(p.base?.land)||!Array.isArray(p.base?.height)||p.base.land.length!==p.w*p.h||p.base.height.length!==p.w*p.h)throw Error('Несовместимая сетка или основа карты');
-  const nextBase={w:p.w,h:p.h,land:p.base.land.slice(),height:p.base.height.map(v=>v===null?NaN:v)};return stage(value.name,nextBase,p,true);
+  const nextBase={w:p.w,h:p.h,land:p.base.land.slice(),height:p.base.height.map(v=>v===null?NaN:v)};return stage(value.name,nextBase,p,true,fileScale);
  }
  function stageNew(kind){if(!['ocean','procedural'].includes(kind))throw Error('Неизвестная основа');const b=kind==='ocean'?{w:procedural.w,h:procedural.h,land:new Uint8Array(procedural.w*procedural.h),height:new Float64Array(procedural.w*procedural.h).fill(NaN)}:deps.Core.create(procedural).snapshot();return stage(kind==='ocean'?'Новая карта':'Процедурная карта',b,undefined,false);}
  function stageGenerated(options,Generator){available();if(!Generator||typeof Generator.generate!=='function')throw Error('Генератор недоступен');const field=Generator.generate({...options,w:procedural.w,h:procedural.h});if(field.w!==procedural.w||field.h!==procedural.h)throw Error('Несовместимая сетка генератора');const prepared=stage('Новый сферический мир',field,undefined,false);return {metadata:JSON.parse(JSON.stringify(field.metadata)),commit:prepared.commit};}
@@ -64,9 +66,9 @@ function createWorkspace(base,deps,Factory){
   available();if(!Importer||typeof Importer.convert!=='function')throw Error('Импортёр высот недоступен');
   const target={...(options||{}),targetW:procedural.w,targetH:procedural.h},result=Importer.convert(raster,scale,target);
   if(result.base.w!==procedural.w||result.base.h!==procedural.h)throw Error('Несовместимая сетка импорта');
-  const prepared=stage('Импорт рельефа',result.base,undefined,false);return {report:JSON.parse(JSON.stringify(result.report)),commit:prepared.commit};
+  const prepared=stage('Импорт рельефа',result.base,undefined,false,scaleRecord(scale.record));return {report:JSON.parse(JSON.stringify(result.report)),commit:prepared.commit};
  }
- return {session,info,document:documentValue,stageOpen,stageNew,stageGenerated,stageImported,subscribe(fn){listeners.add(fn);return()=>listeners.delete(fn);},hold(value){locked=!!value;notify('lock');},rename(value){available();validName(value);if(name!==value){name=value;changed();}},markSaved(text){if(text!==current)return false;checkpoint=current;persisted=true;notify('saved');return true;}};
+ return {session,info,document:documentValue,stageOpen,stageNew,stageGenerated,stageImported,setScale(record){available();const next=record===null?null:scaleRecord(record);if(JSON.stringify(next)===JSON.stringify(scale))return false;scale=next;changed();return true;},subscribe(fn){listeners.add(fn);return()=>listeners.delete(fn);},hold(value){locked=!!value;notify('lock');},rename(value){available();validName(value);if(name!==value){name=value;changed();}},markSaved(text){if(text!==current)return false;checkpoint=current;persisted=true;notify('saved');return true;}};
 }
 function installWorkspace(doc,win){
  const get=id=>doc.getElementById(id),panel=doc.createElement('section');let work=null;

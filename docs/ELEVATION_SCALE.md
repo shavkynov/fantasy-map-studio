@@ -35,7 +35,17 @@ Modules: `src/elevation-import.js` (`ElevationImport.create(ElevationScale).conv
 - `stageImported` follows the generated-world path: preparing does not touch the map; `commit()` replaces it (name "Импорт рельефа", not persisted, dirty, water cleared, history empty); a stale stage is refused.
 - Verified (real modules, 144×72, 288×144 source): heights come out as metres / metersPerUnit; area and height statistics from `ElevationScale.describe` match the import report; edit, undo and a water run (residual < 1e-10) work after the import.
 
+## Saving the scale with the map (workspace file)
+Implemented in `src/terrain-edit-shaping.js`; tests: `tools/elevation-scale-persist-test.cjs` (+ the existing workspace browser test).
+- A map WITHOUT a scale is written exactly as before: `schema: 'fm-terrain-workspace-v1'`, no `scale` key. Old files and old readers are unaffected.
+- A map WITH a scale is written as `schema: 'fm-terrain-workspace-v2'` = v1 fields + `scale` (the record: version, radiusKm, metersPerUnit, datum, scope). A v1 file never carries `scale`; a v2 file must.
+- Opening: v1 -> no scale; v2 -> the record is validated by `ElevationScale.fromRecord`, which now accepts only a record identical to what `create()` writes (no unknown keys, no other datum/scope text). Any invalid file is refused and the open map stays unchanged. Opening a file replaces the scale of the previous map (a v1 file clears it).
+- A scale is set by `stageImported` (commit) or by `workspace.setScale(record | null)` for a map that already exists (e.g. a generated one); `setScale` marks the map as changed. `info().scale` exposes it. New ocean/procedural/generated maps start without a scale.
+- The grid size is already inside the file (`patch.w/h`), so scale + grid travel together. The workspace needs `deps.Scale` (`ElevationScale`) to read or set a scale; without it v2 files are refused. The editor page now loads `elevation-scale.js` and passes it.
+- Verified: import -> save document -> open in a fresh workspace gives the same heights and scale, not dirty; v1 round trip unchanged; setScale/validation; brush edits keep the scale; 10 kinds of malformed v2/v1 documents are refused.
+- Found while testing: `fromRecord` used to ignore unknown keys in a record; it is now strict.
+
 ## Not done (next)
-- File picker / PNG decoding in the page (16-bit PNG or numeric array); only a JS raster object is accepted now.
-- Saving the scale record with the map (the workspace file `fm-terrain-workspace-v1` has no field for it; adding one needs a schema decision so old files still open).
-- Per-cell edit and readout in metres/km, display in the editor, the parent→child rule for location maps, other resolutions than the workspace grid.
+- The editor page shows no scale and has no control to set it; no file picker / PNG decoding for rasters (only a JS raster object is accepted).
+- Real Mac/Electron disk and dialog acceptance of v2 files (the browser test mocks the native save adapter).
+- Per-cell edit and readout in metres/km, the parent→child rule for location maps, resolutions other than the workspace grid.
