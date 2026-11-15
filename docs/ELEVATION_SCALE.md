@@ -26,5 +26,16 @@ Nothing in the field, the session or the water model is changed by it.
 - Lakes, spill levels and basins depend on resolution.
 - Bathymetry (ocean depth in metres) is out of scope until the raster carries it.
 
-## Not done (next, plan item 3b onward)
-Raster import in metres, per-cell edit, saving the record with the map, session/UI display, parent→child rule for location maps.
+## Import of a height raster in metres (plan 3b)
+Modules: `src/elevation-import.js` (`ElevationImport.create(ElevationScale).convert(raster, scale, options)`), `workspace.stageImported(raster, scale, Importer, options)` in `src/terrain-edit-shaping.js`. Tests: `tools/elevation-import-test.cjs`.
+- Raster = `{w, h, meters}`; row-major, first row north, first column longitude -180. Same layout as the editor grid.
+- Datum: metres above the external water level 0, shifted by `seaLevelMeters` (default 0). Cells at or below the datum are ocean; their depths are discarded (no bathymetry in the base).
+- Grid: the target is the workspace grid; the raster must be that size or an integer multiple of it. Reduction is an area-weighted mean over the land sub-cells of a block; a block is land if its land-area fraction is >= 0.5. No interpolation, no other resampling.
+- Strict: any non-finite value, or |value| > 1 000 000 m, rejects the whole raster; a height beyond the editor limit for the scale rejects it; heights below the editor minimum are raised to it and counted in `report.clampedToMinimum`.
+- `stageImported` follows the generated-world path: preparing does not touch the map; `commit()` replaces it (name "Импорт рельефа", not persisted, dirty, water cleared, history empty); a stale stage is refused.
+- Verified (real modules, 144×72, 288×144 source): heights come out as metres / metersPerUnit; area and height statistics from `ElevationScale.describe` match the import report; edit, undo and a water run (residual < 1e-10) work after the import.
+
+## Not done (next)
+- File picker / PNG decoding in the page (16-bit PNG or numeric array); only a JS raster object is accepted now.
+- Saving the scale record with the map (the workspace file `fm-terrain-workspace-v1` has no field for it; adding one needs a schema decision so old files still open).
+- Per-cell edit and readout in metres/km, display in the editor, the parent→child rule for location maps, other resolutions than the workspace grid.

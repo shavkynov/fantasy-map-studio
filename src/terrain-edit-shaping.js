@@ -60,7 +60,13 @@ function createWorkspace(base,deps,Factory){
  }
  function stageNew(kind){if(!['ocean','procedural'].includes(kind))throw Error('Неизвестная основа');const b=kind==='ocean'?{w:procedural.w,h:procedural.h,land:new Uint8Array(procedural.w*procedural.h),height:new Float64Array(procedural.w*procedural.h).fill(NaN)}:deps.Core.create(procedural).snapshot();return stage(kind==='ocean'?'Новая карта':'Процедурная карта',b,undefined,false);}
  function stageGenerated(options,Generator){available();if(!Generator||typeof Generator.generate!=='function')throw Error('Генератор недоступен');const field=Generator.generate({...options,w:procedural.w,h:procedural.h});if(field.w!==procedural.w||field.h!==procedural.h)throw Error('Несовместимая сетка генератора');const prepared=stage('Новый сферический мир',field,undefined,false);return {metadata:JSON.parse(JSON.stringify(field.metadata)),commit:prepared.commit};}
- return {session,info,document:documentValue,stageOpen,stageNew,stageGenerated,subscribe(fn){listeners.add(fn);return()=>listeners.delete(fn);},hold(value){locked=!!value;notify('lock');},rename(value){available();validName(value);if(name!==value){name=value;changed();}},markSaved(text){if(text!==current)return false;checkpoint=current;persisted=true;notify('saved');return true;}};
+ function stageImported(raster,scale,Importer,options){
+  available();if(!Importer||typeof Importer.convert!=='function')throw Error('Импортёр высот недоступен');
+  const target={...(options||{}),targetW:procedural.w,targetH:procedural.h},result=Importer.convert(raster,scale,target);
+  if(result.base.w!==procedural.w||result.base.h!==procedural.h)throw Error('Несовместимая сетка импорта');
+  const prepared=stage('Импорт рельефа',result.base,undefined,false);return {report:JSON.parse(JSON.stringify(result.report)),commit:prepared.commit};
+ }
+ return {session,info,document:documentValue,stageOpen,stageNew,stageGenerated,stageImported,subscribe(fn){listeners.add(fn);return()=>listeners.delete(fn);},hold(value){locked=!!value;notify('lock');},rename(value){available();validName(value);if(name!==value){name=value;changed();}},markSaved(text){if(text!==current)return false;checkpoint=current;persisted=true;notify('saved');return true;}};
 }
 function installWorkspace(doc,win){
  const get=id=>doc.getElementById(id),panel=doc.createElement('section');let work=null;

@@ -61,5 +61,9 @@ const elevationScaleTest = spawnSync(process.execPath, [path.join(root, 'tools',
 process.stdout.write(elevationScaleTest.stdout || '');
 if (elevationScaleTest.status !== 0) fail(`физическая шкала высот\n${elevationScaleTest.stderr}`);
 
+const elevationImportTest = spawnSync(process.execPath, [path.join(root, 'tools', 'elevation-import-test.cjs')], { encoding: 'utf8' });
+process.stdout.write(elevationImportTest.stdout || '');
+if (elevationImportTest.status !== 0) fail(`импорт растра высот в метрах\n${elevationImportTest.stderr}`);
+
 if (failed) { console.error(`\nПроверка не пройдена: ${failed}`); process.exit(1); }
 console.log('✓ Проверка пройдена');
