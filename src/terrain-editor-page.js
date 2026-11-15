@@ -48,6 +48,8 @@ function waterRunText(s){
    lines.push('Шаги '+(start+1)+'–'+end+': dt='+number(a.dt)+', P='+number(f.precipitation)+', E='+number(f.evaporation)+', C='+number(f.runoffCoefficient)+', S='+number(f.seepage||0));start=end;
   }
  }else lines.push('Завершено; расписание этого результата недоступно.');
+ if(s.waterFlux){const t=s.waterFlux.totals,f=v=>v.toPrecision(4);lines.push('Вода прогона: новая '+f(t.rainInput)+', ушла за границу '+f(t.exportedToWater)+' (усл. ед.); пересылка по цепочкам озёр '+f(t.hopVolume)+' — это повторные переходы, в сумму воды не входит.');}
+ if(s.waterLinks){const m=s.waterLinks.summary;lines.push('Озёра и гидрология: объектов '+m.objectCount+', соответствие пулам '+(m.consistent?'полное':'НАРУШЕНО ('+m.mismatchCount+')')+', могут переливаться сейчас '+m.spilling+'.');}
  if(s.waterBodies){const c=s.waterBodies.counts;lines.push('Водоёмы: сейчас '+c.bodiesNow+', всего '+c.bodiesEver+'; слияний '+c.merge+', разделений '+c.split+', пересыханий '+c.dry+'.');}
  const l=s.ledger;lines.push('Приход: '+l.inputTotal.toPrecision(7),'Запас: '+l.storedTotal.toPrecision(7),'Граница: '+l.boundaryTotal.toPrecision(7),'Испарение: '+l.evapTotal.toPrecision(7),'Просачивание: '+l.seepTotal.toPrecision(7),'Невязка: '+l.residual.toPrecision(7));
  return lines.join('\n');
@@ -123,6 +125,6 @@ sync();
 function loadRiverModule(src){return new Promise((resolve,reject)=>{const script=document.createElement('script');script.src=src;script.onload=resolve;script.onerror=()=>reject(Error('Не загружен модуль '+src));document.head.appendChild(script);});}
 Promise.all(['rainfall-runoff-routing.js','runoff-reach-network.js','runoff-reach-display.js'].map(loadRiverModule)).then(()=>ThreeBlockPrototype.create()).then(base=>{
  const model=EqualAreaABCandidate.create(base,{eastEnd:2,westEnd:2}),frame=model.frame(360,180,2,4),terrain=RegionalMaterialTerrain.create(base,MaterialReliefLayer),field=RegionalReliefIntegration.build(frame,terrain.heights(model,frame));
- session=TerrainEditSession.create(field,{Core:TerrainEditCore,Relief:RegionalReliefIntegration,Drainage:SphericalDrainage,Hierarchy:BasinSpillHierarchy,Surface:CoupledBasinWater,Fill:BasinFillSpill,Routing:RainfallRunoffRouting,Reaches:RunoffReachNetwork,Scale:ElevationScale,Objects:SurfaceWaterObjects,Identity:SurfaceWaterIdentity,yieldStep:()=>new Promise(r=>setTimeout(r,0))});paint();
+ session=TerrainEditSession.create(field,{Core:TerrainEditCore,Relief:RegionalReliefIntegration,Drainage:SphericalDrainage,Hierarchy:BasinSpillHierarchy,Surface:CoupledBasinWater,Fill:BasinFillSpill,Routing:RainfallRunoffRouting,Reaches:RunoffReachNetwork,Scale:ElevationScale,Objects:SurfaceWaterObjects,Identity:SurfaceWaterIdentity,Flux:SurfaceWaterFlux,Links:SurfaceWaterLinks,yieldStep:()=>new Promise(r=>setTimeout(r,0))});paint();
 }).catch(error=>{$('editorStatus').textContent='Редактор не запущен: '+error.message;});
 })();

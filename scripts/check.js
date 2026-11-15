@@ -73,5 +73,13 @@ const elevationRasterTest = spawnSync(process.execPath, [path.join(root, 'tools'
 process.stdout.write(elevationRasterTest.stdout || '');
 if (elevationRasterTest.status !== 0) fail(`чтение файла растра высот\n${elevationRasterTest.stderr}`);
 
+const waterReconcileTest = spawnSync(process.execPath, [path.join(root, 'tools', 'surface-water-reconcile-test.cjs')], { encoding: 'utf8' });
+process.stdout.write(waterReconcileTest.stdout || '');
+if (waterReconcileTest.status !== 0) fail(`сверка каталога водоёмов с гидрологией, потоки шага\n${waterReconcileTest.stderr}`);
+
+const waterFluxRealTest = spawnSync(process.execPath, [path.join(root, 'tools', 'terrain-edit-water-flux-real-test.cjs')], { encoding: 'utf8' });
+process.stdout.write(waterFluxRealTest.stdout || '');
+if (waterFluxRealTest.status !== 0) fail(`потоки воды и связи озёр на настоящей сессии\n${waterFluxRealTest.stderr}`);
+
 if (failed) { console.error(`\nПроверка не пройдена: ${failed}`); process.exit(1); }
 console.log('✓ Проверка пройдена');

@@ -13,14 +13,14 @@
 // Это учёт пятен растра, а не доказательство физического водоёма или выхода реки; физика и вода не изменяются.
 function create(field, Objects, options = {}) {
   if (!Objects || typeof Objects.build !== 'function') throw Error('SurfaceWaterObjects required');
-  if (!options || typeof options !== 'object' || Array.isArray(options) || Object.keys(options).some(k => k !== 'depthThreshold')) throw Error('Invalid water identity options');
+  if (!options || typeof options !== 'object' || Array.isArray(options) || Object.keys(options).some(k => k !== 'depthThreshold' && k !== 'adjacency')) throw Error('Invalid water identity options');
   const { w, h, height } = field || {}, n = w * h;
   if (!Number.isInteger(w) || !Number.isInteger(h) || !height || height.length !== n) throw Error('Invalid water identity field');
   const bodies = new Map(), events = [], series = [];
   let prev = null, lastStep = 0, lastTime = 0;
 
   function label(depth) {
-    const cat = Objects.build(field, { w, h, depth }, options.depthThreshold === undefined ? {} : { depthThreshold: options.depthThreshold });
+    const cat = Objects.build(field, { w, h, depth }, { ...(options.depthThreshold === undefined ? {} : { depthThreshold: options.depthThreshold }), ...(options.adjacency === undefined ? {} : { adjacency: options.adjacency }) });
     const m = cat.objects.length, anchor = new Int32Array(m).fill(-1);
     for (let i = 0; i < n; i++) {
       const l = cat.labels[i]; if (l < 0) continue;
@@ -77,7 +77,7 @@ function create(field, Objects, options = {}) {
       events: events.map(e => ({ ...e, from: e.from.slice(), to: e.to.slice() })),
       counts: { bodiesEver: bodies.size, bodiesNow: active.size, appear: sum('appear'), dry: sum('dry'), merge: sum('merge'), split: sum('split'), reorganize: sum('reorganize'), reanchor: sum('reanchor') },
       metadata: Object.freeze({
-        ids: 'index of the lowest terrain cell among the wet cells of an edge-connected raster patch (ties: lower index); valid only within one terrain revision',
+        ids: 'index of the lowest terrain cell among the wet cells of a patch connected by the catalog adjacency (ties: lower index); valid only within one terrain revision',
         merge: 'the patch with the lower anchor inherits its id', split: 'the part containing the previous anchor keeps the id',
         scope: 'bookkeeping of raster water patches between observed steps; not proof of a physical lake, outlet or river; terrain and water are not modified'
       })
