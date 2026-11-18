@@ -91,18 +91,34 @@ function generate(input) {
   // решётка Фибоначчи; континентальные точки — по рангу очка «расстояние до центра + шум»
   const NP = Math.round(PTS_PER_BIN * NB), PA = 4 * Math.PI / NP, golden = Math.PI * (3 - Math.sqrt(5));
   const cx = R() * 2 - 1, cy = R() * 2 - 1, cz = R() * 2 - 1, cl = Math.hypot(cx, cy, cz) || 1, C0 = [cx / cl, cy / cl, cz / cl];
-  const score = new Float32Array(NP), sx = new Float64Array(NP), sy = new Float64Array(NP), sz = new Float64Array(NP);
+  // стартовый суперконтинент — коллаж кратонов: угловатые осколки (суперэллипс с вытянутостью и поворотом), сгруппированные вокруг центра; шум — только мелкий
+  const crat = [], NCR = 5 + Math.floor(R() * 5), bx = Math.abs(C0[2]) > .9 ? [1, 0, 0] : [0, 0, 1];
+  for (let c = 0; c < NCR; c++) {
+    let dx = R() * 2 - 1, dy = R() * 2 - 1, dz = R() * 2 - 1; const dl = Math.hypot(dx, dy, dz) || 1; dx /= dl; dy /= dl; dz /= dl;
+    const dd = dx * C0[0] + dy * C0[1] + dz * C0[2]; dx -= dd * C0[0]; dy -= dd * C0[1]; dz -= dd * C0[2]; const dm = Math.hypot(dx, dy, dz) || 1, off0 = c === 0 ? 0 : .3 + .5 * R(), a = off0;
+    const px = C0[0] * Math.cos(a) + dx / dm * Math.sin(a), py = C0[1] * Math.cos(a) + dy / dm * Math.sin(a), pz = C0[2] * Math.cos(a) + dz / dm * Math.sin(a);
+    // локальный базис в точке (px,py,pz)
+    let t1x = py * bx[2] - pz * bx[1], t1y = pz * bx[0] - px * bx[2], t1z = px * bx[1] - py * bx[0]; const t1l = Math.hypot(t1x, t1y, t1z) || 1; t1x /= t1l; t1y /= t1l; t1z /= t1l;
+    const t2x = py * t1z - pz * t1y, t2y = pz * t1x - px * t1z, t2z = px * t1y - py * t1x, th = R() * Math.PI, e = 1 + 1.2 * R();
+    crat.push({ px, py, pz, t1x, t1y, t1z, t2x, t2y, t2z, co: Math.cos(th), si: Math.sin(th), e, rho: .4 + .3 * R(), p: 1.1 + 1.6 * R() });
+  }
+  const dcr = (c, x, y, z) => {
+    if (x * c.px + y * c.py + z * c.pz < 0) return 9;
+    const u0 = x * c.t1x + y * c.t1y + z * c.t1z, v0 = x * c.t2x + y * c.t2y + z * c.t2z, u = (u0 * c.co + v0 * c.si) / c.e, v = -u0 * c.si + v0 * c.co;
+    return Math.pow(Math.pow(Math.abs(u), c.p) + Math.pow(Math.abs(v), c.p), 1 / c.p) / c.rho;
+  };
+  const score = new Float32Array(NP), suture = new Uint8Array(NP), sx = new Float64Array(NP), sy = new Float64Array(NP), sz = new Float64Array(NP);
   for (let i = 0; i < NP; i++) {
     const z = 1 - (2 * i + 1) / NP, rr = Math.sqrt(1 - z * z), a = i * golden;
     sx[i] = rr * Math.cos(a); sy[i] = rr * Math.sin(a); sz[i] = z;
-    const ang = Math.acos(clamp(sx[i] * C0[0] + sy[i] * C0[1] + sz[i] * C0[2], -1, 1)) / Math.PI;
-    score[i] = ang + .22 * noise(sx[i] * 1.7 + 11, sy[i] * 1.7 + 5, sz[i] * 1.7 + 23) + .1 * noise(sx[i] * 4.1 + 3, sy[i] * 4.1 + 9, sz[i] * 4.1 + 1);
+    let d1 = 9, d2 = 9; for (const c of crat) { const d = dcr(c, sx[i], sy[i], sz[i]); if (d < d1) { d2 = d1; d1 = d; } else if (d < d2) d2 = d; }
+    score[i] = d1 + .05 * noise(sx[i] * 5.3 + 3, sy[i] * 5.3 + 9, sz[i] * 5.3 + 1); suture[i] = d2 < 1.25 && d1 < 1.25 ? 1 : 0;   // шов: рядом два кратона (коллизионный пояс)
   }
   const order = Array.from({ length: NP }, (_, i) => i).sort((a, b) => score[a] - score[b]), n = Math.round(p.continentalFraction * NP);
   const NO = Math.ceil(OCE_CAP * NB), N = n + NO, X = new Float64Array(3 * N), thick = new Float32Array(N), alive = new Uint8Array(N), oAge = new Float32Array(N);
   for (let k = 0; k < n; k++) {
     const i = order[k]; X[3 * k] = sx[i]; X[3 * k + 1] = sy[i]; X[3 * k + 2] = sz[i];
-    thick[k] = TREF - 15 * smooth(.7, 1, k / n);            // ядро 35 км, к краю тоньше (шельф и окраина)
+    thick[k] = TREF - 15 * smooth(.7, 1, k / n) + (suture[i] ? 8 : 0);   // ядро 35 км, к краю тоньше (шельф); швы между кратонами — древний коллизионный пояс, толще
   }
   // океаническая кора: по одной точке на ячейку там, где нет континента; хранит возраст (млн лет) и избыток мощности (острова, дуги)
   for (let k = 0; k < n; k++) alive[k] = 1;
@@ -313,7 +329,7 @@ function generate(input) {
   return {
     w: W, h: H, thickness: Te, thicknessBeforeErosion: T, elevationKm, seaLevelKm, cellArea: area, oceanAgeMyr: ageS, submergedMyr: subGrid, marineSedimentKm: sedGrid, lastSubmergedMyr: lastSubGrid, seaLevelHistoryKm: seaHist, tOroMyr: tOroGrid,
     stats: { landFraction: landArea / (4 * Math.PI), landWithMarineSedimentFraction: landArea > 0 ? formerSea / landArea : 0, pointVolumeStart: volume0, pointVolumeEnd: volume1, arcAddedVolume: arcAdded, hotspotAddedVolume: hotAdded, crustVolumeBeforeErosion: tot0, crustVolumeAfterErosion: tot1, sedimentLostVolume: lost, points: n, epochs: nEpochs, time },
-    history: epochs, snapshots, params: Object.assign({}, p), hotspots: hots.map(h => ({ x: h.x, y: h.y, z: h.z, fromMyr: Math.round(h.t0), toMyr: Math.round(h.t1), strength: h.s })), metadata: { generator: VERSION }
+    history: epochs, snapshots, params: Object.assign({}, p), cratons: crat.length, hotspots: hots.map(h => ({ x: h.x, y: h.y, z: h.z, fromMyr: Math.round(h.t0), toMyr: Math.round(h.t1), strength: h.s })), metadata: { generator: VERSION }
   };
 }
 const api = { generate, VERSION, isostasy, constants: { TREF, E_SLOPE, E_FLOOR, TAU_EROSION } };
