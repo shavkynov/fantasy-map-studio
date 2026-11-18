@@ -61,7 +61,7 @@ function options(input) {
   return p;
 }
 
-const TREF = 35, E_SLOPE = .15, E_FLOOR = -4.85, TAU_EROSION = 120, T_SHELF = 22, PTS_PER_BIN = 4, SUB = 16, WELD_FRAC = .04, T_CAP = 60, ARC_RATE = .12, T_ARC_MAX = 52, AGE_MAX = 180, SUBSIDE = .26, SED_RATE = .03, T_CONT = 12, HOT_N = 8, HOT_RATE = .25, HOT_RAD = .11, T_HOT_MAX = 48;   // горячие точки в мантийной системе (неподвижны): прирост коры под континентом, км/млн лет в центре, радиус в рад   // SED_RATE: морские осадки на мелководье, км/млн лет; T_CONT: мощность, с которой кора считается континентальной   // ARC_RATE: наращивание коры над зоной субдукции, км/млн лет при 5 см/год   // T_CAP: предельная мощность коры в горах (км); избыток растекается в стороны
+const TREF = 35, E_SLOPE = .15, E_FLOOR = -4.85, TAU_EROSION = 120, T_SHELF = 22, PTS_PER_BIN = 4, SUB = 16, WELD_FRAC = .04, T_CAP = 60, ARC_RATE = .12, T_ARC_MAX = 52, AGE_MAX = 180, AGE_REF = 65, SUBSIDE = .26, SED_RATE = .03, T_CONT = 12, HOT_N = 8, HOT_RATE = .25, HOT_RAD = .11, T_HOT_MAX = 48, OCE_W = 4, OCE_CAP = 1.3, T_ARC_OCE = 30, T_HOT_OCE = 34;   // OCE_W: океаническая точка представляет 4 континентальных по площади; OCE_CAP: запас пула; T_*_OCE: предел «избытка» мощности океанической коры (острова)   // горячие точки в мантийной системе (неподвижны): прирост коры под континентом, км/млн лет в центре, радиус в рад   // SED_RATE: морские осадки на мелководье, км/млн лет; T_CONT: мощность, с которой кора считается континентальной   // ARC_RATE: наращивание коры над зоной субдукции, км/млн лет при 5 см/год   // T_CAP: предельная мощность коры в горах (км); избыток растекается в стороны
 // изостазия (Эйри): высота над общей отметкой, км; T = 0 даёт дно океана ≈ -4,85 км, T = 35 даёт ≈ +0,4 км
 const isostasy = T => E_SLOPE * T + E_FLOOR;
 
@@ -99,11 +99,16 @@ function generate(input) {
     score[i] = ang + .22 * noise(sx[i] * 1.7 + 11, sy[i] * 1.7 + 5, sz[i] * 1.7 + 23) + .1 * noise(sx[i] * 4.1 + 3, sy[i] * 4.1 + 9, sz[i] * 4.1 + 1);
   }
   const order = Array.from({ length: NP }, (_, i) => i).sort((a, b) => score[a] - score[b]), n = Math.round(p.continentalFraction * NP);
-  const X = new Float64Array(3 * n), thick = new Float32Array(n);
+  const NO = Math.ceil(OCE_CAP * NB), N = n + NO, X = new Float64Array(3 * N), thick = new Float32Array(N), alive = new Uint8Array(N), oAge = new Float32Array(N);
   for (let k = 0; k < n; k++) {
     const i = order[k]; X[3 * k] = sx[i]; X[3 * k + 1] = sy[i]; X[3 * k + 2] = sz[i];
     thick[k] = TREF - 15 * smooth(.7, 1, k / n);            // ядро 35 км, к краю тоньше (шельф и окраина)
   }
+  // океаническая кора: по одной точке на ячейку там, где нет континента; хранит возраст (млн лет) и избыток мощности (острова, дуги)
+  for (let k = 0; k < n; k++) alive[k] = 1;
+  const free = []; { const has = new Uint8Array(NB); for (let k = 0; k < n; k++) has[binOf(X[3 * k], X[3 * k + 1], X[3 * k + 2])]++;
+    let q = n; for (let b = 0; b < NB; b++) if (has[b] < 2 && q < N) { const k = q++; X[3 * k] = bc[3 * b]; X[3 * k + 1] = bc[3 * b + 1]; X[3 * k + 2] = bc[3 * b + 2]; alive[k] = 1; oAge[k] = R() * AGE_MAX; }
+    for (let k = N - 1; k >= q; k--) free.push(k); }
   const volume0 = (() => { let s = 0; for (let k = 0; k < n; k++) s += thick[k] * PA; return s; })();
 
   // горячие точки: положения и время жизни заданы заранее (мантия неподвижна, плиты ползут над ней — получаются цепочки гор/вулканов вдоль следа)
@@ -112,23 +117,25 @@ function generate(input) {
   const HCOS = Math.cos(2.2 * HOT_RAD);
   // ---- история ----
   const tOro = new Float32Array(NB).fill(-1), lastCont = new Float32Array(NB).fill(-1), subMyr = new Float32Array(NB), seaSed = new Float32Array(NB), lastSub = new Float32Array(NB).fill(-1), seaHist = [], nEpochs = Math.ceil(p.stopAtMyr / p.epochMyr), epochs = [], snapshots = [];
-  const grp = new Int16Array(n), binIdx = new Int32Array(n);
+  const grp = new Int16Array(N), binIdx = new Int32Array(N), oceBin = new Int32Array(NB).fill(-1), contCnt = new Uint8Array(NB), contGrp = new Int16Array(NB), toArc = new Uint8Array(NB);
   let nextSnap = p.snapshotEveryMyr, time = 0, arcAdded = 0, hotAdded = 0;
   const rasterBins = () => { const T = new Float32Array(NB); for (let k = 0; k < n; k++) T[binIdx[k]] += thick[k] * PA; for (let b = 0; b < NB; b++) T[b] /= binArea[b]; return T; };
-  for (let k = 0; k < n; k++) binIdx[k] = binOf(X[3 * k], X[3 * k + 1], X[3 * k + 2]);
+  for (let k = 0; k < N; k++) if (alive[k]) binIdx[k] = binOf(X[3 * k], X[3 * k + 1], X[3 * k + 2]);
+  for (let k = n; k < N; k++) if (alive[k]) oceBin[binIdx[k]] = k;
   for (let e = 0; e < nEpochs; e++) {
     const dtEpoch = Math.min(p.epochMyr, p.stopAtMyr - e * p.epochMyr), dt = dtEpoch / SUB;
     // (а) трещины: k плит; зёрна по принципу наибольшей удалённости, границы искривлены шумом
-    const K = 4 + Math.floor(R() * 5), seeds = [Math.floor(R() * n)];
-    while (seeds.length < K) { let bi = -1, bd = -1; for (let t = 0; t < 300; t++) { const c = Math.floor(R() * n); let md = 9; for (const s of seeds) md = Math.min(md, 1 - (X[3 * c] * X[3 * s] + X[3 * c + 1] * X[3 * s + 1] + X[3 * c + 2] * X[3 * s + 2])); if (md > bd) { bd = md; bi = c; } } seeds.push(bi); }
+    const K = 4 + Math.floor(R() * 5), pick = () => { let c; do c = Math.floor(R() * N); while (!alive[c]); return c; }, seeds = [pick()];
+    while (seeds.length < K) { let bi = -1, bd = -1; for (let t = 0; t < 300; t++) { const c = pick(); let md = 9; for (const s of seeds) md = Math.min(md, 1 - (X[3 * c] * X[3 * s] + X[3 * c + 1] * X[3 * s + 1] + X[3 * c + 2] * X[3 * s + 2])); if (md > bd) { bd = md; bi = c; } } seeds.push(bi); }
     const wob = .1 + .12 * R(), nsx = R() * 50, size = new Float64Array(K);
-    for (let k = 0; k < n; k++) {
-      const x = X[3 * k], y = X[3 * k + 1], z = X[3 * k + 2]; let bg = 0, bs = 1e9;
+    const csz = new Float64Array(K);
+    for (let k = 0; k < N; k++) {
+      if (!alive[k]) continue; const x = X[3 * k], y = X[3 * k + 1], z = X[3 * k + 2]; let bg = 0, bs = 1e9;
       for (let s = 0; s < K; s++) { const q = seeds[s], d = 1 - (x * X[3 * q] + y * X[3 * q + 1] + z * X[3 * q + 2]) + wob * noise(x * 3 + nsx + s * 7.1, y * 3 + s * 3.3, z * 3 - nsx); if (d < bs) { bs = d; bg = s; } }
-      grp[k] = bg; size[bg]++;
+      grp[k] = bg; size[bg] += k < n ? 1 : OCE_W; if (k < n) csz[bg]++;
     }
     // (б) у каждой плиты ось и угловая скорость; мелкие плиты быстрее; v в см/год → км/млн лет ×10
-    const omega = [], meanSize = n / K;
+    let nOce = 0; for (let k = n; k < N; k++) if (alive[k]) nOce++; const omega = [], meanSize = (n + OCE_W * nOce) / K;
     for (let s = 0; s < K; s++) {
       let ax = R() * 2 - 1, ay = R() * 2 - 1, az = R() * 2 - 1; const al = Math.hypot(ax, ay, az) || 1;
       const v = p.activity * (1.5 + 3.5 * R()) * clamp(Math.pow(meanSize / Math.max(1, size[s]), .25), .7, 1.5), w = v * 10 / p.radiusKm;
@@ -150,6 +157,10 @@ function generate(input) {
       for (let b = 0; b < NB; b++) if (cntB[b] > 0) lastCont[b] = time;
       for (const h of hots) {
         if (time < h.t0 || time > h.t1) continue;
+        for (let k = n; k < N; k++) {
+          if (!alive[k] || thick[k] >= T_HOT_OCE) continue; const c = X[3 * k] * h.x + X[3 * k + 1] * h.y + X[3 * k + 2] * h.z; if (c < HCOS) continue;
+          const th = Math.acos(clamp(c, -1, 1)) / HOT_RAD; thick[k] = Math.min(T_HOT_OCE, thick[k] + HOT_RATE * 2 * h.s * Math.exp(-th * th) * dt);
+        }
         for (let k = 0; k < n; k++) {
           const c = X[3 * k] * h.x + X[3 * k + 1] * h.y + X[3 * k + 2] * h.z; if (c < HCOS || thick[k] >= T_HOT_MAX) continue;
           const th = Math.acos(clamp(c, -1, 1)) / HOT_RAD, inc = Math.min(T_HOT_MAX - thick[k], HOT_RATE * h.s * Math.exp(-th * th) * dt); thick[k] += inc; hotAdded += inc * PA; tOro[binIdx[k]] = time;
@@ -159,11 +170,11 @@ function generate(input) {
         const rt = find(grp[k]), c = cnt[rt], wx = sum[rt][0] / c, wy = sum[rt][1] / c, wz = sum[rt][2] / c, x = X[3 * k], y = X[3 * k + 1], z = X[3 * k + 2];
         let vx = wy * z - wz * y, vy = wz * x - wx * z, vz = wx * y - wy * x; const sp = Math.hypot(vx, vy, vz); if (sp < 1e-9) continue;
         const d = 1.5 * STEP / sp, ax = x + vx * d, ay = y + vy * d, az = z + vz * d, al = Math.sqrt(ax * ax + ay * ay + az * az), b2 = binOf(ax / al, ay / al, az / al);
-        if (cntB[b2] > 0 || thick[k] >= T_ARC_MAX) continue;
+        if (cntB[b2] > 0 || thick[k] >= T_ARC_MAX) continue; const o2 = oceBin[b2]; if (o2 < 0 || find(grp[o2]) === rt) continue;   // дуга — только там, где впереди океан ДРУГОЙ плиты (пассивная окраина своей плиты дуг не даёт)
         const inc = Math.min(T_ARC_MAX - thick[k], ARC_RATE * (sp * p.radiusKm / 10 / 5) * dt); thick[k] += inc; arcAdded += inc * PA; tOro[binIdx[k]] = time;
       }
-      for (let k = 0; k < n; k++) {
-        const m = rot[grp[k]], x = X[3 * k], y = X[3 * k + 1], z = X[3 * k + 2];
+      for (let k = 0; k < N; k++) {
+        if (!alive[k]) continue; const m = rot[grp[k]], x = X[3 * k], y = X[3 * k + 1], z = X[3 * k + 2];
         let nx = m[0] * x + m[1] * y + m[2] * z, ny = m[3] * x + m[4] * y + m[5] * z, nz = m[6] * x + m[7] * y + m[8] * z; const l = 1 / Math.sqrt(nx * nx + ny * ny + nz * nz);
         X[3 * k] = nx *= l; X[3 * k + 1] = ny *= l; X[3 * k + 2] = nz *= l; binIdx[k] = binOf(nx, ny, nz);
       }
@@ -186,6 +197,25 @@ function generate(input) {
           }
         }
       }
+      // океаническая кора: старение, субдукция (старое уходит под молодое и под континент), островные дуги, рождение нового дна в зазорах (хребты)
+      contCnt.fill(0); for (let k = 0; k < n; k++) { const b = binIdx[k]; if (contCnt[b] < 255) contCnt[b]++; contGrp[b] = grp[k]; }
+      oceBin.fill(-1);
+      for (let k = n; k < N; k++) {
+        if (!alive[k]) continue; oAge[k] += dt; const b = binIdx[k];
+        if (contCnt[b] >= 2) { alive[k] = 0; free.push(k); continue; }
+        const j = oceBin[b]; if (j < 0) { oceBin[b] = k; continue; }
+        const same = find(grp[k]) === find(grp[j]);
+        if (same) { alive[k] = 0; free.push(k); continue; }
+        const old = oAge[k] > oAge[j] ? k : j, young = old === k ? j : k;
+        alive[old] = 0; free.push(old); oceBin[b] = young; thick[young] = Math.min(T_ARC_OCE, thick[young] + ARC_RATE * dt);
+      }
+      for (let b = 0; b < NB; b++) {
+        if (contCnt[b] > 0 || oceBin[b] >= 0 || !free.length) continue;
+        let g = -1; for (let q = 0; q < 4; q++) { const c = nbr[4 * b + ((q + (st & 3)) & 3)]; if (oceBin[c] >= 0) { g = grp[oceBin[c]]; break; } if (contCnt[c] > 0) { g = contGrp[c]; break; } }
+        if (g < 0) continue;
+        const k = free.pop(), j = 1 / 2.2, jx = (R() - .5) * j * STEP, jy = (R() - .5) * j * STEP; let x = bc[3 * b] + jx, y = bc[3 * b + 1] + jy, z = bc[3 * b + 2] + jx * .3; const l = Math.sqrt(x * x + y * y + z * z);
+        X[3 * k] = x / l; X[3 * k + 1] = y / l; X[3 * k + 2] = z / l; alive[k] = 1; oAge[k] = 0; thick[k] = 0; grp[k] = g; binIdx[k] = b; oceBin[b] = k;
+      }
       // роли: корни групп → слоты 0..K-1 по индексу плиты (корень), счёт точек плиты в ячейке
       occ.fill(0); for (let k = 0; k < n; k++) { const s = find(grp[k]), i = binIdx[k] * K + s; if (occ[i] < 255) occ[i]++; }
       pair.fill(0);
@@ -196,7 +226,7 @@ function generate(input) {
       }
       for (let a = 0; a < K; a++) for (let s = a + 1; s < K; s++) {
         if (find(a) !== a || find(s) !== s || !pair[a * K + s]) continue;
-        if (pair[a * K + s] > Math.max(6, WELD_FRAC * Math.min(cnt[a], cnt[s]) / PTS_PER_BIN)) { par[s] = a; sum[a][0] += sum[s][0]; sum[a][1] += sum[s][1]; sum[a][2] += sum[s][2]; cnt[a] += cnt[s]; welds.push({ tMyr: Math.round(time), a, b: s }); }
+        if (pair[a * K + s] > Math.max(6, WELD_FRAC * Math.min(csz[a], csz[s]) / PTS_PER_BIN)) { par[s] = a; sum[a][0] += sum[s][0]; sum[a][1] += sum[s][1]; sum[a][2] += sum[s][2]; cnt[a] += cnt[s]; csz[a] += csz[s]; welds.push({ tMyr: Math.round(time), a, b: s }); }
       }
       if (p.snapshotEveryMyr && time + 1e-9 >= nextSnap) { snapshots.push({ tMyr: Math.round(time), thickness: rasterBins() }); nextSnap += p.snapshotEveryMyr; }
     }
@@ -213,10 +243,10 @@ function generate(input) {
 
   // ---- растр на равнопромежуточную сетку ----
   const NC = W * H, area = new Float64Array(NC), T = new Float32Array(NC), tb = rasterBins();
-  const subGrid = new Float32Array(NC), sedGrid = new Float32Array(NC), lastSubGrid = new Float32Array(NC), tOroGrid = new Float32Array(NC), ageO = new Float32Array(NC);
+  const subGrid = new Float32Array(NC), sedGrid = new Float32Array(NC), lastSubGrid = new Float32Array(NC), tOroGrid = new Float32Array(NC), ageV = new Float32Array(NC), ageW = new Float32Array(NC);
   for (let r = 0; r < H; r++) {
     const a = TAU / W * (Math.sin((90 - r / H * 180) * DEG) - Math.sin((90 - (r + 1) / H * 180) * DEG));
-    for (let x = 0; x < W; x++) { const i = r * W + x, b = off[r] + Math.min(nlon[r] - 1, Math.floor((x + .5) / W * nlon[r])); area[i] = a; T[i] = tb[b]; tOroGrid[i] = tOro[b]; subGrid[i] = subMyr[b]; sedGrid[i] = seaSed[b]; lastSubGrid[i] = lastSub[b]; ageO[i] = lastCont[b] < 0 ? AGE_MAX : Math.min(AGE_MAX, Math.max(0, p.stopAtMyr - lastCont[b])); }
+    for (let x = 0; x < W; x++) { const i = r * W + x, b = off[r] + Math.min(nlon[r] - 1, Math.floor((x + .5) / W * nlon[r])); area[i] = a; const ok = oceBin[b]; T[i] = tb[b] + (ok >= 0 ? thick[ok] : 0); ageV[i] = ok >= 0 ? oAge[ok] : 0; ageW[i] = ok >= 0 ? 1 : 0; tOroGrid[i] = tOro[b]; subGrid[i] = subMyr[b]; sedGrid[i] = seaSed[b]; lastSubGrid[i] = lastSub[b]; }
   }
   // сглаживание выборки точек (разброс числа точек в ячейке даёт «пятна»): один проход 3×3 по сетке; полюса — отражение по широте
   const blurX = (a, r) => { const o = new Float32Array(NC); for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { let s = 0; for (let d = -r; d <= r; d++) s += a[y * W + (x + d + W) % W]; o[y * W + x] = s / (2 * r + 1); } return o; };
@@ -255,9 +285,10 @@ function generate(input) {
     }
   }
   // ---- изостазия и уровень моря из объёма воды ----
-  // возраст океанического дна: время с последнего присутствия континента в ячейке (раскрытие за уходящим краем); дно остывает и оседает ~ √возраста
-  const ageS = blurY(blurX(ageO, 1), 1), elev = new Float32Array(NC);
-  for (let i = 0; i < NC; i++) elev[i] = isostasy(Te[i]) + SUBSIDE * (Math.sqrt(AGE_MAX) - Math.sqrt(Math.min(AGE_MAX, ageS[i]))) * (1 - smooth(2, 12, Te[i]));
+  // возраст дна — из океанических точек (рождаются на хребтах в зазорах, уходят в субдукцию); дно остывает и оседает ~ √возраста
+  const aV = blurY(blurX(ageV, 2), 2), aW = blurY(blurX(ageW, 2), 2), ageS = new Float32Array(NC); for (let i = 0; i < NC; i++) ageS[i] = aW[i] > .05 ? Math.min(AGE_MAX * 1.5, aV[i] / aW[i]) : AGE_MAX;
+  const elev = new Float32Array(NC);
+  for (let i = 0; i < NC; i++) elev[i] = isostasy(Te[i]) + SUBSIDE * (Math.sqrt(AGE_REF) - Math.sqrt(Math.min(AGE_MAX * 1.5, ageS[i]))) * (1 - smooth(2, 12, Te[i]));
   const V = p.waterDepthKm * 4 * Math.PI; let lo = -8, hi = 14;
   for (let it = 0; it < 60; it++) { const m = (lo + hi) / 2; let v = 0; for (let i = 0; i < NC; i++) if (elev[i] < m) v += (m - elev[i]) * area[i]; if (v > V) hi = m; else lo = m; }
   const seaLevelKm = (lo + hi) / 2, elevationKm = new Float32Array(NC); let landArea = 0;

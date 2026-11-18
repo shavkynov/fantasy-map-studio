@@ -33,4 +33,7 @@ test('Летопись затоплений: уровень моря на каж
  assert.equal(base.seaLevelHistoryKm.length,base.stats.epochs);assert(base.seaLevelHistoryKm.every(Number.isFinite));
  let sub=0;for(let i=0;i<base.w*base.h;i++){assert(base.marineSedimentKm[i]>=0&&base.submergedMyr[i]>=0&&base.submergedMyr[i]<=base.stats.time+1e-3);if(base.marineSedimentKm[i]>0)sub++;}
  assert(sub>0&&base.stats.landWithMarineSedimentFraction>=0&&base.stats.landWithMarineSedimentFraction<=1);});
+test('Океаническая кора: возраст дна конечен, средний возраст реалистичен (30..110 млн лет), есть молодое и старое дно',()=>{
+ let aw=0,ag=0,young=0,old=0;for(let i=0;i<base.w*base.h;i++){if(base.thickness[i]<8){const a=base.oceanAgeMyr[i],w=base.cellArea[i];assert(Number.isFinite(a)&&a>=0&&a<=280,'age '+a);aw+=w;ag+=a*w;if(a<30)young+=w;if(a>120)old+=w;}}
+ const m=ag/aw;assert(m>30&&m<110,'mean '+m);assert(young>0&&old>0);});
 console.log('Тесты тектонической истории пройдены: '+n);
