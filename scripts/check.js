@@ -89,5 +89,9 @@ const riversRealTest = spawnSync(process.execPath, [path.join(root, 'tools', 'te
 process.stdout.write(riversRealTest.stdout || '');
 if (riversRealTest.status !== 0) fail(`речные объекты на настоящей сессии\n${riversRealTest.stderr}`);
 
+const tectonicHistoryTest = spawnSync(process.execPath, [path.join(root, 'tools', 'sphere-tectonic-history-test.cjs')], { encoding: 'utf8', timeout: 120000 });
+process.stdout.write(tectonicHistoryTest.stdout || '');
+if (tectonicHistoryTest.status !== 0) fail(`тектоническая история на сфере (прототип)\n${tectonicHistoryTest.stderr}`);
+
 if (failed) { console.error(`\nПроверка не пройдена: ${failed}`); process.exit(1); }
 console.log('✓ Проверка пройдена');

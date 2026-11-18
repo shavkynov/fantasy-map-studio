@@ -1,0 +1,32 @@
+'use strict';
+// Прототип тектонической истории на сфере: инварианты, не вид карты.
+// Проверяет: детерминизм, сохранение объёма коры точек, объём воды = объём океана при найденном уровне моря, предел мощности, доля суши,
+// эффект параметров (вода, возраст), префиксность истории (stopAtMyr), ошибки параметров.
+// Не проверяет: красоту силуэтов, сходство с Землёй по распределению масс, браузер, Electron.
+const assert=require('node:assert/strict'),T=require('../src/sphere-tectonic-history');
+let n=0;const test=(name,fn)=>{fn();console.log('PASS '+(++n)+' '+name);};
+const same=(a,b)=>{if(a.length!==b.length)return false;for(let i=0;i<a.length;i++)if(a[i]!==b[i])return false;return true;};
+const run=(o)=>T.generate(Object.assign({seed:'t1',w:180},o));
+const base=run({});
+test('Детерминизм: одинаковые параметры дают побитно одинаковые поля',()=>{const b=run({});assert(same(base.thickness,b.thickness));assert(same(base.elevationKm,b.elevationKm));assert.equal(base.seaLevelKm,b.seaLevelKm);});
+test('Разные seed дают разные миры',()=>{const c=run({seed:'t2'});assert(!same(base.thickness,c.thickness));});
+test('Объём коры точек сохраняется всю историю; на сетке «после эрозии + потерянный осадок» = «до эрозии»',()=>{
+ const s=base.stats;assert(Math.abs(s.pointVolumeEnd/s.pointVolumeStart-1)<1e-9);assert(s.sedimentLostVolume>=0&&Math.abs((s.crustVolumeAfterErosion+s.sedimentLostVolume)/s.crustVolumeBeforeErosion-1)<2e-3,[s.crustVolumeAfterErosion,s.sedimentLostVolume,s.crustVolumeBeforeErosion].join());});
+test('Мощность коры ограничена (обрушение), нет NaN и отрицательных значений',()=>{let mx=0;for(const v of base.thickness){assert(Number.isFinite(v)&&v>=0);if(v>mx)mx=v;}assert(mx<=66,'max '+mx);});
+test('Уровень моря: объём воды выше дна совпадает с заданным',()=>{
+ const A=base.cellArea,e=base.elevationKm;let v=0;for(let i=0;i<e.length;i++)if(e[i]<0)v+=-e[i]*A[i];
+ assert(Math.abs(v-2.62*4*Math.PI)/(2.62*4*Math.PI)<1e-3,v);});
+test('Доля суши — результат модели: с обычной водой в пределах 0.15..0.45',()=>{const f=base.stats.landFraction;assert(f>.15&&f<.45,f);});
+test('Больше воды — меньше суши; меньше воды — больше',()=>{const wet=run({waterDepthKm:3.6}),dry=run({waterDepthKm:1.6});
+ assert(wet.stats.landFraction<base.stats.landFraction&&base.stats.landFraction<dry.stats.landFraction,[wet.stats.landFraction,base.stats.landFraction,dry.stats.landFraction].join());
+ assert(same(wet.thickness,base.thickness),'вода не должна менять тектонику');});
+test('История: эпохи записаны, плит 4..8, угловые скорости положительны и физичны (<~12 см/год)',()=>{
+ assert.equal(base.history.length,base.stats.epochs);for(const e of base.history){assert(e.plates>=4&&e.plates<=8);for(const w of e.omegaRadPerMyr)assert(w>0&&w<.02);}});
+test('Меньшая планета: те же скорости в км/год дают бо́льшие углы (другая карта)',()=>{const sm=run({radiusKm:3500});assert(!same(sm.thickness,base.thickness));});
+test('Префиксность: остановка на половине возраста = состояние на середине полной истории',()=>{
+ const full=run({ageMyr:900,epochMyr:150,snapshotEveryMyr:450}),half=run({ageMyr:900,epochMyr:150,stopAtMyr:450});
+ const mid=full.snapshots.find(s=>s.tMyr===450);assert(mid,'нет снимка на 450');
+ const ref=T.generate({seed:'t1',w:180,ageMyr:900,epochMyr:150,stopAtMyr:450,snapshotEveryMyr:450}).snapshots.find(s=>s.tMyr===450);
+ assert(same(mid.thickness,ref.thickness));assert.equal(half.stats.time,450);});
+test('Ошибки параметров',()=>{for(const bad of[{seed:''},{seed:'x',w:181},{seed:'x',w:1000},{seed:'x',radiusKm:100},{seed:'x',activity:3},{seed:'x',ageMyr:10},{seed:'x',epochMyr:5},{seed:'x',waterDepthKm:20},{seed:'x',continentalFraction:.9},{seed:'x',stopAtMyr:99999},{seed:'x',extra:1}])assert.throws(()=>T.generate(bad),bad.seed+JSON.stringify(bad));});
+console.log('Тесты тектонической истории пройдены: '+n);
