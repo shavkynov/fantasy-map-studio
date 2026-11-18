@@ -61,7 +61,7 @@ function options(input) {
   return p;
 }
 
-const TREF = 35, E_SLOPE = .15, E_FLOOR = -4.85, TAU_EROSION = 120, T_SHELF = 22, PTS_PER_BIN = 4, SUB = 16, WELD_FRAC = .04, T_CAP = 60, ARC_RATE = .12, T_ARC_MAX = 52;   // ARC_RATE: наращивание коры над зоной субдукции, км/млн лет при 5 см/год   // T_CAP: предельная мощность коры в горах (км); избыток растекается в стороны
+const TREF = 35, E_SLOPE = .15, E_FLOOR = -4.85, TAU_EROSION = 120, T_SHELF = 22, PTS_PER_BIN = 4, SUB = 16, WELD_FRAC = .04, T_CAP = 60, ARC_RATE = .12, T_ARC_MAX = 52, AGE_MAX = 180, SUBSIDE = .26;   // ARC_RATE: наращивание коры над зоной субдукции, км/млн лет при 5 см/год   // T_CAP: предельная мощность коры в горах (км); избыток растекается в стороны
 // изостазия (Эйри): высота над общей отметкой, км; T = 0 даёт дно океана ≈ -4,85 км, T = 35 даёт ≈ +0,4 км
 const isostasy = T => E_SLOPE * T + E_FLOOR;
 
@@ -107,7 +107,7 @@ function generate(input) {
   const volume0 = (() => { let s = 0; for (let k = 0; k < n; k++) s += thick[k] * PA; return s; })();
 
   // ---- история ----
-  const tOro = new Float32Array(NB).fill(-1), nEpochs = Math.ceil(p.stopAtMyr / p.epochMyr), epochs = [], snapshots = [];
+  const tOro = new Float32Array(NB).fill(-1), lastCont = new Float32Array(NB).fill(-1), nEpochs = Math.ceil(p.stopAtMyr / p.epochMyr), epochs = [], snapshots = [];
   const grp = new Int16Array(n), binIdx = new Int32Array(n);
   let nextSnap = p.snapshotEveryMyr, time = 0, arcAdded = 0;
   const rasterBins = () => { const T = new Float32Array(NB); for (let k = 0; k < n; k++) T[binIdx[k]] += thick[k] * PA; for (let b = 0; b < NB; b++) T[b] /= binArea[b]; return T; };
@@ -143,6 +143,7 @@ function generate(input) {
       });
       // субдукция: океан перед движущимся краем плиты (пустая ячейка по ходу) уходит под континент; над ним растёт магматическая дуга / берегововой хребет
       cntB.fill(0); for (let k = 0; k < n; k++) cntB[binIdx[k]]++;
+      for (let b = 0; b < NB; b++) if (cntB[b] > 0) lastCont[b] = time;
       for (let k = 0; k < n; k++) {
         const rt = find(grp[k]), c = cnt[rt], wx = sum[rt][0] / c, wy = sum[rt][1] / c, wz = sum[rt][2] / c, x = X[3 * k], y = X[3 * k + 1], z = X[3 * k + 2];
         let vx = wy * z - wz * y, vy = wz * x - wx * z, vz = wx * y - wy * x; const sp = Math.hypot(vx, vy, vz); if (sp < 1e-9) continue;
@@ -194,10 +195,10 @@ function generate(input) {
 
   // ---- растр на равнопромежуточную сетку ----
   const NC = W * H, area = new Float64Array(NC), T = new Float32Array(NC), tb = rasterBins();
-  const tOroGrid = new Float32Array(NC);
+  const tOroGrid = new Float32Array(NC), ageO = new Float32Array(NC);
   for (let r = 0; r < H; r++) {
     const a = TAU / W * (Math.sin((90 - r / H * 180) * DEG) - Math.sin((90 - (r + 1) / H * 180) * DEG));
-    for (let x = 0; x < W; x++) { const i = r * W + x, b = off[r] + Math.min(nlon[r] - 1, Math.floor((x + .5) / W * nlon[r])); area[i] = a; T[i] = tb[b]; tOroGrid[i] = tOro[b]; }
+    for (let x = 0; x < W; x++) { const i = r * W + x, b = off[r] + Math.min(nlon[r] - 1, Math.floor((x + .5) / W * nlon[r])); area[i] = a; T[i] = tb[b]; tOroGrid[i] = tOro[b]; ageO[i] = lastCont[b] < 0 ? AGE_MAX : Math.min(AGE_MAX, Math.max(0, p.stopAtMyr - lastCont[b])); }
   }
   // сглаживание выборки точек (разброс числа точек в ячейке даёт «пятна»): один проход 3×3 по сетке; полюса — отражение по широте
   const blurX = (a, r) => { const o = new Float32Array(NC); for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { let s = 0; for (let d = -r; d <= r; d++) s += a[y * W + (x + d + W) % W]; o[y * W + x] = s / (2 * r + 1); } return o; };
@@ -236,14 +237,16 @@ function generate(input) {
     }
   }
   // ---- изостазия и уровень моря из объёма воды ----
-  const elev = new Float32Array(NC); for (let i = 0; i < NC; i++) elev[i] = isostasy(Te[i]);
+  // возраст океанического дна: время с последнего присутствия континента в ячейке (раскрытие за уходящим краем); дно остывает и оседает ~ √возраста
+  const ageS = blurY(blurX(ageO, 1), 1), elev = new Float32Array(NC);
+  for (let i = 0; i < NC; i++) elev[i] = isostasy(Te[i]) + SUBSIDE * (Math.sqrt(AGE_MAX) - Math.sqrt(Math.min(AGE_MAX, ageS[i]))) * (1 - smooth(2, 12, Te[i]));
   const V = p.waterDepthKm * 4 * Math.PI; let lo = -8, hi = 14;
   for (let it = 0; it < 60; it++) { const m = (lo + hi) / 2; let v = 0; for (let i = 0; i < NC; i++) if (elev[i] < m) v += (m - elev[i]) * area[i]; if (v > V) hi = m; else lo = m; }
   const seaLevelKm = (lo + hi) / 2, elevationKm = new Float32Array(NC); let landArea = 0;
   for (let i = 0; i < NC; i++) { elevationKm[i] = elev[i] - seaLevelKm; if (elevationKm[i] > 0) landArea += area[i]; }
   let tot1 = 0; for (let i = 0; i < NC; i++) tot1 += Te[i] * area[i];
   return {
-    w: W, h: H, thickness: Te, thicknessBeforeErosion: T, elevationKm, seaLevelKm, cellArea: area, tOroMyr: tOroGrid,
+    w: W, h: H, thickness: Te, thicknessBeforeErosion: T, elevationKm, seaLevelKm, cellArea: area, oceanAgeMyr: ageS, tOroMyr: tOroGrid,
     stats: { landFraction: landArea / (4 * Math.PI), pointVolumeStart: volume0, pointVolumeEnd: volume1, arcAddedVolume: arcAdded, crustVolumeBeforeErosion: tot0, crustVolumeAfterErosion: tot1, sedimentLostVolume: lost, points: n, epochs: nEpochs, time },
     history: epochs, snapshots, params: Object.assign({}, p), metadata: { generator: VERSION }
   };
