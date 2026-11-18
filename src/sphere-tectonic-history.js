@@ -61,7 +61,7 @@ function options(input) {
   return p;
 }
 
-const TREF = 35, E_SLOPE = .15, E_FLOOR = -4.85, TAU_EROSION = 120, T_SHELF = 22, PTS_PER_BIN = 4, SUB = 16, WELD_FRAC = .04, T_CAP = 60, ARC_RATE = .12, T_ARC_MAX = 52, AGE_MAX = 180, SUBSIDE = .26, SED_RATE = .03, T_CONT = 12;   // SED_RATE: морские осадки на мелководье, км/млн лет; T_CONT: мощность, с которой кора считается континентальной   // ARC_RATE: наращивание коры над зоной субдукции, км/млн лет при 5 см/год   // T_CAP: предельная мощность коры в горах (км); избыток растекается в стороны
+const TREF = 35, E_SLOPE = .15, E_FLOOR = -4.85, TAU_EROSION = 120, T_SHELF = 22, PTS_PER_BIN = 4, SUB = 16, WELD_FRAC = .04, T_CAP = 60, ARC_RATE = .12, T_ARC_MAX = 52, AGE_MAX = 180, SUBSIDE = .26, SED_RATE = .03, T_CONT = 12, HOT_N = 8, HOT_RATE = .25, HOT_RAD = .11, T_HOT_MAX = 48;   // горячие точки в мантийной системе (неподвижны): прирост коры под континентом, км/млн лет в центре, радиус в рад   // SED_RATE: морские осадки на мелководье, км/млн лет; T_CONT: мощность, с которой кора считается континентальной   // ARC_RATE: наращивание коры над зоной субдукции, км/млн лет при 5 см/год   // T_CAP: предельная мощность коры в горах (км); избыток растекается в стороны
 // изостазия (Эйри): высота над общей отметкой, км; T = 0 даёт дно океана ≈ -4,85 км, T = 35 даёт ≈ +0,4 км
 const isostasy = T => E_SLOPE * T + E_FLOOR;
 
@@ -106,10 +106,14 @@ function generate(input) {
   }
   const volume0 = (() => { let s = 0; for (let k = 0; k < n; k++) s += thick[k] * PA; return s; })();
 
+  // горячие точки: положения и время жизни заданы заранее (мантия неподвижна, плиты ползут над ней — получаются цепочки гор/вулканов вдоль следа)
+  const HR = rng(p.seed + '|hotspots'), hots = [];
+  for (let h = 0; h < HOT_N; h++) { const z = HR() * 2 - 1, a = HR() * TAU, rr = Math.sqrt(1 - z * z), t0 = HR() * p.ageMyr; hots.push({ x: rr * Math.cos(a), y: rr * Math.sin(a), z, t0, t1: t0 + 150 + 350 * HR(), s: .5 + HR() }); }
+  const HCOS = Math.cos(2.2 * HOT_RAD);
   // ---- история ----
   const tOro = new Float32Array(NB).fill(-1), lastCont = new Float32Array(NB).fill(-1), subMyr = new Float32Array(NB), seaSed = new Float32Array(NB), lastSub = new Float32Array(NB).fill(-1), seaHist = [], nEpochs = Math.ceil(p.stopAtMyr / p.epochMyr), epochs = [], snapshots = [];
   const grp = new Int16Array(n), binIdx = new Int32Array(n);
-  let nextSnap = p.snapshotEveryMyr, time = 0, arcAdded = 0;
+  let nextSnap = p.snapshotEveryMyr, time = 0, arcAdded = 0, hotAdded = 0;
   const rasterBins = () => { const T = new Float32Array(NB); for (let k = 0; k < n; k++) T[binIdx[k]] += thick[k] * PA; for (let b = 0; b < NB; b++) T[b] /= binArea[b]; return T; };
   for (let k = 0; k < n; k++) binIdx[k] = binOf(X[3 * k], X[3 * k + 1], X[3 * k + 2]);
   for (let e = 0; e < nEpochs; e++) {
@@ -144,6 +148,13 @@ function generate(input) {
       // субдукция: океан перед движущимся краем плиты (пустая ячейка по ходу) уходит под континент; над ним растёт магматическая дуга / берегововой хребет
       cntB.fill(0); for (let k = 0; k < n; k++) cntB[binIdx[k]]++;
       for (let b = 0; b < NB; b++) if (cntB[b] > 0) lastCont[b] = time;
+      for (const h of hots) {
+        if (time < h.t0 || time > h.t1) continue;
+        for (let k = 0; k < n; k++) {
+          const c = X[3 * k] * h.x + X[3 * k + 1] * h.y + X[3 * k + 2] * h.z; if (c < HCOS || thick[k] >= T_HOT_MAX) continue;
+          const th = Math.acos(clamp(c, -1, 1)) / HOT_RAD, inc = Math.min(T_HOT_MAX - thick[k], HOT_RATE * h.s * Math.exp(-th * th) * dt); thick[k] += inc; hotAdded += inc * PA; tOro[binIdx[k]] = time;
+        }
+      }
       for (let k = 0; k < n; k++) {
         const rt = find(grp[k]), c = cnt[rt], wx = sum[rt][0] / c, wy = sum[rt][1] / c, wz = sum[rt][2] / c, x = X[3 * k], y = X[3 * k + 1], z = X[3 * k + 2];
         let vx = wy * z - wz * y, vy = wz * x - wx * z, vz = wx * y - wy * x; const sp = Math.hypot(vx, vy, vz); if (sp < 1e-9) continue;
@@ -255,8 +266,8 @@ function generate(input) {
   let tot1 = 0; for (let i = 0; i < NC; i++) tot1 += Te[i] * area[i];
   return {
     w: W, h: H, thickness: Te, thicknessBeforeErosion: T, elevationKm, seaLevelKm, cellArea: area, oceanAgeMyr: ageS, submergedMyr: subGrid, marineSedimentKm: sedGrid, lastSubmergedMyr: lastSubGrid, seaLevelHistoryKm: seaHist, tOroMyr: tOroGrid,
-    stats: { landFraction: landArea / (4 * Math.PI), landWithMarineSedimentFraction: landArea > 0 ? formerSea / landArea : 0, pointVolumeStart: volume0, pointVolumeEnd: volume1, arcAddedVolume: arcAdded, crustVolumeBeforeErosion: tot0, crustVolumeAfterErosion: tot1, sedimentLostVolume: lost, points: n, epochs: nEpochs, time },
-    history: epochs, snapshots, params: Object.assign({}, p), metadata: { generator: VERSION }
+    stats: { landFraction: landArea / (4 * Math.PI), landWithMarineSedimentFraction: landArea > 0 ? formerSea / landArea : 0, pointVolumeStart: volume0, pointVolumeEnd: volume1, arcAddedVolume: arcAdded, hotspotAddedVolume: hotAdded, crustVolumeBeforeErosion: tot0, crustVolumeAfterErosion: tot1, sedimentLostVolume: lost, points: n, epochs: nEpochs, time },
+    history: epochs, snapshots, params: Object.assign({}, p), hotspots: hots.map(h => ({ x: h.x, y: h.y, z: h.z, fromMyr: Math.round(h.t0), toMyr: Math.round(h.t1), strength: h.s })), metadata: { generator: VERSION }
   };
 }
 const api = { generate, VERSION, isostasy, constants: { TREF, E_SLOPE, E_FLOOR, TAU_EROSION } };
