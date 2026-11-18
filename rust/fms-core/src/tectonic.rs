@@ -64,6 +64,8 @@ pub struct Options {
     pub radius_km: f64,
     pub activity: f64,
     pub age_myr: f64,
+    /// Сколько последних млн лет считается пошагово (древнее состояние — готовый коллаж кратонов, а не симуляция).
+    pub history_myr: f64,
     pub epoch_myr: f64,
     pub water_depth_km: f64,
     pub continental_fraction: f64,
@@ -72,7 +74,7 @@ pub struct Options {
 
 impl Options {
     pub fn new(seed: &str) -> Options {
-        Options { seed: seed.to_string(), w: 360, radius_km: 6371.0, activity: 1.0, age_myr: 4500.0, epoch_myr: 150.0, water_depth_km: 2.62, continental_fraction: 0.4, stop_at_myr: None }
+        Options { seed: seed.to_string(), w: 360, radius_km: 6371.0, activity: 1.0, age_myr: 4500.0, history_myr: 1500.0, epoch_myr: 150.0, water_depth_km: 2.62, continental_fraction: 0.4, stop_at_myr: None }
     }
     fn validate(&self) -> Result<f64, String> {
         if self.seed.trim().is_empty() || self.seed.encode_utf16().count() > 128 {
@@ -99,9 +101,12 @@ impl Options {
         if !(0.2..=0.5).contains(&self.continental_fraction) {
             return Err("Continental fraction must be 0.2..0.5".into());
         }
-        let stop = self.stop_at_myr.unwrap_or(self.age_myr);
-        if !(0.0..=self.age_myr).contains(&stop) {
-            return Err("stopAtMyr must be within 0..ageMyr".into());
+        if !(300.0..=self.age_myr).contains(&self.history_myr) {
+            return Err("historyMyr must be within 300..ageMyr".into());
+        }
+        let stop = self.stop_at_myr.unwrap_or(self.history_myr);
+        if !(0.0..=self.history_myr).contains(&stop) {
+            return Err("stopAtMyr must be within 0..historyMyr".into());
         }
         Ok(stop)
     }
@@ -153,6 +158,8 @@ pub struct World {
     pub marine_sediment_km: Vec<f32>,
     pub sea_level_history_km: Vec<f64>,
     pub t_oro_myr: Vec<f32>,
+    /// Тип окраины суши: 0 — не берег, 1 — активная (субдукция в последние 300 млн лет), 2 — пассивная.
+    pub margin: Vec<u8>,
     pub stats: Stats,
     pub history: Vec<EpochRecord>,
     pub hotspots: Vec<Hotspot>,
@@ -398,7 +405,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
         let z = hr.next() * 2.0 - 1.0;
         let a = hr.next() * TAU;
         let rr = (1.0 - z * z).sqrt();
-        let t0 = hr.next() * opt.age_myr;
+        let t0 = hr.next() * opt.history_myr;
         let t1 = t0 + 150.0 + 350.0 * hr.next();
         let s = 0.5 + hr.next();
         hots.push(Hot { x: rr * a.cos(), y: rr * a.sin(), z, t0, t1, s });
@@ -407,6 +414,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
 
     // ---- история ----
     let mut t_oro = vec![-1f32; nb];
+    let mut t_arc = vec![-1f32; nb];
     let mut sub_myr = vec![0f32; nb];
     let mut sea_sed = vec![0f32; nb];
     let mut sea_hist: Vec<f64> = Vec::new();
@@ -558,6 +566,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
                 thick[k] = (thick[k] as f64 + inc) as f32;
                 arc_added += inc * pa;
                 t_oro[bin_idx[k]] = time as f32;
+                t_arc[bin_idx[k]] = time as f32;
             }
             // поворот всех точек плит; независим по точкам — считаем в нескольких потоках
             {
@@ -792,6 +801,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
     let mut sub_grid = vec![0f32; nc];
     let mut sed_grid = vec![0f32; nc];
     let mut t_oro_grid = vec![0f32; nc];
+    let mut t_arc_grid = vec![-1f32; nc];
     let mut age_v = vec![0f32; nc];
     let mut age_w = vec![0f32; nc];
     for row in 0..h_ {
@@ -805,6 +815,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
             age_v[i] = if ok != usize::MAX { o_age[ok] } else { 0.0 };
             age_w[i] = if ok != usize::MAX { 1.0 } else { 0.0 };
             t_oro_grid[i] = t_oro[b];
+            t_arc_grid[i] = t_arc[b];
             sub_grid[i] = sub_myr[b];
             sed_grid[i] = sea_sed[b];
         }
@@ -883,6 +894,22 @@ pub fn generate(opt: &Options) -> Result<World, String> {
     let elev: Vec<f32> = (0..nc)
         .map(|i| (isostasy(te[i] as f64) + SUBSIDE * (AGE_REF.sqrt() - (AGE_MAX * 1.5).min(age_s[i] as f64).sqrt()) * (1.0 - smooth(2.0, 12.0, te[i] as f64))) as f32)
         .collect();
+    // классификация окраин: берег суши (толстая кора рядом с океаном) — активный, если над ним недавно шла субдукция
+    let mut margin = vec![0u8; nc];
+    for i in 0..nc {
+        if (te[i] as f64) < T_CONT { continue; }
+        let (xx, yy) = (i % w_, i / w_);
+        let mut nb4 = [(yy * w_ + (xx + 1) % w_), (yy * w_ + (xx + w_ - 1) % w_), i, i];
+        if yy > 0 { nb4[2] = i - w_; }
+        if yy < h_ - 1 { nb4[3] = i + w_; }
+        if !nb4.iter().any(|&q| (te[q] as f64) < 8.0) { continue; }
+        let recent = (-1..=1).any(|dx: i32| (-1..=1).any(|dy: i32| {
+            let (qx, qy) = ((xx as i32 + dx).rem_euclid(w_ as i32) as usize, (yy as i32 + dy).clamp(0, h_ as i32 - 1) as usize);
+            let ta = t_arc_grid[qy * w_ + qx] as f64;
+            ta >= 0.0 && t_end - ta < 300.0
+        }));
+        margin[i] = if recent { 1 } else { 2 };
+    }
     let v_water = opt.water_depth_km * 4.0 * PI;
     let (mut lo, mut hi) = (-8.0f64, 14.0f64);
     for _ in 0..60 {
@@ -902,7 +929,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
     let tot1: f64 = (0..nc).map(|i| te[i] as f64 * area[i]).sum();
     Ok(World {
         w: w_, h: h_, thickness: te, thickness_before_erosion: t, elevation_km: elevation, sea_level_km: sea_level, cell_area: area,
-        ocean_age_myr: age_s, submerged_myr: sub_grid, marine_sediment_km: sed_grid, sea_level_history_km: sea_hist, t_oro_myr: t_oro_grid,
+        ocean_age_myr: age_s, submerged_myr: sub_grid, marine_sediment_km: sed_grid, sea_level_history_km: sea_hist, t_oro_myr: t_oro_grid, margin,
         stats: Stats {
             land_fraction: land_area / (4.0 * PI),
             land_with_marine_sediment_fraction: if land_area > 0.0 { former_sea / land_area } else { 0.0 },

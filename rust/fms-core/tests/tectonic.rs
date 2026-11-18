@@ -104,3 +104,18 @@ fn option_errors() {
         assert!(generate(&bad).is_err());
     }
 }
+
+#[test]
+fn margins_and_short_history() {
+    let w = generate(&opts("t1")).unwrap();
+    let act = w.margin.iter().filter(|&&m| m == 1).count();
+    let pas = w.margin.iter().filter(|&&m| m == 2).count();
+    assert!(act > 0 && pas > 0, "active {} passive {}", act, pas);
+    assert!(w.margin.iter().all(|&m| m <= 2));
+    let mut o = opts("t1");
+    o.history_myr = 300.0;
+    let short = generate(&o).unwrap();
+    assert_eq!(short.stats.epochs, 2);
+    o.history_myr = 100.0;
+    assert!(generate(&o).is_err());
+}
