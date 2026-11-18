@@ -1,0 +1,106 @@
+use fms_core::tectonic::{generate, isostasy, Options};
+use std::f64::consts::PI;
+
+fn opts(seed: &str) -> Options {
+    let mut o = Options::new(seed);
+    o.w = 180;
+    o
+}
+
+#[test]
+fn determinism_and_seeds() {
+    let a = generate(&opts("t1")).unwrap();
+    let b = generate(&opts("t1")).unwrap();
+    assert_eq!(a.thickness, b.thickness);
+    assert_eq!(a.elevation_km, b.elevation_km);
+    let c = generate(&opts("t2")).unwrap();
+    assert_ne!(a.thickness, c.thickness);
+}
+
+#[test]
+fn volume_conservation() {
+    let w = generate(&opts("t1")).unwrap();
+    let s = &w.stats;
+    assert!(s.arc_added_volume > 0.0);
+    let expect = s.point_volume_start + s.arc_added_volume + s.hotspot_added_volume;
+    assert!((s.point_volume_end / expect - 1.0).abs() < 1e-4, "{} {}", s.point_volume_end, expect);
+    assert!(s.sediment_lost_volume >= 0.0);
+    assert!(((s.crust_volume_after_erosion + s.sediment_lost_volume) / s.crust_volume_before_erosion - 1.0).abs() < 2e-3);
+}
+
+#[test]
+fn thickness_sea_and_land() {
+    let w = generate(&opts("t1")).unwrap();
+    assert!(w.thickness.iter().all(|&t| t.is_finite() && t >= 0.0 && t <= 80.0));
+    let mut v = 0.0;
+    for i in 0..w.w * w.h {
+        let e = w.elevation_km[i] as f64;
+        if e < 0.0 { v += -e * w.cell_area[i]; }
+    }
+    assert!((v / (2.62 * 4.0 * PI) - 1.0).abs() < 1e-2, "water volume {}", v);
+    assert!(w.stats.land_fraction > 0.15 && w.stats.land_fraction < 0.45, "{}", w.stats.land_fraction);
+    assert!(isostasy(0.0) < isostasy(35.0));
+}
+
+#[test]
+fn wetter_world_has_less_land() {
+    let mut a = opts("t3");
+    a.water_depth_km = 1.5;
+    let mut b = opts("t3");
+    b.water_depth_km = 3.6;
+    assert!(generate(&a).unwrap().stats.land_fraction > generate(&b).unwrap().stats.land_fraction);
+}
+
+#[test]
+fn history_and_forces() {
+    let w = generate(&opts("t1")).unwrap();
+    assert_eq!(w.history.len(), w.stats.epochs);
+    assert_eq!(w.sea_level_history_km.len(), w.stats.epochs);
+    for e in &w.history {
+        assert!(e.plates >= 4 && e.plates <= 8);
+        for &o in &e.omega_rad_per_myr {
+            assert!(o >= 0.0 && o * 637.1 <= 12.1, "{}", o * 637.1);
+        }
+    }
+    let mean = |act: f64| {
+        let mut o = opts("t1");
+        o.activity = act;
+        let w = generate(&o).unwrap();
+        let v: Vec<f64> = w.history.iter().flat_map(|e| e.omega_rad_per_myr.iter().map(|x| x * 637.1)).collect();
+        v.iter().sum::<f64>() / v.len() as f64
+    };
+    assert!(mean(1.5) > mean(0.5));
+}
+
+#[test]
+fn ocean_age_and_prefix() {
+    let w = generate(&opts("t1")).unwrap();
+    let (mut aw, mut ag) = (0.0, 0.0);
+    for i in 0..w.w * w.h {
+        if w.thickness[i] < 8.0 {
+            aw += w.cell_area[i];
+            ag += w.ocean_age_myr[i] as f64 * w.cell_area[i];
+        }
+    }
+    let m = ag / aw;
+    assert!(m > 30.0 && m < 110.0, "mean ocean age {}", m);
+    let mut half = opts("t1");
+    half.stop_at_myr = Some(450.0);
+    assert_eq!(generate(&half).unwrap().stats.time.round(), 450.0);
+}
+
+#[test]
+fn option_errors() {
+    for bad in [
+        { let mut o = opts("x"); o.seed = String::new(); o },
+        { let mut o = opts("x"); o.w = 181; o },
+        { let mut o = opts("x"); o.w = 1000; o },
+        { let mut o = opts("x"); o.radius_km = 100.0; o },
+        { let mut o = opts("x"); o.activity = 3.0; o },
+        { let mut o = opts("x"); o.age_myr = 10.0; o },
+        { let mut o = opts("x"); o.continental_fraction = 0.9; o },
+        { let mut o = opts("x"); o.stop_at_myr = Some(1e9); o },
+    ] {
+        assert!(generate(&bad).is_err());
+    }
+}
