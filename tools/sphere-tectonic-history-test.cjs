@@ -11,7 +11,7 @@ const base=run({});
 test('Детерминизм: одинаковые параметры дают побитно одинаковые поля',()=>{const b=run({});assert(same(base.thickness,b.thickness));assert(same(base.elevationKm,b.elevationKm));assert.equal(base.seaLevelKm,b.seaLevelKm);});
 test('Разные seed дают разные миры',()=>{const c=run({seed:'t2'});assert(!same(base.thickness,c.thickness));});
 test('Объём коры точек сохраняется всю историю; на сетке «после эрозии + потерянный осадок» = «до эрозии»',()=>{
- const s=base.stats;assert(Math.abs(s.pointVolumeEnd/s.pointVolumeStart-1)<1e-9);assert(s.sedimentLostVolume>=0&&Math.abs((s.crustVolumeAfterErosion+s.sedimentLostVolume)/s.crustVolumeBeforeErosion-1)<2e-3,[s.crustVolumeAfterErosion,s.sedimentLostVolume,s.crustVolumeBeforeErosion].join());});
+ const s=base.stats;assert(s.arcAddedVolume>0&&Math.abs(s.pointVolumeEnd/(s.pointVolumeStart+s.arcAddedVolume)-1)<1e-6,'arc '+s.arcAddedVolume+' '+s.pointVolumeEnd+' '+s.pointVolumeStart);assert(s.sedimentLostVolume>=0&&Math.abs((s.crustVolumeAfterErosion+s.sedimentLostVolume)/s.crustVolumeBeforeErosion-1)<2e-3,[s.crustVolumeAfterErosion,s.sedimentLostVolume,s.crustVolumeBeforeErosion].join());});
 test('Мощность коры ограничена (обрушение), нет NaN и отрицательных значений',()=>{let mx=0;for(const v of base.thickness){assert(Number.isFinite(v)&&v>=0);if(v>mx)mx=v;}assert(mx<=66,'max '+mx);});
 test('Уровень моря: объём воды выше дна совпадает с заданным',()=>{
  const A=base.cellArea,e=base.elevationKm;let v=0;for(let i=0;i<e.length;i++)if(e[i]<0)v+=-e[i]*A[i];

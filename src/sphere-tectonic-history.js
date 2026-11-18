@@ -61,7 +61,7 @@ function options(input) {
   return p;
 }
 
-const TREF = 35, E_SLOPE = .15, E_FLOOR = -4.85, TAU_EROSION = 120, T_SHELF = 22, PTS_PER_BIN = 4, SUB = 16, WELD_FRAC = .04, T_CAP = 60;   // T_CAP: предельная мощность коры в горах (км); избыток растекается в стороны
+const TREF = 35, E_SLOPE = .15, E_FLOOR = -4.85, TAU_EROSION = 120, T_SHELF = 22, PTS_PER_BIN = 4, SUB = 16, WELD_FRAC = .04, T_CAP = 60, ARC_RATE = .12, T_ARC_MAX = 52;   // ARC_RATE: наращивание коры над зоной субдукции, км/млн лет при 5 см/год   // T_CAP: предельная мощность коры в горах (км); избыток растекается в стороны
 // изостазия (Эйри): высота над общей отметкой, км; T = 0 даёт дно океана ≈ -4,85 км, T = 35 даёт ≈ +0,4 км
 const isostasy = T => E_SLOPE * T + E_FLOOR;
 
@@ -109,7 +109,7 @@ function generate(input) {
   // ---- история ----
   const tOro = new Float32Array(NB).fill(-1), nEpochs = Math.ceil(p.stopAtMyr / p.epochMyr), epochs = [], snapshots = [];
   const grp = new Int16Array(n), binIdx = new Int32Array(n);
-  let nextSnap = p.snapshotEveryMyr, time = 0;
+  let nextSnap = p.snapshotEveryMyr, time = 0, arcAdded = 0;
   const rasterBins = () => { const T = new Float32Array(NB); for (let k = 0; k < n; k++) T[binIdx[k]] += thick[k] * PA; for (let b = 0; b < NB; b++) T[b] /= binArea[b]; return T; };
   for (let k = 0; k < n; k++) binIdx[k] = binOf(X[3 * k], X[3 * k + 1], X[3 * k + 2]);
   for (let e = 0; e < nEpochs; e++) {
@@ -141,6 +141,15 @@ function generate(input) {
         const ux = wx / (ang / dt), uy = wy / (ang / dt), uz = wz / (ang / dt), co = Math.cos(ang), si = Math.sin(ang), t = 1 - co;
         return [co + ux * ux * t, ux * uy * t - uz * si, ux * uz * t + uy * si, uy * ux * t + uz * si, co + uy * uy * t, uy * uz * t - ux * si, uz * ux * t - uy * si, uz * uy * t + ux * si, co + uz * uz * t];
       });
+      // субдукция: океан перед движущимся краем плиты (пустая ячейка по ходу) уходит под континент; над ним растёт магматическая дуга / берегововой хребет
+      cntB.fill(0); for (let k = 0; k < n; k++) cntB[binIdx[k]]++;
+      for (let k = 0; k < n; k++) {
+        const rt = find(grp[k]), c = cnt[rt], wx = sum[rt][0] / c, wy = sum[rt][1] / c, wz = sum[rt][2] / c, x = X[3 * k], y = X[3 * k + 1], z = X[3 * k + 2];
+        let vx = wy * z - wz * y, vy = wz * x - wx * z, vz = wx * y - wy * x; const sp = Math.hypot(vx, vy, vz); if (sp < 1e-9) continue;
+        const d = 1.5 * STEP / sp, ax = x + vx * d, ay = y + vy * d, az = z + vz * d, al = Math.sqrt(ax * ax + ay * ay + az * az), b2 = binOf(ax / al, ay / al, az / al);
+        if (cntB[b2] > 0 || thick[k] >= T_ARC_MAX) continue;
+        const inc = Math.min(T_ARC_MAX - thick[k], ARC_RATE * (sp * p.radiusKm / 10 / 5) * dt); thick[k] += inc; arcAdded += inc * PA; tOro[binIdx[k]] = time;
+      }
       for (let k = 0; k < n; k++) {
         const m = rot[grp[k]], x = X[3 * k], y = X[3 * k + 1], z = X[3 * k + 2];
         let nx = m[0] * x + m[1] * y + m[2] * z, ny = m[3] * x + m[4] * y + m[5] * z, nz = m[6] * x + m[7] * y + m[8] * z; const l = 1 / Math.sqrt(nx * nx + ny * ny + nz * nz);
@@ -235,7 +244,7 @@ function generate(input) {
   let tot1 = 0; for (let i = 0; i < NC; i++) tot1 += Te[i] * area[i];
   return {
     w: W, h: H, thickness: Te, thicknessBeforeErosion: T, elevationKm, seaLevelKm, cellArea: area, tOroMyr: tOroGrid,
-    stats: { landFraction: landArea / (4 * Math.PI), pointVolumeStart: volume0, pointVolumeEnd: volume1, crustVolumeBeforeErosion: tot0, crustVolumeAfterErosion: tot1, sedimentLostVolume: lost, points: n, epochs: nEpochs, time },
+    stats: { landFraction: landArea / (4 * Math.PI), pointVolumeStart: volume0, pointVolumeEnd: volume1, arcAddedVolume: arcAdded, crustVolumeBeforeErosion: tot0, crustVolumeAfterErosion: tot1, sedimentLostVolume: lost, points: n, epochs: nEpochs, time },
     history: epochs, snapshots, params: Object.assign({}, p), metadata: { generator: VERSION }
   };
 }
