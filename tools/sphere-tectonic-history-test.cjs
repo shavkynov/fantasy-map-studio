@@ -29,4 +29,8 @@ test('Префиксность: остановка на половине воз�
  const ref=T.generate({seed:'t1',w:180,ageMyr:900,epochMyr:150,stopAtMyr:450,snapshotEveryMyr:450}).snapshots.find(s=>s.tMyr===450);
  assert(same(mid.thickness,ref.thickness));assert.equal(half.stats.time,450);});
 test('Ошибки параметров',()=>{for(const bad of[{seed:''},{seed:'x',w:181},{seed:'x',w:1000},{seed:'x',radiusKm:100},{seed:'x',activity:3},{seed:'x',ageMyr:10},{seed:'x',epochMyr:5},{seed:'x',waterDepthKm:20},{seed:'x',continentalFraction:.9},{seed:'x',stopAtMyr:99999},{seed:'x',extra:1}])assert.throws(()=>T.generate(bad),bad.seed+JSON.stringify(bad));});
+test('Летопись затоплений: уровень моря на каждой эпохе, морские осадки только на континентальной коре, есть суша с морскими осадками',()=>{
+ assert.equal(base.seaLevelHistoryKm.length,base.stats.epochs);assert(base.seaLevelHistoryKm.every(Number.isFinite));
+ let sub=0;for(let i=0;i<base.w*base.h;i++){assert(base.marineSedimentKm[i]>=0&&base.submergedMyr[i]>=0&&base.submergedMyr[i]<=base.stats.time+1e-3);if(base.marineSedimentKm[i]>0)sub++;}
+ assert(sub>0&&base.stats.landWithMarineSedimentFraction>=0&&base.stats.landWithMarineSedimentFraction<=1);});
 console.log('Тесты тектонической истории пройдены: '+n);
