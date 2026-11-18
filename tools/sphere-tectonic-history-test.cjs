@@ -36,4 +36,8 @@ test('Летопись затоплений: уровень моря на каж
 test('Океаническая кора: возраст дна конечен, средний возраст реалистичен (30..110 млн лет), есть молодое и старое дно',()=>{
  let aw=0,ag=0,young=0,old=0;for(let i=0;i<base.w*base.h;i++){if(base.thickness[i]<8){const a=base.oceanAgeMyr[i],w=base.cellArea[i];assert(Number.isFinite(a)&&a>=0&&a<=280,'age '+a);aw+=w;ag+=a*w;if(a<30)young+=w;if(a>120)old+=w;}}
  const m=ag/aw;assert(m>30&&m<110,'mean '+m);assert(young>0&&old>0);});
+test('Силы: скорости плит получаются из сил (не одинаковы, 0..12 см/год), выше активность — быстрее в среднем',()=>{
+ const mean=a=>{let s=0,c=0,mx=0;for(const seed of['t1','t2']){const r=T.generate({seed,w:180,activity:a});for(const e of r.history)for(const o of e.omegaRadPerMyr){const v=o*637.1;s+=v;c++;mx=Math.max(mx,v);}}return{m:s/c,mx};};
+ const lo=mean(.5),hi=mean(1.5);assert(hi.m>lo.m,lo.m+' '+hi.m);assert(hi.mx<=12.1&&lo.m>.3,JSON.stringify([lo,hi]));
+ const sp=new Set(base.history[1].omegaRadPerMyr.map(o=>o.toFixed(6)));assert(sp.size>1);});
 console.log('Тесты тектонической истории пройдены: '+n);

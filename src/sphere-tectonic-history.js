@@ -61,7 +61,7 @@ function options(input) {
   return p;
 }
 
-const TREF = 35, E_SLOPE = .15, E_FLOOR = -4.85, TAU_EROSION = 120, T_SHELF = 22, PTS_PER_BIN = 4, SUB = 16, WELD_FRAC = .04, T_CAP = 60, ARC_RATE = .12, T_ARC_MAX = 52, AGE_MAX = 180, AGE_REF = 65, SUBSIDE = .26, SED_RATE = .03, T_CONT = 12, HOT_N = 8, HOT_RATE = .25, HOT_RAD = .11, T_HOT_MAX = 48, OCE_W = 4, OCE_CAP = 1.3, T_ARC_OCE = 30, T_HOT_OCE = 34;   // OCE_W: океаническая точка представляет 4 континентальных по площади; OCE_CAP: запас пула; T_*_OCE: предел «избытка» мощности океанической коры (острова)   // горячие точки в мантийной системе (неподвижны): прирост коры под континентом, км/млн лет в центре, радиус в рад   // SED_RATE: морские осадки на мелководье, км/млн лет; T_CONT: мощность, с которой кора считается континентальной   // ARC_RATE: наращивание коры над зоной субдукции, км/млн лет при 5 см/год   // T_CAP: предельная мощность коры в горах (км); избыток растекается в стороны
+const TREF = 35, E_SLOPE = .15, E_FLOOR = -4.85, TAU_EROSION = 120, T_SHELF = 22, PTS_PER_BIN = 4, SUB = 16, WELD_FRAC = .04, T_CAP = 60, ARC_RATE = .12, T_ARC_MAX = 52, AGE_MAX = 180, AGE_REF = 65, SUBSIDE = .26, SED_RATE = .03, T_CONT = 12, HOT_N = 8, HOT_RATE = .25, HOT_RAD = .11, T_HOT_MAX = 48, OCE_W = 4, OCE_CAP = 1.3, T_ARC_OCE = 30, T_HOT_OCE = 34, KEEL = 3, G_FORCE = 1.6, TAU_V = 25, F_RIDGE = .25, SPEED_MAX = 12;   // силы: KEEL — во сколько раз континент сильнее тормозится мантией; G_FORCE — переход от момента сил к угловой скорости; TAU_V — время подстройки скорости, млн лет; SPEED_MAX — предел скорости плиты, см/год   // OCE_W: океаническая точка представляет 4 континентальных по площади; OCE_CAP: запас пула; T_*_OCE: предел «избытка» мощности океанической коры (острова)   // горячие точки в мантийной системе (неподвижны): прирост коры под континентом, км/млн лет в центре, радиус в рад   // SED_RATE: морские осадки на мелководье, км/млн лет; T_CONT: мощность, с которой кора считается континентальной   // ARC_RATE: наращивание коры над зоной субдукции, км/млн лет при 5 см/год   // T_CAP: предельная мощность коры в горах (км); избыток растекается в стороны
 // изостазия (Эйри): высота над общей отметкой, км; T = 0 даёт дно океана ≈ -4,85 км, T = 35 даёт ≈ +0,4 км
 const isostasy = T => E_SLOPE * T + E_FLOOR;
 
@@ -143,7 +143,7 @@ function generate(input) {
     }
     // (в) дрейф; при заметном перекрытии двух плит они свариваются и движутся как одно тело (средняя угловая скорость по площади)
     const par = Array.from({ length: K }, (_, i) => i), find = i => { while (par[i] !== i) { par[i] = par[par[i]]; i = par[i]; } return i; };
-    const sum = omega.map((o, s) => [o[0] * size[s], o[1] * size[s], o[2] * size[s]]), cnt = Float64Array.from(size), welds = [];
+    const sum = omega.map((o, s) => [o[0] * size[s], o[1] * size[s], o[2] * size[s]]), cnt = Float64Array.from(size), welds = [], Dm = Float64Array.from(size, (v, i) => v + (KEEL - 1) * csz[i]);
     const occ = new Uint8Array(NB * K), pair = new Int32Array(K * K), Tb = new Float32Array(NB), cntB = new Int32Array(NB), bStart = new Int32Array(NB + 1), fillPos = new Int32Array(NB), byBin = new Int32Array(n), STEP = TAU / W;
     for (let st = 0; st < SUB; st++) {
       const rot = Array.from({ length: K }, (_, s) => {
@@ -197,25 +197,40 @@ function generate(input) {
           }
         }
       }
+      // силы на плитах: натяжение погружающегося дна (по длине фронта; сила растёт с возрастом) и отталкивание от хребта; момент → угловая скорость
+      const tor = new Float64Array(3 * K), velAt = (r, x, y, z) => { const c = cnt[r], wx = sum[r][0] / c, wy = sum[r][1] / c, wz = sum[r][2] / c; return [wy * z - wz * y, wz * x - wx * z, wx * y - wy * x]; };
+      const pull = (rs, ro, x, y, z, age, w) => {   // плита rs уходит под плиту ro в точке (x,y,z)
+        const a = velAt(rs, x, y, z), b = velAt(ro, x, y, z), vx = a[0] - b[0], vy = a[1] - b[1], vz = a[2] - b[2], vm = Math.hypot(vx, vy, vz); if (vm < 1e-9) return;
+        const m = (.3 + Math.min(age, AGE_MAX) / 100) * w * Math.min(4, STEP / Math.max(vm * dt, STEP * .25)) / vm;
+        tor[3 * rs] += (y * vz - z * vy) * m; tor[3 * rs + 1] += (z * vx - x * vz) * m; tor[3 * rs + 2] += (x * vy - y * vx) * m;
+      };
       // океаническая кора: старение, субдукция (старое уходит под молодое и под континент), островные дуги, рождение нового дна в зазорах (хребты)
       contCnt.fill(0); for (let k = 0; k < n; k++) { const b = binIdx[k]; if (contCnt[b] < 255) contCnt[b]++; contGrp[b] = grp[k]; }
       oceBin.fill(-1);
       for (let k = n; k < N; k++) {
         if (!alive[k]) continue; oAge[k] += dt; const b = binIdx[k];
-        if (contCnt[b] >= 2) { alive[k] = 0; free.push(k); continue; }
+        if (contCnt[b] >= 2) { pull(find(grp[k]), find(contGrp[b]), X[3 * k], X[3 * k + 1], X[3 * k + 2], oAge[k], OCE_W); alive[k] = 0; free.push(k); continue; }
         const j = oceBin[b]; if (j < 0) { oceBin[b] = k; continue; }
         const same = find(grp[k]) === find(grp[j]);
         if (same) { alive[k] = 0; free.push(k); continue; }
         const old = oAge[k] > oAge[j] ? k : j, young = old === k ? j : k;
-        alive[old] = 0; free.push(old); oceBin[b] = young; thick[young] = Math.min(T_ARC_OCE, thick[young] + ARC_RATE * dt);
+        pull(find(grp[old]), find(grp[young]), X[3 * old], X[3 * old + 1], X[3 * old + 2], oAge[old], OCE_W); alive[old] = 0; free.push(old); oceBin[b] = young; thick[young] = Math.min(T_ARC_OCE, thick[young] + ARC_RATE * dt);
       }
       for (let b = 0; b < NB; b++) {
         if (contCnt[b] > 0 || oceBin[b] >= 0 || !free.length) continue;
-        let g = -1; for (let q = 0; q < 4; q++) { const c = nbr[4 * b + ((q + (st & 3)) & 3)]; if (oceBin[c] >= 0) { g = grp[oceBin[c]]; break; } if (contCnt[c] > 0) { g = contGrp[c]; break; } }
+        let g = -1, gc = -1; for (let q = 0; q < 4; q++) { const c = nbr[4 * b + ((q + (st & 3)) & 3)]; if (oceBin[c] >= 0) { g = grp[oceBin[c]]; gc = c; break; } if (contCnt[c] > 0) { g = contGrp[c]; gc = c; break; } }
         if (g < 0) continue;
+        { const r = find(g), dx = bc[3 * gc] - bc[3 * b], dy = bc[3 * gc + 1] - bc[3 * b + 1], dz = bc[3 * gc + 2] - bc[3 * b + 2], dl = Math.hypot(dx, dy, dz) || 1, wr = Math.hypot(sum[r][0], sum[r][1], sum[r][2]) / cnt[r], m = F_RIDGE * Math.min(4, STEP / Math.max(wr * dt, STEP * .25)) / dl, x = bc[3 * b], y = bc[3 * b + 1], z = bc[3 * b + 2];
+          tor[3 * r] += (y * dz - z * dy) * m; tor[3 * r + 1] += (z * dx - x * dz) * m; tor[3 * r + 2] += (x * dy - y * dx) * m; }
         const k = free.pop(), j = 1 / 2.2, jx = (R() - .5) * j * STEP, jy = (R() - .5) * j * STEP; let x = bc[3 * b] + jx, y = bc[3 * b + 1] + jy, z = bc[3 * b + 2] + jx * .3; const l = Math.sqrt(x * x + y * y + z * z);
         X[3 * k] = x / l; X[3 * k + 1] = y / l; X[3 * k + 2] = z / l; alive[k] = 1; oAge[k] = 0; thick[k] = 0; grp[k] = g; binIdx[k] = b; oceBin[b] = k;
       }
+      { const relax = 1 - Math.exp(-dt / TAU_V), wMax = SPEED_MAX * 10 / p.radiusKm;
+        for (let r = 0; r < K; r++) {
+          if (find(r) !== r) continue; const c = cnt[r], g = G_FORCE * p.activity / Dm[r];
+          let tx = tor[3 * r] * g, ty = tor[3 * r + 1] * g, tz = tor[3 * r + 2] * g; const tm = Math.hypot(tx, ty, tz); if (tm > wMax) { const f = wMax / tm; tx *= f; ty *= f; tz *= f; }
+          sum[r][0] += (tx * c - sum[r][0]) * relax; sum[r][1] += (ty * c - sum[r][1]) * relax; sum[r][2] += (tz * c - sum[r][2]) * relax;
+        } }
       // роли: корни групп → слоты 0..K-1 по индексу плиты (корень), счёт точек плиты в ячейке
       occ.fill(0); for (let k = 0; k < n; k++) { const s = find(grp[k]), i = binIdx[k] * K + s; if (occ[i] < 255) occ[i]++; }
       pair.fill(0);
@@ -226,7 +241,7 @@ function generate(input) {
       }
       for (let a = 0; a < K; a++) for (let s = a + 1; s < K; s++) {
         if (find(a) !== a || find(s) !== s || !pair[a * K + s]) continue;
-        if (pair[a * K + s] > Math.max(6, WELD_FRAC * Math.min(csz[a], csz[s]) / PTS_PER_BIN)) { par[s] = a; sum[a][0] += sum[s][0]; sum[a][1] += sum[s][1]; sum[a][2] += sum[s][2]; cnt[a] += cnt[s]; csz[a] += csz[s]; welds.push({ tMyr: Math.round(time), a, b: s }); }
+        if (pair[a * K + s] > Math.max(6, WELD_FRAC * Math.min(csz[a], csz[s]) / PTS_PER_BIN)) { par[s] = a; sum[a][0] += sum[s][0]; sum[a][1] += sum[s][1]; sum[a][2] += sum[s][2]; cnt[a] += cnt[s]; csz[a] += csz[s]; Dm[a] += Dm[s]; welds.push({ tMyr: Math.round(time), a, b: s }); }
       }
       if (p.snapshotEveryMyr && time + 1e-9 >= nextSnap) { snapshots.push({ tMyr: Math.round(time), thickness: rasterBins() }); nextSnap += p.snapshotEveryMyr; }
     }
@@ -237,7 +252,7 @@ function generate(input) {
       const sl = (l0 + h0) / 2; seaHist.push(Math.round(sl * 1000) / 1000);
       for (let b = 0; b < NB; b++) if (el[b] < sl) { subMyr[b] += dtEpoch; lastSub[b] = time; if (Tq[b] >= T_CONT && sl - el[b] < .5) seaSed[b] += SED_RATE * dtEpoch; }
     }
-    epochs.push({ index: e, plates: K, welds, omegaRadPerMyr: omega.map(o => Math.hypot(o[0], o[1], o[2])) });
+    epochs.push({ index: e, plates: K, welds, omegaRadPerMyr: omega.map((o, s) => { const r = find(s); return Math.hypot(sum[r][0], sum[r][1], sum[r][2]) / cnt[r]; }) });
   }
   const volume1 = (() => { let s = 0; for (let k = 0; k < n; k++) s += thick[k] * PA; return s; })();
 
