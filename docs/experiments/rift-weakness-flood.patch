@@ -1,0 +1,51 @@
+diff --git a/src/sphere-tectonic-history.js b/src/sphere-tectonic-history.js
+index 5c93274..51c65af 100644
+--- a/src/sphere-tectonic-history.js
++++ b/src/sphere-tectonic-history.js
+@@ -61,7 +61,7 @@ function options(input) {
+   return p;
+ }
+ 
+-const TREF = 35, E_SLOPE = .15, E_FLOOR = -4.85, TAU_EROSION = 120, T_SHELF = 22, PTS_PER_BIN = 4, SUB = 16, WELD_FRAC = .04, T_CAP = 60, ARC_RATE = .12, T_ARC_MAX = 52, AGE_MAX = 180, AGE_REF = 65, SUBSIDE = .26, SED_RATE = .03, T_CONT = 12, HOT_N = 8, HOT_RATE = .25, HOT_RAD = .11, T_HOT_MAX = 48, OCE_W = 4, OCE_CAP = 1.3, T_ARC_OCE = 30, T_HOT_OCE = 34, KEEL = 3, G_FORCE = 1.6, TAU_V = 25, F_RIDGE = .25, SPEED_MAX = 12;   // силы: KEEL — во сколько раз континент сильнее тормозится мантией; G_FORCE — переход от момента сил к угловой скорости; TAU_V — время подстройки скорости, млн лет; SPEED_MAX — предел скорости плиты, см/год   // OCE_W: океаническая точка представляет 4 континентальных по площади; OCE_CAP: запас пула; T_*_OCE: предел «избытка» мощности океанической коры (острова)   // горячие точки в мантийной системе (неподвижны): прирост коры под континентом, км/млн лет в центре, радиус в рад   // SED_RATE: морские осадки на мелководье, км/млн лет; T_CONT: мощность, с которой кора считается континентальной   // ARC_RATE: наращивание коры над зоной субдукции, км/млн лет при 5 см/год   // T_CAP: предельная мощность коры в горах (км); избыток растекается в стороны
++const TREF = 35, E_SLOPE = .15, E_FLOOR = -4.85, TAU_EROSION = 120, T_SHELF = 22, PTS_PER_BIN = 4, SUB = 16, WELD_FRAC = .04, T_CAP = 60, ARC_RATE = .12, T_ARC_MAX = 52, AGE_MAX = 180, AGE_REF = 65, SUBSIDE = .26, SED_RATE = .03, T_CONT = 12, HOT_N = 8, HOT_RATE = .25, HOT_RAD = .11, T_HOT_MAX = 48, OCE_W = 4, OCE_CAP = 1.3, T_ARC_OCE = 30, T_HOT_OCE = 34, KEEL = 3, RIFT_A = 5, G_FORCE = 1.6, TAU_V = 25, F_RIDGE = .25, SPEED_MAX = 12;   // силы: KEEL — во сколько раз континент сильнее тормозится мантией; G_FORCE — переход от момента сил к угловой скорости; TAU_V — время подстройки скорости, млн лет; SPEED_MAX — предел скорости плиты, см/год   // OCE_W: океаническая точка представляет 4 континентальных по площади; OCE_CAP: запас пула; T_*_OCE: предел «избытка» мощности океанической коры (острова)   // горячие точки в мантийной системе (неподвижны): прирост коры под континентом, км/млн лет в центре, радиус в рад   // SED_RATE: морские осадки на мелководье, км/млн лет; T_CONT: мощность, с которой кора считается континентальной   // ARC_RATE: наращивание коры над зоной субдукции, км/млн лет при 5 см/год   // T_CAP: предельная мощность коры в горах (км); избыток растекается в стороны
+ // изостазия (Эйри): высота над общей отметкой, км; T = 0 даёт дно океана ≈ -4,85 км, T = 35 даёт ≈ +0,4 км
+ const isostasy = T => E_SLOPE * T + E_FLOOR;
+ 
+@@ -115,9 +115,10 @@ function generate(input) {
+     score[i] = d1 + .05 * noise(sx[i] * 5.3 + 3, sy[i] * 5.3 + 9, sz[i] * 5.3 + 1); suture[i] = d2 < 1.25 && d1 < 1.25 ? 1 : 0;   // шов: рядом два кратона (коллизионный пояс)
+   }
+   const order = Array.from({ length: NP }, (_, i) => i).sort((a, b) => score[a] - score[b]), n = Math.round(p.continentalFraction * NP);
+-  const NO = Math.ceil(OCE_CAP * NB), N = n + NO, X = new Float64Array(3 * N), thick = new Float32Array(N), alive = new Uint8Array(N), oAge = new Float32Array(N);
++  const NO = Math.ceil(OCE_CAP * NB), N = n + NO, X = new Float64Array(3 * N), thick = new Float32Array(N), pw = new Float32Array(n), alive = new Uint8Array(N), oAge = new Float32Array(N);
+   for (let k = 0; k < n; k++) {
+     const i = order[k]; X[3 * k] = sx[i]; X[3 * k + 1] = sy[i]; X[3 * k + 2] = sz[i];
++    pw[k] = suture[i] ? .85 : score[i] < .85 ? .05 : .4;   // слабость коры: ядро кратона прочное, шов слабый
+     thick[k] = TREF - 15 * smooth(.7, 1, k / n) + (suture[i] ? 8 : 0);   // ядро 35 км, к краю тоньше (шельф); швы между кратонами — древний коллизионный пояс, толще
+   }
+   // океаническая кора: по одной точке на ячейку там, где нет континента; хранит возраст (млн лет) и избыток мощности (острова, дуги)
+@@ -143,11 +144,22 @@ function generate(input) {
+     // (а) трещины: k плит; зёрна по принципу наибольшей удалённости, границы искривлены шумом
+     const K = 4 + Math.floor(R() * 5), pick = () => { let c; do c = Math.floor(R() * N); while (!alive[c]); return c; }, seeds = [pick()];
+     while (seeds.length < K) { let bi = -1, bd = -1; for (let t = 0; t < 300; t++) { const c = pick(); let md = 9; for (const s of seeds) md = Math.min(md, 1 - (X[3 * c] * X[3 * s] + X[3 * c + 1] * X[3 * s + 1] + X[3 * c + 2] * X[3 * s + 2])); if (md > bd) { bd = md; bi = c; } } seeds.push(bi); }
+-    const wob = .1 + .12 * R(), nsx = R() * 50, size = new Float64Array(K);
++    // трещины идут по слабым зонам: «водораздел» по карте слабости от зёрен (старые швы и орогены слабы, ядра кратонов прочны, молодое дно слабее старого)
++    const wk = new Float32Array(NB), cs = new Float32Array(NB), cn = new Uint8Array(NB), nsx = R() * 50, size = new Float64Array(K);
++    for (let k = 0; k < n; k++) { const b = binIdx[k]; cs[b] += pw[k]; cn[b]++; }
++    for (let b = 0; b < NB; b++) {
++      const nz = .22 * noise(bc[3 * b] * 3 + nsx, bc[3 * b + 1] * 3, bc[3 * b + 2] * 3 - nsx);
++      wk[b] = (cn[b] ? cs[b] / cn[b] + (tOro[b] >= 0 ? .4 : 0) : oceBin[b] >= 0 ? .45 + .3 * (1 - Math.min(oAge[oceBin[b]], AGE_MAX) / AGE_MAX) : .5) + nz;
++    }
++    const lab = new Int16Array(NB).fill(-1), hk = [], hv = [], push = (key, b) => { let i = hk.length; hk.push(key); hv.push(b); while (i > 0) { const q = (i - 1) >> 1; if (hk[q] <= hk[i]) break; [hk[q], hk[i]] = [hk[i], hk[q]]; [hv[q], hv[i]] = [hv[i], hv[q]]; i = q; } };
++    const pop = () => { const b = hv[0], lk = hk.pop(), lv = hv.pop(); if (hk.length) { hk[0] = lk; hv[0] = lv; let i = 0; for (;;) { let m = i; const l = 2 * i + 1, r = l + 1; if (l < hk.length && hk[l] < hk[m]) m = l; if (r < hk.length && hk[r] < hk[m]) m = r; if (m === i) break; [hk[m], hk[i]] = [hk[i], hk[m]]; [hv[m], hv[i]] = [hv[i], hv[m]]; i = m; } } return b; };
++    // фронты идут от зёрен с «ценой» шага 1 + A·слабость: слабая зона замедляет фронт, поэтому фронты встречаются (граница плиты) именно в ней
++    const dist = new Float32Array(NB).fill(1e9);
++    for (let sI = 0; sI < K; sI++) { const b = binIdx[seeds[sI]]; if (lab[b] < 0) { lab[b] = sI; dist[b] = 0; push(0, b); } }
++    while (hk.length) { const key = hk[0], b = pop(); if (key > dist[b]) continue; for (let q = 0; q < 4; q++) { const c = nbr[4 * b + q], nd = key + 1 + RIFT_A * Math.max(0, wk[c]); if (nd < dist[c]) { dist[c] = nd; lab[c] = lab[b]; push(nd, c); } } }
+     const csz = new Float64Array(K);
+     for (let k = 0; k < N; k++) {
+-      if (!alive[k]) continue; const x = X[3 * k], y = X[3 * k + 1], z = X[3 * k + 2]; let bg = 0, bs = 1e9;
+-      for (let s = 0; s < K; s++) { const q = seeds[s], d = 1 - (x * X[3 * q] + y * X[3 * q + 1] + z * X[3 * q + 2]) + wob * noise(x * 3 + nsx + s * 7.1, y * 3 + s * 3.3, z * 3 - nsx); if (d < bs) { bs = d; bg = s; } }
++      if (!alive[k]) continue; const x = X[3 * k], y = X[3 * k + 1], z = X[3 * k + 2]; const bg = Math.max(0, lab[binOf(x, y, z)]);
+       grp[k] = bg; size[bg] += k < n ? 1 : OCE_W; if (k < n) csz[bg]++;
+     }
+     // (б) у каждой плиты ось и угловая скорость; мелкие плиты быстрее; v в см/год → км/млн лет ×10
