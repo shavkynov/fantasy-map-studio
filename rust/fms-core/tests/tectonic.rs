@@ -119,3 +119,13 @@ fn margins_and_short_history() {
     o.history_myr = 100.0;
     assert!(generate(&o).is_err());
 }
+
+#[test]
+fn flooding_record() {
+    let w = generate(&opts("t1")).unwrap();
+    let (mn, mx) = w.sea_level_history_km.iter().fold((f64::MAX, f64::MIN), |a, &v| (a.0.min(v), a.1.max(v)));
+    assert!(mx > mn, "уровень моря должен меняться: связь с возрастом дна");
+    assert!(w.last_submerged_myr.iter().all(|&v| v.is_finite() && v >= -1.0 && (v as f64) <= w.stats.time + 1e-3));
+    let f = w.stats.land_recent_seabed_fraction;
+    assert!(f > 0.0 && f < 0.9, "recent seabed {}", f);
+}

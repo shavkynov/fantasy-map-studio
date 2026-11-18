@@ -116,6 +116,8 @@ impl Options {
 pub struct Stats {
     pub land_fraction: f64,
     pub land_with_marine_sediment_fraction: f64,
+    /// Доля суши, бывшей морским дном в последние 300 млн лет (как Ставропольская возвышенность: недавнее море, теперь равнина/плато).
+    pub land_recent_seabed_fraction: f64,
     pub point_volume_start: f64,
     pub point_volume_end: f64,
     pub arc_added_volume: f64,
@@ -160,6 +162,8 @@ pub struct World {
     pub t_oro_myr: Vec<f32>,
     /// Тип окраины суши: 0 — не берег, 1 — активная (субдукция в последние 300 млн лет), 2 — пассивная.
     pub margin: Vec<u8>,
+    /// Когда ячейка была под водой в последний раз (млн лет от начала истории; -1 — никогда).
+    pub last_submerged_myr: Vec<f32>,
     pub stats: Stats,
     pub history: Vec<EpochRecord>,
     pub hotspots: Vec<Hotspot>,
@@ -418,6 +422,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
     let mut sub_myr = vec![0f32; nb];
     let mut sea_sed = vec![0f32; nb];
     let mut sea_hist: Vec<f64> = Vec::new();
+    let mut last_sub = vec![-1f32; nb];
     let n_epochs = (stop / opt.epoch_myr).ceil() as usize;
     let mut epochs: Vec<EpochRecord> = Vec::new();
     let mut grp = vec![0usize; nn];
@@ -766,7 +771,13 @@ pub fn generate(opt: &Options) -> Result<World, String> {
         {
             let tq = raster_bins(&bin_idx, &thick);
             let v0 = opt.water_depth_km * 4.0 * PI;
-            let el: Vec<f32> = (0..nb).map(|b| isostasy((tq[b] as f64).min(T_CAP)) as f32).collect();
+            // высота ячейки так же, как в итоговой сводке: кора + остров/дуга + осадка от возраста дна; молодое дно (много хребтов) вытесняет воду — уровень моря растёт
+            let el: Vec<f32> = (0..nb).map(|b| {
+                let ok = oce_bin[b];
+                let (ex, age) = if ok != usize::MAX { (thick[ok] as f64, o_age[ok] as f64) } else { (0.0, AGE_MAX) };
+                let te_ = (tq[b] as f64 + ex).min(T_CAP);
+                (isostasy(te_) + SUBSIDE * (AGE_REF.sqrt() - (AGE_MAX * 1.5).min(age).sqrt()) * (1.0 - smooth(2.0, 12.0, te_))) as f32
+            }).collect();
             let (mut l0, mut h0) = (-8.0f64, 14.0f64);
             for _ in 0..40 {
                 let m = (l0 + h0) / 2.0;
@@ -779,6 +790,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
             for b in 0..nb {
                 if (el[b] as f64) < sl {
                     sub_myr[b] += dt_epoch as f32;
+                    last_sub[b] = time as f32;
                     if tq[b] as f64 >= T_CONT && sl - (el[b] as f64) < 0.5 { sea_sed[b] += (SED_RATE * dt_epoch) as f32; }
                 }
             }
@@ -802,6 +814,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
     let mut sed_grid = vec![0f32; nc];
     let mut t_oro_grid = vec![0f32; nc];
     let mut t_arc_grid = vec![-1f32; nc];
+    let mut last_sub_grid = vec![-1f32; nc];
     let mut age_v = vec![0f32; nc];
     let mut age_w = vec![0f32; nc];
     for row in 0..h_ {
@@ -816,6 +829,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
             age_w[i] = if ok != usize::MAX { 1.0 } else { 0.0 };
             t_oro_grid[i] = t_oro[b];
             t_arc_grid[i] = t_arc[b];
+            last_sub_grid[i] = last_sub[b];
             sub_grid[i] = sub_myr[b];
             sed_grid[i] = sea_sed[b];
         }
@@ -926,13 +940,15 @@ pub fn generate(opt: &Options) -> Result<World, String> {
         if elevation[i] > 0.0 { land_area += area[i]; }
     }
     let former_sea: f64 = (0..nc).filter(|&i| elevation[i] > 0.0 && sed_grid[i] > 0.05).map(|i| area[i]).sum();
+    let recent_sea: f64 = (0..nc).filter(|&i| elevation[i] > 0.0 && last_sub_grid[i] >= 0.0 && t_end - (last_sub_grid[i] as f64) < 300.0).map(|i| area[i]).sum();
     let tot1: f64 = (0..nc).map(|i| te[i] as f64 * area[i]).sum();
     Ok(World {
         w: w_, h: h_, thickness: te, thickness_before_erosion: t, elevation_km: elevation, sea_level_km: sea_level, cell_area: area,
-        ocean_age_myr: age_s, submerged_myr: sub_grid, marine_sediment_km: sed_grid, sea_level_history_km: sea_hist, t_oro_myr: t_oro_grid, margin,
+        ocean_age_myr: age_s, submerged_myr: sub_grid, marine_sediment_km: sed_grid, sea_level_history_km: sea_hist, t_oro_myr: t_oro_grid, margin, last_submerged_myr: last_sub_grid,
         stats: Stats {
             land_fraction: land_area / (4.0 * PI),
             land_with_marine_sediment_fraction: if land_area > 0.0 { former_sea / land_area } else { 0.0 },
+            land_recent_seabed_fraction: if land_area > 0.0 { recent_sea / land_area } else { 0.0 },
             point_volume_start: volume0, point_volume_end: volume1, arc_added_volume: arc_added, hotspot_added_volume: hot_added,
             crust_volume_before_erosion: tot0, crust_volume_after_erosion: tot1, sediment_lost_volume: lost, points: n, epochs: n_epochs, time,
         },

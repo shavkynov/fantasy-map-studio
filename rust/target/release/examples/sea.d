@@ -1,0 +1,1 @@
+/home/claude/fantasy-map-studio/rust/target/release/examples/sea: /home/claude/fantasy-map-studio/rust/fms-core/examples/sea.rs /home/claude/fantasy-map-studio/rust/fms-core/src/lib.rs /home/claude/fantasy-map-studio/rust/fms-core/src/rng.rs /home/claude/fantasy-map-studio/rust/fms-core/src/tectonic.rs
