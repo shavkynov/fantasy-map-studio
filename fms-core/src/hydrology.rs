@@ -36,6 +36,8 @@ pub struct River {
 pub struct Hydrology {
     pub is_ocean: Vec<u8>,
     pub is_lake: Vec<u8>,
+    /// Бессточные (солёные/солоноватые) озёра в замкнутых котловинах (`1`, если `is_lake == 1` и нет стока наружу).
+    pub is_endorheic_lake: Vec<u8>,
     pub is_salt_flat: Vec<u8>,
     pub lake_surface_km: Vec<f32>,
     pub filled_km: Vec<f32>,
@@ -46,6 +48,8 @@ pub struct Hydrology {
     pub river_order: Vec<u8>,
     /// Тип берега суши у океана: 0 — не берег, 1 — активный клиф, 2 — пассивный шельф, 3 — фьорд, 4 — риа.
     pub coast_type: Vec<u8>,
+    /// Потери воды на испарение с озёр и русел (м³/с).
+    pub water_loss_m3s: Vec<f32>,
     pub rivers: Vec<River>,
 }
 
@@ -108,6 +112,7 @@ fn meander_smooth_river(
     h: usize,
     river_id: u32,
     mouth: MouthKind,
+    starts_from_lake: bool,
 ) -> (Vec<[f32; 2]>, Vec<f32>) {
     if cells.is_empty() {
         return (Vec::new(), Vec::new());
@@ -229,7 +234,11 @@ fn meander_smooth_river(
     for (i, p) in pts.iter().enumerate() {
         let t = i as f32 / denom;
         let base_w = (p.q / threshold.max(1.0)).powf(0.38).clamp(0.45, 2.8);
-        let head_taper = (t / 0.20).min(1.0);
+        let head_taper = if starts_from_lake {
+            1.0
+        } else {
+            (t / 0.20).min(1.0)
+        };
         let mut w_val = 0.22 + (base_w - 0.22) * head_taper;
         if matches!(mouth, MouthKind::Ocean) {
             let flare = 1.0 + 0.28 * smoothstep_f32(0.88, 1.0, t);
@@ -346,7 +355,7 @@ pub fn compute(
             filled_f64[nb] = f_n;
             let mut f32_n = f_n as f32;
             if f32_n <= filled_km[c] {
-                f32_n = f32::from_bits(filled_km[c].to_bits() + 1);
+                f32_n = filled_km[c].next_up();
             }
             filled_km[nb] = f32_n;
             heap.push(FloodNode { elev: f_n, idx: nb });
@@ -391,7 +400,7 @@ pub fn compute(
             let dist_km = step_dx.hypot(step_dy).max(1e-6);
             let drop = (filled_f64[c] - filled_f64[nb]).max(0.0);
             let s = drop / dist_km;
-            let score = s * (1.0 + 0.55 * valley_aff[nb]);
+            let score = s * (1.0 + 0.20 * valley_aff[nb]);
             if score > best_score {
                 best_score = score;
                 best_r = nb as i32;
@@ -437,6 +446,21 @@ pub fn compute(
     // 3. Предварительный расчёт локального стока (м³/с) и накопления по графу приёмников.
     const SECONDS_PER_YEAR: f64 = 31_557_600.0;
     let area_m2_row: Vec<f64> = (0..h).map(|y| grid.cell_area_km2(y) * 1e6).collect();
+    let dy_km = grid.dy_km() as f32;
+    let dx_row: Vec<f32> = (0..h).map(|y| grid.dx_km(y) as f32).collect();
+    let mut step_m = vec![0.0f64; n];
+    for c in 0..n {
+        let r = receiver[c];
+        if r >= 0 {
+            let ru = r as usize;
+            let (cx, cy) = (c % w, c / w);
+            let (rx, ry) = (ru % w, ru / w);
+            let step_dx = if rx != cx { dx_row[cy] as f64 } else { 0.0 };
+            let step_dy = if ry != cy { dy_km as f64 } else { 0.0 };
+            step_m[c] = step_dx.hypot(step_dy) * 1000.0;
+        }
+    }
+
     let mut runoff_m3s = vec![0.0f32; n];
     for y in 0..h {
         let am2 = area_m2_row[y];
@@ -444,18 +468,16 @@ pub fn compute(
         for x in 0..w {
             let i = row + x;
             if is_ocean[i] == 0 {
-                let coeff = 0.25 + 0.45 * (climate.moisture[i] as f64).clamp(0.0, 1.0);
+                let arid_f = (climate.aridity_index[i] as f64 / 0.45).clamp(0.25, 1.0);
+                let melt_boost =
+                    1.0 + 0.25 * (climate.snow_frac[i] as f64).max(climate.glacier[i] as f64);
+                let coeff = ((0.25 + 0.45 * (climate.moisture[i] as f64).clamp(0.0, 1.0))
+                    * arid_f
+                    * melt_boost)
+                    .clamp(0.05, 0.85);
                 let precip_m = (climate.precip_mm[i] as f64).max(0.0) * 1e-3;
                 runoff_m3s[i] = ((am2 * precip_m * coeff) / SECONDS_PER_YEAR) as f32;
             }
-        }
-    }
-
-    let mut discharge_m3s = runoff_m3s.clone();
-    for &c in order.iter().rev() {
-        let r = receiver[c];
-        if r >= 0 && is_ocean[c] == 0 {
-            discharge_m3s[r as usize] += discharge_m3s[c];
         }
     }
 
@@ -464,7 +486,7 @@ pub fn compute(
     for i in 0..n {
         if is_ocean[i] == 0 {
             let dep = filled_km[i] - rel_height_km[i];
-            if dep > 0.015 || force_lake[i] != 0 {
+            if dep > 0.020 || force_lake[i] != 0 {
                 cand[i] = 1;
             }
         }
@@ -489,7 +511,7 @@ pub fn compute(
                 has_force = true;
             }
             max_dep = max_dep.max(filled_km[c] - rel_height_km[c]);
-            let (nbs, cnt) = grid.neighbors4(c);
+            let (nbs, cnt) = grid.neighbors8(c);
             for &nb in &nbs[..cnt] {
                 if cand[nb] != 0 && basin_id[nb] < 0 {
                     basin_id[nb] = bid;
@@ -497,7 +519,7 @@ pub fn compute(
                 }
             }
         }
-        if comp.len() >= 2 || has_force || max_dep > 0.08 {
+        if (comp.len() >= 2 && max_dep > 0.035) || has_force || max_dep > 0.08 {
             basins.push(comp);
             basin_forced.push(has_force);
         } else {
@@ -507,109 +529,201 @@ pub fn compute(
         }
     }
 
+    let mut discharge_m3s = vec![0.0f32; n];
+    let mut water_loss_m3s = vec![0.0f32; n];
     let mut inflow = vec![0.0f64; basins.len()];
-    for i in 0..n {
-        let bi = basin_id[i];
-        if bi >= 0 {
-            inflow[bi as usize] += runoff_m3s[i] as f64;
-        }
-        let r = receiver[i];
-        if r >= 0 {
-            let br = basin_id[r as usize];
-            if br >= 0 && bi != br {
-                inflow[br as usize] += discharge_m3s[i] as f64;
-            }
-        }
-    }
-
     let mut is_lake = vec![0u8; n];
     let mut is_salt_flat = vec![0u8; n];
     let mut lake_surface_km = vec![0.0f32; n];
     let mut closed_basin_cell = vec![0u8; n];
+    let mut next_closed = vec![0u8; n];
+    let mut open_lake_scale = vec![1.0f64; basins.len()];
+    let mut next_open_scale = vec![1.0f64; basins.len()];
+    let mut converged = false;
 
-    for (bid, comp) in basins.iter().enumerate() {
-        let mut pot_evap = 0.0f64;
-        let mut mean_temp = 0.0f64;
-        let mut spill_level = f32::NEG_INFINITY;
-        for &c in comp {
-            let y = c / w;
-            let am2 = area_m2_row[y];
-            let ev = evap_rate_m_yr(climate.temp_c[c]);
-            pot_evap += (am2 * ev) / SECONDS_PER_YEAR;
-            mean_temp += climate.temp_c[c] as f64;
-            spill_level = spill_level.max(filled_km[c]).max(rel_height_km[c]);
-        }
-        mean_temp /= comp.len() as f64;
-        let q_in = inflow[bid];
-        let forced = basin_forced[bid];
-
-        if forced || q_in >= pot_evap {
-            for &c in comp {
-                is_lake[c] = 1;
-                lake_surface_km[c] = spill_level.max(rel_height_km[c]);
-            }
-        } else if q_in >= 0.20 * pot_evap {
-            let mut sorted = comp.clone();
-            sorted.sort_by(|&a, &b| rel_height_km[a].total_cmp(&rel_height_km[b]));
-            let mut used_evap = 0.0f64;
-            let mut k_end = 0usize;
-            for (k, &c) in sorted.iter().enumerate() {
-                let y = c / w;
-                let cell_evap = (area_m2_row[y] * evap_rate_m_yr(climate.temp_c[c])) / SECONDS_PER_YEAR;
-                if k == 0 || used_evap + cell_evap <= q_in {
-                    used_evap += cell_evap;
-                    k_end = k + 1;
-                } else {
-                    break;
-                }
-            }
-            let eq_level = sorted[..k_end]
-                .iter()
-                .map(|&c| rel_height_km[c])
-                .fold(f32::NEG_INFINITY, f32::max)
-                + 0.005;
-            let eq_level = eq_level.min(spill_level);
-            for &c in &sorted[..k_end] {
-                is_lake[c] = 1;
-                lake_surface_km[c] = eq_level.max(rel_height_km[c]);
-                closed_basin_cell[c] = 1;
-            }
-            for &c in &sorted[k_end..] {
-                closed_basin_cell[c] = 1;
-                if climate.precip_mm[c] < 450.0 && climate.temp_c[c] > 4.0 {
-                    is_salt_flat[c] = 1;
-                }
-            }
-        } else {
-            for &c in comp {
-                closed_basin_cell[c] = 1;
-            }
-            if mean_temp > 4.0 {
-                let mut sorted = comp.clone();
-                sorted.sort_by(|&a, &b| rel_height_km[a].total_cmp(&rel_height_km[b]));
-                let keep = (sorted.len() + 1) / 2;
-                for &c in &sorted[..keep] {
-                    is_salt_flat[c] = 1;
-                }
-            }
-        }
-    }
-
-    if closed_basin_cell.iter().any(|&v| v != 0) {
+    for _iter in 0..16 {
         discharge_m3s.copy_from_slice(&runoff_m3s);
+        water_loss_m3s.fill(0.0);
         for &c in order.iter().rev() {
             if is_ocean[c] != 0 || closed_basin_cell[c] != 0 {
                 continue;
             }
+            let bi = basin_id[c];
+            if bi < 0 && climate.pet_mm[c] > climate.precip_mm[c] && discharge_m3s[c] > 0.0 {
+                let ai = climate.aridity_index[c] as f64;
+                let infil = 1.0 + 1.8 * ((0.22 - ai).max(0.0) / 0.22);
+                let deficit_m_yr = (climate.pet_mm[c] - climate.precip_mm[c]) as f64 * 1e-3;
+                let w_eff_m = 25.0 * (discharge_m3s[c] as f64).powf(0.45) * 10.0 * infil;
+                let raw_loss = (w_eff_m * step_m[c] * deficit_m_yr) / SECONDS_PER_YEAR;
+                let max_frac = if ai < 0.15 { 0.26 } else { 0.18 };
+                let loss = raw_loss.min(discharge_m3s[c] as f64 * max_frac) as f32;
+                discharge_m3s[c] = (discharge_m3s[c] - loss).max(0.0);
+                water_loss_m3s[c] = loss;
+            }
             let r = receiver[c];
             if r >= 0 {
-                discharge_m3s[r as usize] += discharge_m3s[c];
+                let ru = r as usize;
+                let mut out_q = discharge_m3s[c];
+                if bi >= 0 && basin_id[ru] != bi {
+                    let scale = open_lake_scale[bi as usize];
+                    let evap_loss = (out_q as f64 * (1.0 - scale)).max(0.0) as f32;
+                    water_loss_m3s[c] += evap_loss;
+                    out_q = (out_q as f64 * scale) as f32;
+                }
+                discharge_m3s[ru] += out_q;
+            }
+        }
+
+        inflow.fill(0.0);
+        for i in 0..n {
+            let bi = basin_id[i];
+            if bi >= 0 {
+                inflow[bi as usize] += runoff_m3s[i] as f64;
+            }
+            let r = receiver[i];
+            if r >= 0 {
+                let br = basin_id[r as usize];
+                if br >= 0 && bi != br && closed_basin_cell[i] == 0 {
+                    let out_q = if bi >= 0 {
+                        discharge_m3s[i] as f64 * open_lake_scale[bi as usize]
+                    } else {
+                        discharge_m3s[i] as f64
+                    };
+                    inflow[br as usize] += out_q;
+                }
+            }
+        }
+
+        is_lake.fill(0);
+        is_salt_flat.fill(0);
+        lake_surface_km.fill(0.0);
+        next_closed.fill(0);
+        next_open_scale.fill(0.0);
+
+        for (bid, comp) in basins.iter().enumerate() {
+            let mut pot_evap = 0.0f64;
+            let mut mean_temp = 0.0f64;
+            let mut spill_level = f32::NEG_INFINITY;
+            for &c in comp {
+                let y = c / w;
+                let am2 = area_m2_row[y];
+                let ev = evap_rate_m_yr(climate.temp_c[c]);
+                pot_evap += (am2 * ev) / SECONDS_PER_YEAR;
+                mean_temp += climate.temp_c[c] as f64;
+                spill_level = spill_level.max(filled_km[c]).max(rel_height_km[c]);
+            }
+            mean_temp /= comp.len() as f64;
+            let q_in = inflow[bid];
+            let forced = basin_forced[bid];
+
+            if forced || q_in >= pot_evap {
+                for &c in comp {
+                    is_lake[c] = 1;
+                    lake_surface_km[c] = spill_level.max(rel_height_km[c]);
+                }
+                next_open_scale[bid] = if q_in > 1e-6 {
+                    ((q_in - pot_evap) / q_in).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+            } else if q_in >= 0.20 * pot_evap {
+                let mut sorted = comp.clone();
+                sorted.sort_by(|&a, &b| rel_height_km[a].total_cmp(&rel_height_km[b]));
+                let mut used_evap = 0.0f64;
+                let mut k_end = 0usize;
+                for (k, &c) in sorted.iter().enumerate() {
+                    let y = c / w;
+                    let cell_evap =
+                        (area_m2_row[y] * evap_rate_m_yr(climate.temp_c[c])) / SECONDS_PER_YEAR;
+                    if k == 0 || used_evap + cell_evap <= q_in {
+                        used_evap += cell_evap;
+                        k_end = k + 1;
+                    } else {
+                        break;
+                    }
+                }
+                let eq_level = sorted[..k_end]
+                    .iter()
+                    .map(|&c| rel_height_km[c])
+                    .fold(f32::NEG_INFINITY, f32::max)
+                    + 0.005;
+                let eq_level = eq_level.min(spill_level);
+                for &c in &sorted[..k_end] {
+                    is_lake[c] = 1;
+                    lake_surface_km[c] = eq_level.max(rel_height_km[c]);
+                    next_closed[c] = 1;
+                }
+                for &c in &sorted[k_end..] {
+                    next_closed[c] = 1;
+                    if climate.precip_mm[c] < 450.0 && climate.temp_c[c] > 4.0 {
+                        is_salt_flat[c] = 1;
+                    }
+                }
+            } else {
+                for &c in comp {
+                    next_closed[c] = 1;
+                }
+                if mean_temp > 4.0 {
+                    let mut sorted = comp.clone();
+                    sorted.sort_by(|&a, &b| rel_height_km[a].total_cmp(&rel_height_km[b]));
+                    let keep = (sorted.len() + 1) / 2;
+                    for &c in &sorted[..keep] {
+                        is_salt_flat[c] = 1;
+                    }
+                }
+            }
+        }
+
+        let max_scale_diff = open_lake_scale
+            .iter()
+            .zip(next_open_scale.iter())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f64, f64::max);
+        if next_closed == closed_basin_cell && max_scale_diff < 1e-3 {
+            open_lake_scale.copy_from_slice(&next_open_scale);
+            converged = true;
+            break;
+        }
+        closed_basin_cell.copy_from_slice(&next_closed);
+        open_lake_scale.copy_from_slice(&next_open_scale);
+    }
+
+    if !converged || !basins.is_empty() {
+        discharge_m3s.copy_from_slice(&runoff_m3s);
+        water_loss_m3s.fill(0.0);
+        for &c in order.iter().rev() {
+            if is_ocean[c] != 0 || closed_basin_cell[c] != 0 {
+                continue;
+            }
+            let bi = basin_id[c];
+            if bi < 0 && climate.pet_mm[c] > climate.precip_mm[c] && discharge_m3s[c] > 0.0 {
+                let ai = climate.aridity_index[c] as f64;
+                let infil = 1.0 + 1.8 * ((0.22 - ai).max(0.0) / 0.22);
+                let deficit_m_yr = (climate.pet_mm[c] - climate.precip_mm[c]) as f64 * 1e-3;
+                let w_eff_m = 25.0 * (discharge_m3s[c] as f64).powf(0.45) * 10.0 * infil;
+                let raw_loss = (w_eff_m * step_m[c] * deficit_m_yr) / SECONDS_PER_YEAR;
+                let max_frac = if ai < 0.15 { 0.26 } else { 0.18 };
+                let loss = raw_loss.min(discharge_m3s[c] as f64 * max_frac) as f32;
+                discharge_m3s[c] = (discharge_m3s[c] - loss).max(0.0);
+                water_loss_m3s[c] = loss;
+            }
+            let r = receiver[c];
+            if r >= 0 {
+                let ru = r as usize;
+                let mut out_q = discharge_m3s[c];
+                if bi >= 0 && basin_id[ru] != bi {
+                    let scale = open_lake_scale[bi as usize];
+                    let evap_loss = (out_q as f64 * (1.0 - scale)).max(0.0) as f32;
+                    water_loss_m3s[c] += evap_loss;
+                    out_q = (out_q as f64 * scale) as f32;
+                }
+                discharge_m3s[ru] += out_q;
             }
         }
     }
 
     // 5. Речная сеть, порядок Стрелера и дерево "главный ствол + притоки"
-    let river_threshold_m3s = 4200.0f32;
+    let river_threshold_m3s = (4200.0 * (180.0 / w as f32).min(1.0).powf(0.65)).clamp(1500.0, 4200.0);
     let mut river_mask = vec![0u8; n];
     for i in 0..n {
         if is_ocean[i] == 0
@@ -619,6 +733,23 @@ pub fn compute(
             && discharge_m3s[i] >= river_threshold_m3s
         {
             river_mask[i] = 1;
+        }
+    }
+    for &c in order.iter().rev() {
+        if river_mask[c] == 0 {
+            continue;
+        }
+        let r = receiver[c];
+        if r >= 0 {
+            let ru = r as usize;
+            if is_ocean[ru] == 0
+                && is_lake[ru] == 0
+                && is_salt_flat[ru] == 0
+                && closed_basin_cell[ru] == 0
+                && discharge_m3s[ru] >= 0.35 * river_threshold_m3s
+            {
+                river_mask[ru] = 1;
+            }
         }
     }
 
@@ -653,18 +784,32 @@ pub fn compute(
         }
     }
 
-    // Вычисляем расход в конечном устье для сортировки истоков: сперва трассируется главный ствол
+    // Вычисляем расход в конечном устье и длину до устья для сортировки истоков: сперва трассируется главный ствол
     let mut term_q = vec![0.0f32; n];
+    let mut dist_to_mouth_km = vec![0.0f32; n];
     for &c in &order {
         if river_mask[c] == 0 {
             continue;
         }
         let r = receiver[c];
-        term_q[c] = if r >= 0 && river_mask[r as usize] != 0 {
-            term_q[r as usize]
+        if r >= 0 {
+            let ru = r as usize;
+            let (cx, cy) = (c % w, c / w);
+            let (rx, ry) = (ru % w, ru / w);
+            let step_dx = if rx != cx { dx_row[cy] } else { 0.0 };
+            let step_dy = if ry != cy { dy_km } else { 0.0 };
+            let step_len = step_dx.hypot(step_dy);
+            if river_mask[ru] != 0 {
+                term_q[c] = term_q[ru];
+                dist_to_mouth_km[c] = dist_to_mouth_km[ru] + step_len;
+            } else {
+                term_q[c] = discharge_m3s[c];
+                dist_to_mouth_km[c] = step_len;
+            }
         } else {
-            discharge_m3s[c]
-        };
+            term_q[c] = discharge_m3s[c];
+            dist_to_mouth_km[c] = 0.0;
+        }
     }
 
     let mut headwaters = Vec::new();
@@ -676,6 +821,7 @@ pub fn compute(
     headwaters.sort_by(|&a, &b| {
         term_q[b]
             .total_cmp(&term_q[a])
+            .then_with(|| dist_to_mouth_km[b].total_cmp(&dist_to_mouth_km[a]))
             .then_with(|| discharge_m3s[b].total_cmp(&discharge_m3s[a]))
             .then(a.cmp(&b))
     });
@@ -695,8 +841,6 @@ pub fn compute(
     let mut has_confluence = vec![0u8; n];
     let mut traced_id = vec![0u32; n];
     let mut next_id = 1u32;
-    let dy_km = grid.dy_km() as f32;
-    let dx_row: Vec<f32> = (0..h).map(|y| grid.dx_km(y) as f32).collect();
 
     for start in headwaters {
         let cur_id = next_id;
@@ -744,6 +888,11 @@ pub fn compute(
                 mouth = MouthKind::Confluence(traced_id[ru]);
                 break;
             }
+            if river_mask[ru] == 0 {
+                cells.push(ru);
+                mouth = MouthKind::Endorheic;
+                break;
+            }
             c = ru;
         }
 
@@ -782,8 +931,19 @@ pub fn compute(
         }
     }
 
+    let mut has_lake_inflow = vec![0u8; n];
+    for i in 0..n {
+        if is_lake[i] != 0 {
+            let r = receiver[i];
+            if r >= 0 {
+                has_lake_inflow[r as usize] = 1;
+            }
+        }
+    }
+
     let mut rivers = Vec::with_capacity(raw_rivers.len());
     for rr in raw_rivers {
+        let starts_from_lake = rr.cells.first().is_some_and(|&c| has_lake_inflow[c] != 0);
         let (smoothed_pts, widths) = meander_smooth_river(
             &rr.cells,
             &discharge_m3s,
@@ -794,6 +954,7 @@ pub fn compute(
             h,
             rr.id,
             rr.mouth,
+            starts_from_lake,
         );
         rivers.push(River {
             id: rr.id,
@@ -824,7 +985,16 @@ pub fn compute(
             }
             let p = grid.unit_vec(x, y);
             let nval = coast_noise.fbm(p[0] * 10.0, p[1] * 10.0, p[2] * 10.0, 2);
-            coast_type[i] = if lat_abs > 52.0 && (rel_height_km[i] > 0.35 || slope[i] > 0.025) {
+            let mut max_glac = climate.glacier[i];
+            let (nbs8, cnt8) = grid.neighbors8(i);
+            for &nb in &nbs8[..cnt8] {
+                max_glac = max_glac.max(climate.glacier[nb]);
+            }
+            let cold_snow = climate.snow_frac[i] > 0.45
+                && climate.temp_jan_c[i].min(climate.temp_jul_c[i]) < -6.0;
+            coast_type[i] = if (max_glac > 0.05 || cold_snow)
+                && (rel_height_km[i] > 0.30 || slope[i] > 0.022)
+            {
                 3 // фьорды
             } else if (25.0..=58.0).contains(&lat_abs)
                 && (discharge_m3s[i] > 0.3 * river_threshold_m3s || nval > 0.30)
@@ -838,9 +1008,17 @@ pub fn compute(
         }
     }
 
+    let mut is_endorheic_lake = vec![0u8; n];
+    for i in 0..n {
+        if is_lake[i] != 0 && closed_basin_cell[i] != 0 {
+            is_endorheic_lake[i] = 1;
+        }
+    }
+
     Hydrology {
         is_ocean,
         is_lake,
+        is_endorheic_lake,
         is_salt_flat,
         lake_surface_km,
         filled_km,
@@ -849,6 +1027,7 @@ pub fn compute(
         river_mask,
         river_order,
         coast_type,
+        water_loss_m3s,
         rivers,
     }
 }

@@ -1,6 +1,4 @@
-//! Тектоническая история мира на сфере — порт JS-прототипа `src/sphere-tectonic-history.js`
-//! (план: docs/TECTONIC_HISTORY_PLAN.md). Алгоритм тот же; числа не обязаны совпадать с JS побитно
-//! (sin/cos/pow в Rust и V8 могут отличаться в последнем разряде).
+//! Сферическая тектоническая история мира: литосферные плиты, движущие силы, коллизии, дуги, изостазия и эрозия.
 
 use crate::rng::{Noise, Rng};
 use std::f64::consts::PI;
@@ -170,6 +168,14 @@ pub struct World {
     pub margin: Vec<u8>,
     /// Когда ячейка была под водой в последний раз (млн лет от начала истории; -1 — никогда).
     pub last_submerged_myr: Vec<f32>,
+    /// Активные континентальные рифты (`0..1`).
+    pub rift: Vec<f32>,
+    /// Океанические глубоководные желоба субдукции (`0..1`).
+    pub trench: Vec<f32>,
+    /// Предгорные краевые прогибы литосферы (`0..1`).
+    pub foreland: Vec<f32>,
+    /// Вулканические дуги и провинции горячих точек (`0..1`).
+    pub volcanic: Vec<f32>,
     pub stats: Stats,
     pub history: Vec<EpochRecord>,
     pub hotspots: Vec<Hotspot>,
@@ -361,7 +367,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
         *v = (((90.0 - lat / DEG) / 180.0 * h_ as f64).floor().max(0.0) as usize).min(h_ - 1);
     }
     let bin_of = |x: f64, y: f64, z: f64| -> usize {
-        let row = row_lut[jsround((z + 1.0) / 2.0 * ZT as f64) as usize];
+        let row = row_lut[(jsround((z.clamp(-1.0, 1.0) + 1.0) / 2.0 * ZT as f64) as usize).min(ZT)];
         off[row] + (nlon[row] - 1).min((((y.atan2(x) + PI) / TAU * nlon[row] as f64).floor().max(0.0)) as usize)
     };
     let mut bc = vec![0f64; 3 * nb];
@@ -526,6 +532,9 @@ pub fn generate(opt: &Options) -> Result<World, String> {
     // ---- история ----
     let mut t_oro = vec![-1f32; nb];
     let mut t_arc = vec![-1f32; nb];
+    let mut rift_pt = vec![0f32; n];
+    let mut volc_pt = vec![0f32; nn];
+    let mut div_bin = vec![0f32; nb];
     let mut sub_myr = vec![0f32; nb];
     let mut sea_sed = vec![0f32; nb];
     let mut sea_hist: Vec<f64> = Vec::new();
@@ -589,7 +598,64 @@ pub fn generate(opt: &Options) -> Result<World, String> {
                 seeds.push(pick_cont(&mut r, cl));
             }
         } else {
-            seeds.push(pick(&mut r));
+            if e > 0 {
+                let active_hots: Vec<&Hot> = hots
+                    .iter()
+                    .filter(|h| {
+                        time >= h.t0 && time <= h.t1 && cont_cnt[bin_of(h.x, h.y, h.z)] > 0
+                    })
+                    .collect();
+                if !active_hots.is_empty() {
+                    let h = active_hots[((r.next() * active_hots.len() as f64).floor() as usize)
+                        .min(active_hots.len() - 1)];
+                    let p = [h.x, h.y, h.z];
+                    let bx_h = if p[2].abs() > 0.9 {
+                        [1.0, 0.0, 0.0]
+                    } else {
+                        [0.0, 0.0, 1.0]
+                    };
+                    let u0 = [
+                        p[1] * bx_h[2] - p[2] * bx_h[1],
+                        p[2] * bx_h[0] - p[0] * bx_h[2],
+                        p[0] * bx_h[1] - p[1] * bx_h[0],
+                    ];
+                    let ul = (u0[0] * u0[0] + u0[1] * u0[1] + u0[2] * u0[2])
+                        .sqrt()
+                        .max(1e-12);
+                    let u = [u0[0] / ul, u0[1] / ul, u0[2] / ul];
+                    let v = [
+                        p[1] * u[2] - p[2] * u[1],
+                        p[2] * u[0] - p[0] * u[2],
+                        p[0] * u[1] - p[1] * u[0],
+                    ];
+                    let phi = r.next() * TAU;
+                    let t1 = [
+                        u[0] * phi.cos() + v[0] * phi.sin(),
+                        u[1] * phi.cos() + v[1] * phi.sin(),
+                        u[2] * phi.cos() + v[2] * phi.sin(),
+                    ];
+                    for sign in [-1.0f64, 1.0f64] {
+                        let tx = p[0] + sign * 0.28 * t1[0];
+                        let ty = p[1] + sign * 0.28 * t1[1];
+                        let tz = p[2] + sign * 0.28 * t1[2];
+                        let tl = (tx * tx + ty * ty + tz * tz).sqrt().max(1e-12);
+                        let (qx, qy, qz) = (tx / tl, ty / tl, tz / tl);
+                        let (mut best_k, mut best_dot) = (pick(&mut r), -2.0f64);
+                        for _ in 0..200 {
+                            let c = pick(&mut r);
+                            let dot = x[3 * c] * qx + x[3 * c + 1] * qy + x[3 * c + 2] * qz;
+                            if dot > best_dot {
+                                best_dot = dot;
+                                best_k = c;
+                            }
+                        }
+                        seeds.push(best_k);
+                    }
+                }
+            }
+            if seeds.is_empty() {
+                seeds.push(pick(&mut r));
+            }
         }
         while seeds.len() < kp {
             let (mut bi, mut bd) = (usize::MAX, -1f64);
@@ -653,10 +719,16 @@ pub fn generate(opt: &Options) -> Result<World, String> {
             let rots: Vec<[f64; 9]> = (0..kp)
                 .map(|s| {
                     let rt = find(&mut par, s);
-                    let c = cnt[rt];
+                    let c = cnt[rt].max(1.0);
                     rot_matrix([sum[rt][0] / c, sum[rt][1] / c, sum[rt][2] / c], dt)
                 })
                 .collect();
+            let rift_decay = (-dt / 90.0).exp() as f32;
+            let volc_decay = (-dt / 140.0).exp() as f32;
+            for v in rift_pt.iter_mut() { *v *= rift_decay; }
+            for k in 0..nn {
+                if alive[k] == 1 { volc_pt[k] *= volc_decay; }
+            }
             for v in cnt_b.iter_mut() { *v = 0; }
             for k in 0..n { cnt_b[bin_idx[k]] += 1; }
             for h in &hots {
@@ -666,7 +738,11 @@ pub fn generate(opt: &Options) -> Result<World, String> {
                     let c = x[3 * k] * h.x + x[3 * k + 1] * h.y + x[3 * k + 2] * h.z;
                     if c < hcos { continue; }
                     let th = clamp(c, -1.0, 1.0).acos() / HOT_RAD;
-                    thick[k] = (T_HOT_OCE).min(thick[k] as f64 + HOT_RATE * 2.0 * h.s * (-th * th).exp() * dt) as f32;
+                    let prev_t = thick[k] as f64;
+                    let next_t = (T_HOT_OCE).min(prev_t + HOT_RATE * 2.0 * h.s * (-th * th).exp() * dt);
+                    let inc_oce = (next_t - prev_t).max(0.0);
+                    thick[k] = next_t as f32;
+                    volc_pt[k] = (volc_pt[k] + (inc_oce / 6.0) as f32).min(1.0);
                 }
                 for k in 0..n {
                     let c = x[3 * k] * h.x + x[3 * k + 1] * h.y + x[3 * k + 2] * h.z;
@@ -675,7 +751,9 @@ pub fn generate(opt: &Options) -> Result<World, String> {
                     let inc = (T_HOT_MAX - thick[k] as f64).min(HOT_RATE * h.s * (-th * th).exp() * dt);
                     thick[k] = (thick[k] as f64 + inc) as f32;
                     hot_added += inc * pa;
-                    t_oro[bin_idx[k]] = time as f32;
+                    let b = bin_idx[k];
+                    t_oro[b] = time as f32;
+                    volc_pt[k] = (volc_pt[k] + (inc / 6.0) as f32).min(1.0);
                 }
             }
             // дуга возможна только у края суши: если ячейка, её соседи и соседи соседей заняты континентом, впереди океана нет
@@ -683,7 +761,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
             for k in 0..n {
                 if !edge[bin_idx[k]] { continue; }
                 let rt = find(&mut par, grp[k]);
-                let c = cnt[rt];
+                let c = cnt[rt].max(1.0);
                 let (wx, wy, wz) = (sum[rt][0] / c, sum[rt][1] / c, sum[rt][2] / c);
                 let (px, py, pz) = (x[3 * k], x[3 * k + 1], x[3 * k + 2]);
                 let (vx, vy, vz) = (wy * pz - wz * py, wz * px - wx * pz, wx * py - wy * px);
@@ -701,8 +779,10 @@ pub fn generate(opt: &Options) -> Result<World, String> {
                 let inc = (T_ARC_MAX - thick[k] as f64).min(ARC_RATE * (sp * opt.radius_km / 10.0 / 5.0) * dt);
                 thick[k] = (thick[k] as f64 + inc) as f32;
                 arc_added += inc * pa;
-                t_oro[bin_idx[k]] = time as f32;
-                t_arc[bin_idx[k]] = time as f32;
+                let b = bin_idx[k];
+                t_oro[b] = time as f32;
+                t_arc[b] = time as f32;
+                volc_pt[k] = (volc_pt[k] + (inc / 5.0) as f32).min(1.0);
             }
             // поворот всех точек плит; независим по точкам — считаем в нескольких потоках
             {
@@ -773,7 +853,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
             // силы
             let mut tor = vec![0f64; 3 * kp];
             let vel_at = |sum: &[[f64; 3]], cnt: &[f64], rr: usize, px: f64, py: f64, pz: f64| -> [f64; 3] {
-                let c = cnt[rr];
+                let c = cnt[rr].max(1.0);
                 let (wx, wy, wz) = (sum[rr][0] / c, sum[rr][1] / c, sum[rr][2] / c);
                 [wy * pz - wz * py, wz * px - wx * pz, wx * py - wy * px]
             };
@@ -793,6 +873,35 @@ pub fn generate(opt: &Options) -> Result<World, String> {
                 let b = bin_idx[k];
                 if cont_cnt[b] < 255 { cont_cnt[b] += 1; }
                 cont_grp[b] = grp[k];
+            }
+            div_bin.fill(0.0);
+            let v_ref = (vf * opt.activity * 2.0 * 10.0 / opt.radius_km).max(1e-6);
+            for b in 0..nb {
+                if cont_cnt[b] == 0 { continue; }
+                let rb = find(&mut par, cont_grp[b]);
+                let (bx0, by0, bz0) = (bc[3 * b], bc[3 * b + 1], bc[3 * b + 2]);
+                let vb = vel_at(&sum, &cnt, rb, bx0, by0, bz0);
+                for q in 0..4 {
+                    let c = nbr[4 * b + q];
+                    if cont_cnt[c] == 0 { continue; }
+                    let rc = find(&mut par, cont_grp[c]);
+                    if rb == rc { continue; }
+                    let (cx0, cy0, cz0) = (bc[3 * c], bc[3 * c + 1], bc[3 * c + 2]);
+                    let (dx, dy, dz) = (cx0 - bx0, cy0 - by0, cz0 - bz0);
+                    let dist = (dx * dx + dy * dy + dz * dz).sqrt().max(1e-9);
+                    let vc = vel_at(&sum, &cnt, rc, cx0, cy0, cz0);
+                    let v_open = ((vc[0] - vb[0]) * dx + (vc[1] - vb[1]) * dy + (vc[2] - vb[2]) * dz) / dist;
+                    if v_open > 0.35 * v_ref {
+                        let add = ((v_open / v_ref) * (dt / 22.0)).min(0.45) as f32;
+                        div_bin[b] = div_bin[b].max(add);
+                    }
+                }
+            }
+            for k in 0..n {
+                let d = div_bin[bin_idx[k]];
+                if d > 0.0 {
+                    rift_pt[k] = (rift_pt[k] + d).min(1.0);
+                }
             }
             for v in oce_bin.iter_mut() { *v = usize::MAX; }
             for k in n..nn {
@@ -821,6 +930,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
                 free.push(old);
                 oce_bin[b] = young;
                 thick[young] = T_ARC_OCE.min(thick[young] as f64 + ARC_RATE * dt) as f32;
+                volc_pt[young] = (volc_pt[young] + (ARC_RATE * dt / 5.0) as f32).min(1.0);
             }
             for b in 0..nb {
                 if cont_cnt[b] > 0 || oce_bin[b] != usize::MAX || free.is_empty() { continue; }
@@ -835,7 +945,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
                     let rr = find(&mut par, g);
                     let (dx, dy, dz) = (bc[3 * gc] - bc[3 * b], bc[3 * gc + 1] - bc[3 * b + 1], bc[3 * gc + 2] - bc[3 * b + 2]);
                     let dl = { let l = (dx * dx + dy * dy + dz * dz).sqrt(); if l == 0.0 { 1.0 } else { l } };
-                    let wr = (sum[rr][0] * sum[rr][0] + sum[rr][1] * sum[rr][1] + sum[rr][2] * sum[rr][2]).sqrt() / cnt[rr];
+                    let wr = (sum[rr][0] * sum[rr][0] + sum[rr][1] * sum[rr][1] + sum[rr][2] * sum[rr][2]).sqrt() / cnt[rr].max(1.0);
                     let m = F_RIDGE * (4.0f64).min(step / (wr * dt).max(step * 0.25)) / dl;
                     let (px, py, pz) = (bc[3 * b], bc[3 * b + 1], bc[3 * b + 2]);
                     tor[3 * rr] += (py * dz - pz * dy) * m;
@@ -848,15 +958,15 @@ pub fn generate(opt: &Options) -> Result<World, String> {
                 let (px, py, pz) = (bc[3 * b] + jx, bc[3 * b + 1] + jy, bc[3 * b + 2] + jx * 0.3);
                 let l = (px * px + py * py + pz * pz).sqrt();
                 x[3 * k] = px / l; x[3 * k + 1] = py / l; x[3 * k + 2] = pz / l;
-                alive[k] = 1; o_age[k] = 0.0; thick[k] = 0.0; grp[k] = g; bin_idx[k] = b; oce_bin[b] = k;
+                alive[k] = 1; o_age[k] = 0.0; thick[k] = 0.0; volc_pt[k] = 0.0; grp[k] = g; bin_idx[k] = b; oce_bin[b] = k;
             }
             {
                 let relax = 1.0 - (-dt / TAU_V).exp();
                 let w_max = vf * SPEED_MAX * 10.0 / opt.radius_km;
                 for rr in 0..kp {
-                    if find(&mut par, rr) != rr { continue; }
+                    if find(&mut par, rr) != rr || cnt[rr] <= 0.0 { continue; }
                     let c = cnt[rr];
-                    let g = G_FORCE * opt.activity / dm[rr];
+                    let g = G_FORCE * opt.activity / dm[rr].max(1.0);
                     let (mut tx, mut ty, mut tz) = (tor[3 * rr] * g, tor[3 * rr + 1] * g, tor[3 * rr + 2] * g);
                     let tm = (tx * tx + ty * ty + tz * tz).sqrt();
                     if tm > w_max { let f = w_max / tm; tx *= f; ty *= f; tz *= f; }
@@ -929,7 +1039,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
         let om: Vec<f64> = (0..kp)
             .map(|s| {
                 let rt = find(&mut par, s);
-                (sum[rt][0] * sum[rt][0] + sum[rt][1] * sum[rt][1] + sum[rt][2] * sum[rt][2]).sqrt() / cnt[rt]
+                (sum[rt][0] * sum[rt][0] + sum[rt][1] * sum[rt][1] + sum[rt][2] * sum[rt][2]).sqrt() / cnt[rt].max(1.0)
             })
             .collect();
         epochs.push(EpochRecord { plates: kp, welds, omega_rad_per_myr: om });
@@ -941,10 +1051,32 @@ pub fn generate(opt: &Options) -> Result<World, String> {
     let mut area = vec![0f64; nc];
     let mut t = vec![0f32; nc];
     let tb = raster_bins(&bin_idx, &thick);
+    let mut rift_bin = vec![0f32; nb];
+    let mut volc_bin = vec![0f32; nb];
+    let mut pt_cnt_bin = vec![0u32; nb];
+    for k in 0..n {
+        let b = bin_idx[k];
+        rift_bin[b] += rift_pt[k];
+        volc_bin[b] += volc_pt[k];
+        pt_cnt_bin[b] += 1;
+    }
+    for b in 0..nb {
+        if pt_cnt_bin[b] > 0 {
+            let inv = 1.0 / pt_cnt_bin[b] as f32;
+            rift_bin[b] *= inv;
+            volc_bin[b] *= inv;
+        }
+        let ok = oce_bin[b];
+        if ok != usize::MAX {
+            volc_bin[b] = volc_bin[b].max(volc_pt[ok]);
+        }
+    }
     let mut sub_grid = vec![0f32; nc];
     let mut sed_grid = vec![0f32; nc];
-    let mut t_oro_grid = vec![0f32; nc];
+    let mut t_oro_grid = vec![-1f32; nc];
     let mut t_arc_grid = vec![-1f32; nc];
+    let mut rift_grid = vec![0f32; nc];
+    let mut volc_grid = vec![0f32; nc];
     let mut last_sub_grid = vec![-1f32; nc];
     let mut age_v = vec![0f32; nc];
     let mut age_w = vec![0f32; nc];
@@ -960,6 +1092,8 @@ pub fn generate(opt: &Options) -> Result<World, String> {
             age_w[i] = if ok != usize::MAX { 1.0 } else { 0.0 };
             t_oro_grid[i] = t_oro[b];
             t_arc_grid[i] = t_arc[b];
+            rift_grid[i] = rift_bin[b];
+            volc_grid[i] = volc_bin[b];
             last_sub_grid[i] = last_sub[b];
             sub_grid[i] = sub_myr[b];
             sed_grid[i] = sea_sed[b];
@@ -1032,13 +1166,6 @@ pub fn generate(opt: &Options) -> Result<World, String> {
             if moved == 0 { break; }
         }
     }
-    // изостазия и уровень моря из объёма воды
-    let av = blur_y(&blur_x(&age_v, w_, h_, 2), w_, h_, 2);
-    let aw = blur_y(&blur_x(&age_w, w_, h_, 2), w_, h_, 2);
-    let age_s: Vec<f32> = (0..nc).map(|i| if aw[i] > 0.05 { ((AGE_MAX * 1.5).min((av[i] / aw[i]) as f64)) as f32 } else { AGE_MAX as f32 }).collect();
-    let elev: Vec<f32> = (0..nc)
-        .map(|i| (isostasy(te[i] as f64) + SUBSIDE * (AGE_REF.sqrt() - (AGE_MAX * 1.5).min(age_s[i] as f64).sqrt()) * (1.0 - smooth(2.0, 12.0, te[i] as f64))) as f32)
-        .collect();
     // классификация окраин: берег суши (толстая кора рядом с океаном) — активный, если над ним недавно шла субдукция
     let mut margin = vec![0u8; nc];
     for i in 0..nc {
@@ -1055,6 +1182,84 @@ pub fn generate(opt: &Options) -> Result<World, String> {
         }));
         margin[i] = if recent { 1 } else { 2 };
     }
+    // вулканические дуги и горячие точки, рифты, желоба субдукции и упругий предгорный прогиб
+    let mut volcanic = if w_ >= 180 {
+        blur_y(&blur_x(&volc_grid, w_, h_, 1), w_, h_, 1)
+    } else {
+        volc_grid
+    };
+    for v in volcanic.iter_mut() { *v = v.clamp(0.0, 1.0); }
+    let rift_raw: Vec<f32> = (0..nc)
+        .map(|i| if te[i] >= T_CONT as f32 { rift_grid[i].clamp(0.0, 1.0) } else { 0.0 })
+        .collect();
+    let mut rift = if w_ >= 180 {
+        blur_y(&blur_x(&rift_raw, w_, h_, 1), w_, h_, 1)
+    } else {
+        rift_raw
+    };
+    for i in 0..nc {
+        rift[i] = if te[i] >= T_CONT as f32 { rift[i].clamp(0.0, 1.0) } else { 0.0 };
+    }
+    let r_rift = 1usize.max(jsround(wf / 140.0) as usize);
+    let rift_wide = blur_y(&blur_x(&rift, w_, h_, r_rift), w_, h_, r_rift);
+
+    let r_tr = (w_ / 180).clamp(1, 3) as i32;
+    let mut trench_raw = vec![0f32; nc];
+    for i in 0..nc {
+        if te[i] >= 10.0 { continue; }
+        let (xx, yy) = (i % w_, i / w_);
+        let near_active = (-r_tr..=r_tr).any(|dx: i32| {
+            (-r_tr..=r_tr).any(|dy: i32| {
+                let qx = (xx as i32 + dx).rem_euclid(w_ as i32) as usize;
+                let qy = (yy as i32 + dy).clamp(0, h_ as i32 - 1) as usize;
+                margin[qy * w_ + qx] == 1
+            })
+        });
+        if near_active { trench_raw[i] = 1.0; }
+    }
+    let mut trench = if w_ >= 180 {
+        blur_y(&blur_x(&trench_raw, w_, h_, 1), w_, h_, 1)
+    } else {
+        trench_raw
+    };
+    for i in 0..nc {
+        trench[i] = if te[i] >= 12.0 { 0.0 } else { trench[i].clamp(0.0, 1.0) };
+    }
+
+    let load: Vec<f32> = (0..nc)
+        .map(|i| {
+            if te[i] as f64 > TREF {
+                let age = if t_oro_grid[i] < 0.0 { t_end } else { (t_end - t_oro_grid[i] as f64).max(0.0) };
+                ((te[i] as f64 - TREF) * (-age / 350.0).exp()) as f32
+            } else {
+                0.0
+            }
+        })
+        .collect();
+    let r_flex = 1usize.max(jsround(wf / 90.0) as usize);
+    let load_flex = blur_y(&blur_x(&load, w_, h_, r_flex), w_, h_, r_flex);
+    let load_bulge = blur_y(&blur_x(&load_flex, w_, h_, r_flex), w_, h_, r_flex);
+    let mut foreland = vec![0f32; nc];
+    for i in 0..nc {
+        if (te[i] as f64) >= T_CONT && (te[i] as f64) < TREF + 2.0 {
+            foreland[i] = ((load_flex[i] - 0.7 * load[i]).max(0.0) / 8.0).clamp(0.0, 1.0);
+        }
+    }
+
+    // изостазия и уровень моря из объёма воды
+    let av = blur_y(&blur_x(&age_v, w_, h_, 2), w_, h_, 2);
+    let aw = blur_y(&blur_x(&age_w, w_, h_, 2), w_, h_, 2);
+    let age_s: Vec<f32> = (0..nc).map(|i| if aw[i] > 0.05 { ((AGE_MAX * 1.5).min((av[i] / aw[i]) as f64)) as f32 } else { AGE_MAX as f32 }).collect();
+    let elev: Vec<f32> = (0..nc)
+        .map(|i| {
+            let base = isostasy(te[i] as f64)
+                + SUBSIDE * (AGE_REF.sqrt() - (AGE_MAX * 1.5).min(age_s[i] as f64).sqrt()) * (1.0 - smooth(2.0, 12.0, te[i] as f64));
+            let rift_dy = -1.05 * rift[i] as f64 + 0.75 * (rift_wide[i] - 0.55 * rift[i]).max(0.0) as f64;
+            let fore_dy = -0.60 * foreland[i] as f64 + 0.12 * ((load_bulge[i] - load_flex[i]).max(0.0) as f64) / 8.0;
+            let trench_dy = -2.0 * trench[i] as f64;
+            (base + rift_dy + fore_dy + trench_dy) as f32
+        })
+        .collect();
     let v_water = opt.water_depth_km * 4.0 * PI;
     let (mut lo, mut hi) = (-8.0f64, 14.0f64);
     for _ in 0..60 {
@@ -1076,6 +1281,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
     Ok(World {
         w: w_, h: h_, thickness: te, thickness_before_erosion: t, elevation_km: elevation, sea_level_km: sea_level, cell_area: area,
         ocean_age_myr: age_s, submerged_myr: sub_grid, marine_sediment_km: sed_grid, sea_level_history_km: sea_hist, t_oro_myr: t_oro_grid, margin, last_submerged_myr: last_sub_grid,
+        rift, trench, foreland, volcanic,
         stats: Stats {
             land_fraction: land_area / (4.0 * PI),
             land_with_marine_sediment_fraction: if land_area > 0.0 { former_sea / land_area } else { 0.0 },

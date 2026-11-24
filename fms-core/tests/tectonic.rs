@@ -129,3 +129,47 @@ fn flooding_record() {
     let f = w.stats.land_recent_seabed_fraction;
     assert!(f > 0.0 && f < 0.9, "recent seabed {}", f);
 }
+
+#[test]
+fn target_continents_and_zero_stop() {
+    for tc in [1u8, 3u8] {
+        let mut o = opts("tc_seed");
+        o.target_continents = tc;
+        let w = generate(&o).unwrap();
+        assert!(w.thickness.iter().all(|&t| t.is_finite()));
+        assert!(w.elevation_km.iter().all(|&e| e.is_finite()));
+        for e in &w.history {
+            assert!(e.omega_rad_per_myr.iter().all(|&om| om.is_finite()));
+        }
+        assert!(
+            (0.10..=0.60).contains(&w.stats.land_fraction),
+            "target_continents={tc} land_fraction={}",
+            w.stats.land_fraction
+        );
+    }
+
+    let mut bad = opts("tc_seed");
+    bad.target_continents = 7;
+    assert!(generate(&bad).is_err());
+
+    let mut zero = opts("zero_stop");
+    zero.stop_at_myr = Some(0.0);
+    let w0 = generate(&zero).unwrap();
+    assert_eq!(w0.stats.epochs, 0);
+    assert_eq!(w0.stats.time, 0.0);
+    assert!(w0.thickness.iter().all(|&t| t.is_finite()));
+    assert!(w0.elevation_km.iter().all(|&e| e.is_finite()));
+}
+
+#[test]
+fn geological_features_present() {
+    let w = generate(&opts("t1")).unwrap();
+    let n = w.w * w.h;
+    for field in [&w.rift, &w.trench, &w.foreland, &w.volcanic] {
+        assert_eq!(field.len(), n);
+        assert!(field.iter().all(|&v| v.is_finite() && (0.0..=1.0).contains(&v)));
+    }
+    assert!(w.trench.iter().any(|&v| v > 0.2), "expected subduction trenches");
+    assert!(w.foreland.iter().any(|&v| v > 0.1), "expected foreland basins");
+    assert!(w.volcanic.iter().any(|&v| v > 0.15), "expected volcanic provinces");
+}
