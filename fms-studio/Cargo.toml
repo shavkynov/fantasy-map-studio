@@ -1,0 +1,9 @@
+[package]
+name = "fms-studio"
+version = "0.1.0"
+edition = "2021"
+description = "Interactive cartographic workbench studio over fms-core and fms-render"
+
+[dependencies]
+fms-core = { path = "../fms-core" }
+fms-render = { path = "../fms-render" }

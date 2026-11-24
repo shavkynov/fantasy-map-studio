@@ -1,0 +1,851 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Fantasy Map Studio — Картографическая мастерская</title>
+  <style>
+    :root {
+      --bg: #12100d;
+      --panel: #1b1712;
+      --panel-alt: #241e17;
+      --border: #3a3024;
+      --border-gold: #8a6d3b;
+      --ink: #efe6d4;
+      --muted: #a69982;
+      --accent: #d4a656;
+      --accent-hover: #e5bb70;
+      --danger: #d96b52;
+      --ok: #7fb069;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-size: 13px;
+      overflow: hidden;
+    }
+    .app {
+      display: grid;
+      grid-template-columns: 310px 1fr 310px;
+      grid-template-rows: 48px 1fr;
+      height: 100vh;
+    }
+    header {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      background: linear-gradient(180deg, #211c15, #17130e);
+      border-bottom: 1px solid var(--border);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-family: Palatino, "Palatino Linotype", Georgia, serif;
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+      color: var(--accent);
+    }
+    .brand small {
+      font-family: inherit;
+      font-size: 11px;
+      font-weight: 400;
+      color: var(--muted);
+    }
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .pill {
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: var(--panel-alt);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 11.5px;
+    }
+    .pill strong { color: var(--ink); }
+
+    aside {
+      background: var(--panel);
+      overflow-y: auto;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    aside.left { border-right: 1px solid var(--border); }
+    aside.right { border-left: 1px solid var(--border); }
+
+    .card {
+      background: var(--panel-alt);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 11px;
+    }
+    .card h3 {
+      margin: 0 0 8px 0;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    label.field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 11.5px;
+    }
+    label.field:last-child { margin-bottom: 0; }
+    .row {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .row-between {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    input[type="text"], input[type="number"], select {
+      width: 100%;
+      background: #14110d;
+      color: var(--ink);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 6px 8px;
+      font-size: 12.5px;
+      outline: none;
+    }
+    input[type="text"]:focus, select:focus {
+      border-color: var(--border-gold);
+    }
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+    button {
+      background: #2c241b;
+      color: var(--ink);
+      border: 1px solid var(--border-gold);
+      border-radius: 6px;
+      padding: 7px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.12s, border-color 0.12s, transform 0.05s;
+    }
+    button:hover { background: #382e22; border-color: var(--accent); }
+    button:active { transform: translateY(1px); }
+    button.primary {
+      background: linear-gradient(180deg, #b88a44, #8f672b);
+      color: #15110b;
+      border-color: #e0b86b;
+    }
+    button.primary:hover {
+      background: linear-gradient(180deg, #cba058, #9f7535);
+    }
+    button.ghost {
+      background: transparent;
+      border-color: var(--border);
+      color: var(--muted);
+      font-weight: 500;
+    }
+    button.ghost:hover { color: var(--ink); border-color: var(--border-gold); }
+    button.active-tab {
+      background: #3d3020;
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    .style-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+    .layer-list {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+    .chk {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--ink);
+      cursor: pointer;
+      user-select: none;
+    }
+    .chk input { accent-color: var(--accent); }
+
+    main.viewport {
+      position: relative;
+      background: radial-gradient(circle at center, #1e1913 0%, #0e0c09 100%);
+      overflow: hidden;
+      cursor: crosshair;
+      user-select: none;
+    }
+    #panzoom {
+      position: absolute;
+      top: 0;
+      left: 0;
+      transform-origin: 0 0;
+      will-change: transform;
+    }
+    #map-stage svg {
+      display: block;
+      width: 100%;
+      height: auto;
+      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.72);
+    }
+    .hud-bottom {
+      position: absolute;
+      left: 12px;
+      right: 12px;
+      bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      pointer-events: none;
+    }
+    .hud-group {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      background: rgba(20, 16, 12, 0.88);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 5px 8px;
+      backdrop-filter: blur(6px);
+      pointer-events: auto;
+      font-size: 11.5px;
+      color: var(--muted);
+    }
+    .hud-group strong { color: var(--ink); }
+
+    #loading-banner {
+      position: absolute;
+      top: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(22, 18, 13, 0.94);
+      border: 1px solid var(--border-gold);
+      color: var(--accent);
+      padding: 7px 14px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      display: none;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 6px 24px rgba(0,0,0,0.6);
+      z-index: 20;
+    }
+    #loading-banner.show { display: flex; }
+    .spinner {
+      width: 12px; height: 12px;
+      border: 2px solid rgba(212,166,86,0.3);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .kv {
+      display: grid;
+      grid-template-columns: 118px 1fr;
+      gap: 4px 8px;
+      font-size: 12px;
+    }
+    .kv .k { color: var(--muted); }
+    .kv .v { color: var(--ink); font-weight: 500; text-align: right; word-break: break-word; }
+
+    .res-bar {
+      display: grid;
+      grid-template-columns: 105px 1fr 34px;
+      align-items: center;
+      gap: 6px;
+      font-size: 11.5px;
+      margin-bottom: 4px;
+    }
+    .bar-track {
+      height: 6px;
+      background: #14110d;
+      border-radius: 4px;
+      overflow: hidden;
+      border: 1px solid #2b2319;
+    }
+    .bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #8f6d3b, #d4a656);
+    }
+
+    .realm-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 6px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 11.5px;
+    }
+    .realm-item:hover { background: #2d251c; }
+    .swatch {
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+      display: inline-block;
+      margin-right: 6px;
+      border: 1px solid rgba(255,255,255,0.2);
+    }
+    .pin {
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      border: 2px solid #f5d380;
+      border-radius: 50%;
+      background: rgba(212, 166, 86, 0.25);
+      box-shadow: 0 0 0 2px rgba(20,16,12,0.85);
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand">
+      <span>FANTASY MAP STUDIO</span>
+      <small>Физический генератор планет и иллюстрированный атлас</small>
+    </div>
+    <div class="top-actions">
+      <div class="pill" id="world-stats-pill">Загрузка...</div>
+      <button id="btn-view-world" class="active-tab">Карта мира</button>
+      <button id="btn-view-region">Регион 4×</button>
+      <button id="btn-dl-png" class="ghost">Скачать PNG</button>
+      <button id="btn-dl-svg" class="ghost">Скачать SVG</button>
+    </div>
+  </header>
+
+  <aside class="left">
+    <div class="card">
+      <h3>
+        <span>Генерация мира</span>
+        <button id="btn-rand-seed" class="ghost" style="padding:2px 7px;font-size:11px;">Случайный сид</button>
+      </h3>
+      <label class="field">
+        <span>Сид (Seed)</span>
+        <div class="row">
+          <input id="inp-seed" type="text" value="e" />
+        </div>
+      </label>
+      <div class="row" style="gap:8px;">
+        <label class="field" style="flex:1;">
+          <span>Сетка (ширина)</span>
+          <select id="inp-w">
+            <option value="180">180 (быстро)</option>
+            <option value="360">360 (стандарт)</option>
+            <option value="540">540 (детально)</option>
+            <option value="720" selected>720 (макс.)</option>
+          </select>
+        </label>
+        <label class="field" style="flex:1;">
+          <span>Материки</span>
+          <select id="inp-continents">
+            <option value="0" selected>Авто</option>
+            <option value="1">1 (Пангея)</option>
+            <option value="2">2 материка</option>
+            <option value="3">3 материка</option>
+            <option value="4">4 материка</option>
+            <option value="5">5 материков</option>
+            <option value="6">6 материков</option>
+          </select>
+        </label>
+      </div>
+      <label class="field">
+        <div class="row-between"><span>Тектоническая активность</span><strong id="val-activity">1.00</strong></div>
+        <input id="inp-activity" type="range" min="0.4" max="2.0" step="0.1" value="1.0" />
+      </label>
+      <label class="field">
+        <div class="row-between"><span>Глубина океана (км)</span><strong id="val-water">2.62</strong></div>
+        <input id="inp-water" type="range" min="1.8" max="3.4" step="0.06" value="2.62" />
+      </label>
+      <label class="field">
+        <div class="row-between"><span>Наклон оси (°)</span><strong id="val-tilt">23.4°</strong></div>
+        <input id="inp-tilt" type="range" min="0" max="45" step="0.5" value="23.4" />
+      </label>
+      <label class="field">
+        <div class="row-between"><span>Сдвиг климата (°C)</span><strong id="val-solar">0.0°C</strong></div>
+        <input id="inp-solar" type="range" min="-10" max="10" step="0.5" value="0.0" />
+      </label>
+      <label class="field">
+        <div class="row-between"><span>Скорость вращения</span><strong id="val-rot">1.00×</strong></div>
+        <input id="inp-rot" type="range" min="0.4" max="2.5" step="0.1" value="1.0" />
+      </label>
+      <button id="btn-generate" class="primary" style="width:100%;margin-top:4px;">Сгенерировать мир</button>
+    </div>
+
+    <div class="card">
+      <h3>Стиль атласа</h3>
+      <div class="style-grid">
+        <button id="btn-style-expedition" class="active-tab">Экспедиционный</button>
+        <button id="btn-style-painted">Живописный</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Слои SVG</h3>
+      <div class="layer-list">
+        <label class="chk"><input type="checkbox" data-layer="layer-labels" checked /> Названия</label>
+        <label class="chk"><input type="checkbox" data-layer="layer-routes" checked /> Дороги и пути</label>
+        <label class="chk"><input type="checkbox" data-layer="layer-currents" checked /> Течения</label>
+        <label class="chk"><input type="checkbox" data-layer="layer-graticule" checked /> Сетка</label>
+        <label class="chk"><input type="checkbox" data-layer="layer-compass" checked /> Компас</label>
+        <label class="chk"><input type="checkbox" data-layer="layer-legend" checked /> Легенда</label>
+        <label class="chk"><input type="checkbox" data-layer="layer-frame" checked /> Рамка</label>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Державы на карте</h3>
+      <div id="realms-list" style="color:var(--muted);">—</div>
+    </div>
+  </aside>
+
+  <main class="viewport" id="viewport">
+    <div id="loading-banner"><div class="spinner"></div><span id="loading-text">Расчёт планеты...</span></div>
+    <div id="panzoom">
+      <div id="map-stage"></div>
+      <div id="inspect-pin" class="pin"></div>
+    </div>
+    <div class="hud-bottom">
+      <div class="hud-group">
+        <span>ЛКМ — инспектор точки • Колёсико — зум • ПКМ / Средняя / Пробел+ЛКМ — панорама</span>
+      </div>
+      <div class="hud-group">
+        <span id="hud-coords">—</span>
+        <button id="btn-fit" class="ghost" style="padding:2px 7px;font-size:11px;">Сбросить вид</button>
+      </div>
+    </div>
+  </main>
+
+  <aside class="right">
+    <div class="card">
+      <h3>Инспектор точки</h3>
+      <div id="inspect-empty" style="color:var(--muted);line-height:1.45;">
+        Нажмите на любую точку карты, чтобы увидеть географию, породу, климат, речной сток, государство, культуру и полезные ископаемые.
+      </div>
+      <div id="inspect-body" style="display:none;">
+        <div class="kv" id="inspect-kv"></div>
+        <div style="margin-top:10px;">
+          <button id="btn-zoom-here" class="primary" style="width:100%;">Приблизить 4× в этой точке</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="res-card" style="display:none;">
+      <h3>Ресурсы ячейки</h3>
+      <div id="inspect-resources"></div>
+    </div>
+
+    <div class="card" id="region-card">
+      <h3>Региональное окно 4×</h3>
+      <label class="field">
+        <span>Охват окна (градусы долготы)</span>
+        <div class="row-between"><span style="color:var(--muted);">Угол обзора</span><strong id="val-span">28°</strong></div>
+        <input id="inp-span" type="range" min="10" max="56" step="2" value="28" />
+      </label>
+      <div id="region-info" style="color:var(--muted);font-size:11.5px;line-height:1.45;">
+        Переключитесь в «Регион 4×» или кликните точку и нажмите «Приблизить 4×».
+      </div>
+    </div>
+  </aside>
+</div>
+
+<script>
+const state = {
+  mode: 'world',
+  style: 'expedition',
+  world: null,
+  region: null,
+  regionLat: 0,
+  regionLon: 0,
+  inspectLat: null,
+  inspectLon: null,
+  scale: 1,
+  tx: 0,
+  ty: 0,
+  dragging: false,
+  dragMoved: false,
+  spaceDown: false,
+  lastX: 0,
+  lastY: 0,
+  loading: false,
+};
+
+const $ = (id) => document.getElementById(id);
+
+function setLoading(on, text = 'Обновление...') {
+  state.loading = on;
+  $('loading-text').textContent = text;
+  $('loading-banner').classList.toggle('show', on);
+}
+
+function worldParams() {
+  const p = new URLSearchParams({
+    seed: $('inp-seed').value.trim() || 'e',
+    w: $('inp-w').value,
+    continents: $('inp-continents').value,
+    activity: $('inp-activity').value,
+    water_depth: $('inp-water').value,
+    tilt: $('inp-tilt').value,
+    solar: $('inp-solar').value,
+    rotation: $('inp-rot').value,
+    style: state.style,
+  });
+  return p;
+}
+
+function applyTransform() {
+  $('panzoom').style.transform = `translate(${state.tx}px, ${state.ty}px) scale(${state.scale})`;
+}
+
+function fitToViewport() {
+  const svg = $('map-stage').querySelector('svg');
+  if (!svg) return;
+  const vb = svg.viewBox.baseVal;
+  const w = vb && vb.width ? vb.width : (state.mode === 'world' ? 2200 : 1680);
+  const h = vb && vb.height ? vb.height : (state.mode === 'world' ? 1308 : 1274);
+  const vp = $('viewport').getBoundingClientRect();
+  const s = Math.min((vp.width - 28) / w, (vp.height - 48) / h);
+  state.scale = Math.max(0.15, Math.min(2.5, s));
+  state.tx = (vp.width - w * state.scale) * 0.5;
+  state.ty = (vp.height - h * state.scale) * 0.5 - 8;
+  svg.style.width = w + 'px';
+  svg.style.height = h + 'px';
+  applyTransform();
+}
+
+function applyLayerToggles() {
+  const svg = $('map-stage').querySelector('svg');
+  if (!svg) return;
+  document.querySelectorAll('input[data-layer]').forEach((cb) => {
+    const el = svg.getElementById(cb.dataset.layer);
+    if (el) el.style.display = cb.checked ? '' : 'none';
+  });
+}
+
+async function renderSvgOverlay(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(await res.text());
+  const text = await res.text();
+  const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
+  const svg = doc.documentElement;
+  const stage = $('map-stage');
+  stage.innerHTML = '';
+  stage.appendChild(document.importNode(svg, true));
+  applyLayerToggles();
+  fitToViewport();
+}
+
+function updateDownloads() {
+  const active = state.mode === 'world' ? state.world : state.region;
+  if (!active) return;
+  $('btn-dl-png').onclick = () => window.open(active.download_png_url, '_blank');
+  $('btn-dl-svg').onclick = () => window.open(active.download_svg_url, '_blank');
+}
+
+function renderRealmsList(realms) {
+  const box = $('realms-list');
+  if (!realms || realms.length === 0) {
+    box.textContent = 'Нет выделенных держав';
+    return;
+  }
+  box.innerHTML = realms.map((r) => `
+    <div class="realm-item" data-lat="${r.lat}" data-lon="${r.lon}" title="Кликните для зума 4× на столицу">
+      <span><span class="swatch" style="background:rgb(${r.color[0]},${r.color[1]},${r.color[2]})"></span>${r.name}</span>
+      <span style="color:var(--muted);">${r.capital}</span>
+    </div>
+  `).join('');
+  box.querySelectorAll('.realm-item').forEach((el) => {
+    el.onclick = () => {
+      state.regionLat = parseFloat(el.dataset.lat);
+      state.regionLon = parseFloat(el.dataset.lon);
+      loadRegion();
+    };
+  });
+}
+
+async function loadWorld(preserveRegionWindow = false) {
+  setLoading(true, 'Генерация и рендер планеты...');
+  try {
+    const p = worldParams();
+    const res = await fetch('/api/world?' + p.toString());
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    state.world = data;
+    state.mode = 'world';
+    if (!preserveRegionWindow && data.suggested_region) {
+      state.regionLat = data.suggested_region.lat;
+      state.regionLon = data.suggested_region.lon;
+    }
+    $('btn-view-world').classList.add('active-tab');
+    $('btn-view-region').classList.remove('active-tab');
+    $('world-stats-pill').innerHTML = `Материков: <strong>${data.continents_count}</strong> • Рек: <strong>${data.rivers_count}</strong> • Городов: <strong>${data.settlements_count}</strong> • Держав: <strong>${data.realms_count}</strong>`;
+    renderRealmsList(data.realms);
+    $('inspect-pin').style.display = 'none';
+    await renderSvgOverlay(data.overlay_svg_url);
+    updateDownloads();
+  } catch (err) {
+    alert('Ошибка генерации мира: ' + err.message);
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function loadRegion() {
+  setLoading(true, 'Детальный расчёт региона 4×...');
+  try {
+    const p = worldParams();
+    p.set('lat', state.regionLat.toFixed(4));
+    p.set('lon', state.regionLon.toFixed(4));
+    p.set('span', $('inp-span').value);
+    const res = await fetch('/api/region?' + p.toString());
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    state.region = data;
+    state.mode = 'region';
+    $('btn-view-region').classList.add('active-tab');
+    $('btn-view-world').classList.remove('active-tab');
+    $('region-info').innerHTML = `
+      <div>Центр: <strong>${data.center_lat_deg.toFixed(1)}°, ${data.center_lon_deg.toFixed(1)}°</strong></div>
+      <div>Широта: ${data.lat_min_deg.toFixed(1)}° … ${data.lat_max_deg.toFixed(1)}°</div>
+      <div>Рек: <strong>${data.rivers_count}</strong> • Перевалов: <strong>${data.passes_count}</strong> • Поселений: <strong>${data.settlements_count}</strong></div>
+    `;
+    $('inspect-pin').style.display = 'none';
+    await renderSvgOverlay(data.overlay_svg_url);
+    updateDownloads();
+  } catch (err) {
+    alert('Ошибка расчёта региона: ' + err.message);
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function inspectPixel(px, py) {
+  const p = worldParams();
+  p.set('mode', state.mode);
+  p.set('px', px.toFixed(2));
+  p.set('py', py.toFixed(2));
+  if (state.mode === 'region') {
+    p.set('reg_lat', state.regionLat.toFixed(4));
+    p.set('reg_lon', state.regionLon.toFixed(4));
+    p.set('reg_span', $('inp-span').value);
+  }
+  const res = await fetch('/api/inspect?' + p.toString());
+  if (!res.ok) return;
+  const info = await res.json();
+  if (!info.in_bounds) return;
+
+  state.inspectLat = info.lat;
+  state.inspectLon = info.lon;
+  $('inspect-pin').style.left = px + 'px';
+  $('inspect-pin').style.top = py + 'px';
+  $('inspect-pin').style.display = 'block';
+  $('hud-coords').textContent = `${info.lat.toFixed(2)}°, ${info.lon.toFixed(2)}° • ${info.biome}`;
+
+  $('inspect-empty').style.display = 'none';
+  $('inspect-body').style.display = 'block';
+  $('res-card').style.display = 'block';
+
+  const rows = [
+    ['Координаты', `${info.lat.toFixed(2)}°, ${info.lon.toFixed(2)}°`],
+    ['Среда', info.is_ocean ? info.marine_zone : 'Суша'],
+    ['Высота', `${info.elevation_m > 0 ? '+' : ''}${Math.round(info.elevation_m)} м`],
+    ['Биом', info.biome],
+    ['Порода', info.bedrock],
+    ['Климат (ср.)', `${info.temp_c.toFixed(1)} °C (янв ${info.temp_jan_c.toFixed(0)}° / июл ${info.temp_jul_c.toFixed(0)}°)`],
+    ['Осадки / арид.', `${Math.round(info.precip_mm)} мм/год (ИУ ${info.aridity_index.toFixed(2)})`],
+    ['Сток реки', info.discharge_m3s > 1 ? `${Math.round(info.discharge_m3s)} м³/с (пор. ${info.river_order})` : 'нет'],
+    ['Плодородие', `${Math.round(info.soil_fertility * 100)}%`],
+    ['Материк / край', info.landmass_name || '—'],
+    ['Держава', info.realm_name || 'Вне границ'],
+    ['Культура', info.culture_name || '—'],
+    ['Хоз. уклад', info.livelihood],
+    ['Ближ. город', info.nearest_settlement ? `${info.nearest_settlement} (${Math.round(info.nearest_dist_km)} км)` : '—'],
+  ];
+  $('inspect-kv').innerHTML = rows.map(([k, v]) => `<div class="k">${k}</div><div class="v">${v}</div>`).join('');
+
+  const rList = [
+    ['Железо', info.resources.iron],
+    ['Медь/золото', info.resources.copper_gold],
+    ['Самоцветы', info.resources.gems_rare],
+    ['Уголь', info.resources.coal],
+    ['Углеводороды', info.resources.hydrocarbons],
+    ['Соль', info.resources.salt],
+    ['Строевой лес', info.resources.timber],
+    ['Рыба', info.resources.fishery],
+  ];
+  $('inspect-resources').innerHTML = rList.map(([label, val]) => {
+    const pct = Math.round(Math.min(1, Math.max(0, val)) * 100);
+    return `<div class="res-bar"><span style="color:var(--muted)">${label}</span><div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div><span style="text-align:right">${pct}%</span></div>`;
+  }).join('');
+}
+
+function wireEvents() {
+  const ranges = [
+    ['inp-activity', 'val-activity', (v) => Number(v).toFixed(2)],
+    ['inp-water', 'val-water', (v) => Number(v).toFixed(2)],
+    ['inp-tilt', 'val-tilt', (v) => Number(v).toFixed(1) + '°'],
+    ['inp-solar', 'val-solar', (v) => Number(v).toFixed(1) + '°C'],
+    ['inp-rot', 'val-rot', (v) => Number(v).toFixed(2) + '×'],
+    ['inp-span', 'val-span', (v) => v + '°'],
+  ];
+  ranges.forEach(([inp, out, fmt]) => {
+    $(inp).addEventListener('input', () => { $(out).textContent = fmt($(inp).value); });
+  });
+
+  $('inp-span').addEventListener('change', () => {
+    if (state.mode === 'region') loadRegion();
+  });
+
+  $('btn-rand-seed').onclick = () => {
+    const words = ['aethel', 'valinor', 'hyperborea', 'roshar', 'talos', 'krynn', 'solaris', 'nordheim', 'vesper', 'thalassa'];
+    $('inp-seed').value = words[Math.floor(Math.random() * words.length)] + '-' + (100 + Math.floor(Math.random() * 900));
+    loadWorld();
+  };
+
+  $('btn-generate').onclick = () => loadWorld();
+  $('btn-view-world').onclick = () => loadWorld(true);
+  $('btn-view-region').onclick = () => loadRegion();
+  $('btn-fit').onclick = () => fitToViewport();
+
+  $('btn-style-expedition').onclick = () => {
+    if (state.style === 'expedition') return;
+    state.style = 'expedition';
+    $('btn-style-expedition').classList.add('active-tab');
+    $('btn-style-painted').classList.remove('active-tab');
+    state.mode === 'world' ? loadWorld(true) : loadRegion();
+  };
+  $('btn-style-painted').onclick = () => {
+    if (state.style === 'painted') return;
+    state.style = 'painted';
+    $('btn-style-painted').classList.add('active-tab');
+    $('btn-style-expedition').classList.remove('active-tab');
+    state.mode === 'world' ? loadWorld(true) : loadRegion();
+  };
+
+  document.querySelectorAll('input[data-layer]').forEach((cb) => {
+    cb.addEventListener('change', applyLayerToggles);
+  });
+
+  $('btn-zoom-here').onclick = () => {
+    if (state.inspectLat !== null && state.inspectLon !== null) {
+      state.regionLat = state.inspectLat;
+      state.regionLon = state.inspectLon;
+      loadRegion();
+    }
+  };
+
+  const vp = $('viewport');
+  vp.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space' && document.activeElement.tagName !== 'INPUT') {
+      state.spaceDown = true;
+      vp.style.cursor = 'grab';
+    }
+  });
+  window.addEventListener('keyup', (e) => {
+    if (e.code === 'Space') {
+      state.spaceDown = false;
+      vp.style.cursor = 'crosshair';
+    }
+  });
+
+  vp.addEventListener('mousedown', (e) => {
+    if (e.button === 1 || e.button === 2 || state.spaceDown) {
+      state.dragging = true;
+      state.dragMoved = false;
+      state.lastX = e.clientX;
+      state.lastY = e.clientY;
+      vp.style.cursor = 'grabbing';
+    } else if (e.button === 0) {
+      state.lastX = e.clientX;
+      state.lastY = e.clientY;
+      state.dragMoved = false;
+    }
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (state.dragging) {
+      const dx = e.clientX - state.lastX;
+      const dy = e.clientY - state.lastY;
+      if (Math.abs(dx) + Math.abs(dy) > 2) state.dragMoved = true;
+      state.tx += dx;
+      state.ty += dy;
+      state.lastX = e.clientX;
+      state.lastY = e.clientY;
+      applyTransform();
+    }
+  });
+
+  window.addEventListener('mouseup', (e) => {
+    if (state.dragging) {
+      state.dragging = false;
+      vp.style.cursor = state.spaceDown ? 'grab' : 'crosshair';
+      return;
+    }
+    if (e.button === 0 && e.target.closest('#map-stage')) {
+      const svg = $('map-stage').querySelector('svg');
+      if (!svg) return;
+      const rect = svg.getBoundingClientRect();
+      const vb = svg.viewBox.baseVal;
+      const w = vb && vb.width ? vb.width : rect.width;
+      const h = vb && vb.height ? vb.height : rect.height;
+      const px = ((e.clientX - rect.left) / rect.width) * w;
+      const py = ((e.clientY - rect.top) / rect.height) * h;
+      inspectPixel(px, py);
+    }
+  });
+
+  vp.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const r = vp.getBoundingClientRect();
+    const mx = e.clientX - r.left;
+    const my = e.clientY - r.top;
+    const factor = e.deltaY < 0 ? 1.14 : 1 / 1.14;
+    const next = Math.max(0.15, Math.min(8.0, state.scale * factor));
+    const ratio = next / state.scale;
+    state.tx = mx - (mx - state.tx) * ratio;
+    state.ty = my - (my - state.ty) * ratio;
+    state.scale = next;
+    applyTransform();
+  }, { passive: false });
+
+  window.addEventListener('resize', fitToViewport);
+}
+
+wireEvents();
+loadWorld();
+</script>
+</body>
+</html>

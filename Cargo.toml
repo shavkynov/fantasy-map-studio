@@ -1,5 +1,5 @@
 [workspace]
-members = ["fms-core", "fms-render"]
+members = ["fms-core", "fms-render", "fms-studio"]
 resolver = "2"
 
 [profile.release]
