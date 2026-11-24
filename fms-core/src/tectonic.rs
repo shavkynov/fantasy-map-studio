@@ -176,6 +176,8 @@ pub struct World {
     pub foreland: Vec<f32>,
     /// Вулканические дуги и провинции горячих точек (`0..1`).
     pub volcanic: Vec<f32>,
+    /// Древние и молодые швы столкновения материков (`0..1`).
+    pub suture: Vec<f32>,
     pub stats: Stats,
     pub history: Vec<EpochRecord>,
     pub hotspots: Vec<Hotspot>,
@@ -534,6 +536,13 @@ pub fn generate(opt: &Options) -> Result<World, String> {
     let mut t_arc = vec![-1f32; nb];
     let mut rift_pt = vec![0f32; n];
     let mut volc_pt = vec![0f32; nn];
+    let mut suture_pt = vec![0f32; n];
+    for k in 0..n {
+        if suture[order[k]] == 1 {
+            suture_pt[k] = 0.65;
+        }
+    }
+    let mut suture_hit_bin = vec![0u8; nb];
     let mut div_bin = vec![0f32; nb];
     let mut sub_myr = vec![0f32; nb];
     let mut sea_sed = vec![0f32; nb];
@@ -652,6 +661,103 @@ pub fn generate(opt: &Options) -> Result<World, String> {
                         seeds.push(best_k);
                     }
                 }
+                let try_suture =
+                    seeds.is_empty() || (kp >= 6 && seeds.len() + 2 <= kp && r.next() < 0.45);
+                if try_suture {
+                    let (mut best_s, mut best_val) = (usize::MAX, 0.35f32);
+                    for _ in 0..160 {
+                        let c = (r.next() * n as f64).floor() as usize;
+                        if suture_pt[c] > best_val {
+                            best_val = suture_pt[c];
+                            best_s = c;
+                        }
+                    }
+                    if best_s != usize::MAX {
+                        let p = [x[3 * best_s], x[3 * best_s + 1], x[3 * best_s + 2]];
+                        let mut dir = [0.0f64; 3];
+                        let mut ref_d = [0.0f64; 3];
+                        let mut has_ref = false;
+                        let mut found = 0usize;
+                        for j in 0..n {
+                            if j == best_s || suture_pt[j] <= 0.30 {
+                                continue;
+                            }
+                            let (jx, jy, jz) = (x[3 * j], x[3 * j + 1], x[3 * j + 2]);
+                            let dot = jx * p[0] + jy * p[1] + jz * p[2];
+                            if dot > 0.985 {
+                                let (mut dx, mut dy, mut dz) = (jx - p[0], jy - p[1], jz - p[2]);
+                                let wgt = suture_pt[j] as f64;
+                                if !has_ref {
+                                    ref_d = [dx, dy, dz];
+                                    has_ref = true;
+                                } else if dx * ref_d[0] + dy * ref_d[1] + dz * ref_d[2] < 0.0 {
+                                    dx = -dx;
+                                    dy = -dy;
+                                    dz = -dz;
+                                }
+                                dir[0] += dx * wgt;
+                                dir[1] += dy * wgt;
+                                dir[2] += dz * wgt;
+                                found += 1;
+                                if found >= 40 {
+                                    break;
+                                }
+                            }
+                        }
+                        let mut perp = [
+                            p[1] * dir[2] - p[2] * dir[1],
+                            p[2] * dir[0] - p[0] * dir[2],
+                            p[0] * dir[1] - p[1] * dir[0],
+                        ];
+                        let mut plen = (perp[0] * perp[0] + perp[1] * perp[1] + perp[2] * perp[2]).sqrt();
+                        if plen < 1e-6 {
+                            let bx_s = if p[2].abs() > 0.9 {
+                                [1.0, 0.0, 0.0]
+                            } else {
+                                [0.0, 0.0, 1.0]
+                            };
+                            let u0 = [
+                                p[1] * bx_s[2] - p[2] * bx_s[1],
+                                p[2] * bx_s[0] - p[0] * bx_s[2],
+                                p[0] * bx_s[1] - p[1] * bx_s[0],
+                            ];
+                            let ul = (u0[0] * u0[0] + u0[1] * u0[1] + u0[2] * u0[2])
+                                .sqrt()
+                                .max(1e-12);
+                            let u = [u0[0] / ul, u0[1] / ul, u0[2] / ul];
+                            let v = [
+                                p[1] * u[2] - p[2] * u[1],
+                                p[2] * u[0] - p[0] * u[2],
+                                p[0] * u[1] - p[1] * u[0],
+                            ];
+                            let phi = r.next() * TAU;
+                            perp = [
+                                u[0] * phi.cos() + v[0] * phi.sin(),
+                                u[1] * phi.cos() + v[1] * phi.sin(),
+                                u[2] * phi.cos() + v[2] * phi.sin(),
+                            ];
+                            plen = 1.0;
+                        }
+                        let perp = [perp[0] / plen, perp[1] / plen, perp[2] / plen];
+                        for sign in [-1.0f64, 1.0f64] {
+                            let tx = p[0] + sign * 0.28 * perp[0];
+                            let ty = p[1] + sign * 0.28 * perp[1];
+                            let tz = p[2] + sign * 0.28 * perp[2];
+                            let tl = (tx * tx + ty * ty + tz * tz).sqrt().max(1e-12);
+                            let (qx, qy, qz) = (tx / tl, ty / tl, tz / tl);
+                            let (mut best_k, mut best_dot) = (pick(&mut r), -2.0f64);
+                            for _ in 0..200 {
+                                let c = pick(&mut r);
+                                let dot = x[3 * c] * qx + x[3 * c + 1] * qy + x[3 * c + 2] * qz;
+                                if dot > best_dot {
+                                    best_dot = dot;
+                                    best_k = c;
+                                }
+                            }
+                            seeds.push(best_k);
+                        }
+                    }
+                }
             }
             if seeds.is_empty() {
                 seeds.push(pick(&mut r));
@@ -725,7 +831,9 @@ pub fn generate(opt: &Options) -> Result<World, String> {
                 .collect();
             let rift_decay = (-dt / 90.0).exp() as f32;
             let volc_decay = (-dt / 140.0).exp() as f32;
+            let suture_decay = (-dt / 900.0).exp() as f32;
             for v in rift_pt.iter_mut() { *v *= rift_decay; }
+            for v in suture_pt.iter_mut() { *v *= suture_decay; }
             for k in 0..nn {
                 if alive[k] == 1 { volc_pt[k] *= volc_decay; }
             }
@@ -983,14 +1091,21 @@ pub fn generate(opt: &Options) -> Result<World, String> {
                 if occ[i] < 255 { occ[i] += 1; }
             }
             for v in pair.iter_mut() { *v = 0; }
+            suture_hit_bin.fill(0);
             for b in 0..nb {
                 let hit: Vec<usize> = (0..kp).filter(|&s| occ[b * kp + s] as f64 >= PTS_PER_BIN * 0.75).collect();
                 if hit.len() < 2 { continue; }
                 t_oro[b] = time as f32;
+                suture_hit_bin[b] = 1;
                 for u in 0..hit.len() {
                     for v in (u + 1)..hit.len() {
                         pair[hit[u] * kp + hit[v]] += 1;
                     }
+                }
+            }
+            for k in 0..n {
+                if suture_hit_bin[bin_idx[k]] != 0 {
+                    suture_pt[k] = (suture_pt[k] + (dt / 18.0) as f32).min(1.0);
                 }
             }
             for a in 0..kp {
@@ -1053,11 +1168,13 @@ pub fn generate(opt: &Options) -> Result<World, String> {
     let tb = raster_bins(&bin_idx, &thick);
     let mut rift_bin = vec![0f32; nb];
     let mut volc_bin = vec![0f32; nb];
+    let mut suture_bin = vec![0f32; nb];
     let mut pt_cnt_bin = vec![0u32; nb];
     for k in 0..n {
         let b = bin_idx[k];
         rift_bin[b] += rift_pt[k];
         volc_bin[b] += volc_pt[k];
+        suture_bin[b] += suture_pt[k];
         pt_cnt_bin[b] += 1;
     }
     for b in 0..nb {
@@ -1065,6 +1182,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
             let inv = 1.0 / pt_cnt_bin[b] as f32;
             rift_bin[b] *= inv;
             volc_bin[b] *= inv;
+            suture_bin[b] *= inv;
         }
         let ok = oce_bin[b];
         if ok != usize::MAX {
@@ -1077,6 +1195,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
     let mut t_arc_grid = vec![-1f32; nc];
     let mut rift_grid = vec![0f32; nc];
     let mut volc_grid = vec![0f32; nc];
+    let mut suture_grid = vec![0f32; nc];
     let mut last_sub_grid = vec![-1f32; nc];
     let mut age_v = vec![0f32; nc];
     let mut age_w = vec![0f32; nc];
@@ -1094,6 +1213,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
             t_arc_grid[i] = t_arc[b];
             rift_grid[i] = rift_bin[b];
             volc_grid[i] = volc_bin[b];
+            suture_grid[i] = suture_bin[b];
             last_sub_grid[i] = last_sub[b];
             sub_grid[i] = sub_myr[b];
             sed_grid[i] = sea_sed[b];
@@ -1200,6 +1320,17 @@ pub fn generate(opt: &Options) -> Result<World, String> {
     for i in 0..nc {
         rift[i] = if te[i] >= T_CONT as f32 { rift[i].clamp(0.0, 1.0) } else { 0.0 };
     }
+    let suture_raw: Vec<f32> = (0..nc)
+        .map(|i| if te[i] >= T_CONT as f32 { suture_grid[i].clamp(0.0, 1.0) } else { 0.0 })
+        .collect();
+    let mut suture_out = if w_ >= 180 {
+        blur_y(&blur_x(&suture_raw, w_, h_, 1), w_, h_, 1)
+    } else {
+        suture_raw
+    };
+    for i in 0..nc {
+        suture_out[i] = if te[i] >= T_CONT as f32 { suture_out[i].clamp(0.0, 1.0) } else { 0.0 };
+    }
     let r_rift = 1usize.max(jsround(wf / 140.0) as usize);
     let rift_wide = blur_y(&blur_x(&rift, w_, h_, r_rift), w_, h_, r_rift);
 
@@ -1281,7 +1412,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
     Ok(World {
         w: w_, h: h_, thickness: te, thickness_before_erosion: t, elevation_km: elevation, sea_level_km: sea_level, cell_area: area,
         ocean_age_myr: age_s, submerged_myr: sub_grid, marine_sediment_km: sed_grid, sea_level_history_km: sea_hist, t_oro_myr: t_oro_grid, margin, last_submerged_myr: last_sub_grid,
-        rift, trench, foreland, volcanic,
+        rift, trench, foreland, volcanic, suture: suture_out,
         stats: Stats {
             land_fraction: land_area / (4.0 * PI),
             land_with_marine_sediment_fraction: if land_area > 0.0 { former_sea / land_area } else { 0.0 },

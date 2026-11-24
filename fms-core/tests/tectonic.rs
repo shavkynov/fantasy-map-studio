@@ -165,11 +165,12 @@ fn target_continents_and_zero_stop() {
 fn geological_features_present() {
     let w = generate(&opts("t1")).unwrap();
     let n = w.w * w.h;
-    for field in [&w.rift, &w.trench, &w.foreland, &w.volcanic] {
+    for field in [&w.rift, &w.trench, &w.foreland, &w.volcanic, &w.suture] {
         assert_eq!(field.len(), n);
         assert!(field.iter().all(|&v| v.is_finite() && (0.0..=1.0).contains(&v)));
     }
     assert!(w.trench.iter().any(|&v| v > 0.2), "expected subduction trenches");
     assert!(w.foreland.iter().any(|&v| v > 0.1), "expected foreland basins");
     assert!(w.volcanic.iter().any(|&v| v > 0.15), "expected volcanic provinces");
+    assert!(w.suture.iter().any(|&v| v > 0.2), "expected continental collision sutures");
 }

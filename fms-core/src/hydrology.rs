@@ -16,6 +16,19 @@ pub enum MouthKind {
     Confluence(u32),
 }
 
+/// Сезонный водный режим реки.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum FlowRegime {
+    /// Постоянный круглогодичный сток.
+    Perennial,
+    /// Выраженное сезонное половодье (муссоны / зимние дожди).
+    SeasonalMonsoon,
+    /// Преимущественно снегово-ледниковое половодье.
+    Snowmelt,
+    /// Пересыхающее русло (вади / уэд) аридной зоны.
+    EphemeralWadi,
+}
+
 /// Трассированная река (главный ствол или приток до слияния) со сглаженными координатами.
 #[derive(Clone, Debug)]
 pub struct River {
@@ -23,6 +36,9 @@ pub struct River {
     pub order: u8,
     pub length_km: f32,
     pub max_discharge_m3s: f32,
+    pub discharge_jan_m3s: f32,
+    pub discharge_jul_m3s: f32,
+    pub regime: FlowRegime,
     pub mouth: MouthKind,
     pub cells: Vec<usize>,
     /// Сглаженные координаты Чайкина `[x, y]` в пределах `[0..w, 0..h]`.
@@ -39,11 +55,19 @@ pub struct Hydrology {
     /// Бессточные (солёные/солоноватые) озёра в замкнутых котловинах (`1`, если `is_lake == 1` и нет стока наружу).
     pub is_endorheic_lake: Vec<u8>,
     pub is_salt_flat: Vec<u8>,
+    /// Временные пересыхающие русла (вади) аридных и полуаридных зон (`0` или `1`).
+    pub is_wadi: Vec<u8>,
+    /// Предгорные и инфильтрационные пустынные оазисы (`0` или `1`).
+    pub is_oasis: Vec<u8>,
     pub lake_surface_km: Vec<f32>,
     pub filled_km: Vec<f32>,
     /// Индекс принимающей клетки ниже по стоку (`-1` для океана / стока).
     pub receiver: Vec<i32>,
     pub discharge_m3s: Vec<f32>,
+    pub discharge_jan_m3s: Vec<f32>,
+    pub discharge_jul_m3s: Vec<f32>,
+    /// Индекс сезонной неравномерности стока (`|Q_jul - Q_jan| / (Q_jul + Q_jan)`).
+    pub flow_seasonality: Vec<f32>,
     pub river_mask: Vec<u8>,
     pub river_order: Vec<u8>,
     /// Тип берега суши у океана: 0 — не берег, 1 — активный клиф, 2 — пассивный шельф, 3 — фьорд, 4 — риа.
@@ -83,7 +107,7 @@ fn cell_jitter(idx: usize) -> f64 {
 }
 
 #[inline]
-fn evap_rate_m_yr(temp_c: f32) -> f64 {
+pub(crate) fn evap_rate_m_yr(temp_c: f32) -> f64 {
     (0.15 + 0.075 * (temp_c as f64).max(0.0)).clamp(0.10, 2.50)
 }
 
@@ -102,7 +126,8 @@ struct RiverPt {
     conf_lock: f32,
 }
 
-fn meander_smooth_river(
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn meander_smooth_river(
     cells: &[usize],
     discharge_m3s: &[f32],
     slope: &[f32],
@@ -113,6 +138,7 @@ fn meander_smooth_river(
     river_id: u32,
     mouth: MouthKind,
     starts_from_lake: bool,
+    wrap_x: bool,
 ) -> (Vec<[f32; 2]>, Vec<f32>) {
     if cells.is_empty() {
         return (Vec::new(), Vec::new());
@@ -129,10 +155,12 @@ fn meander_smooth_river(
         let cy = (c / w) as f32 + 0.5;
         if idx > 0 {
             let mut dx = cx - prev_x;
-            if dx > wi / 2 {
-                dx -= wi;
-            } else if dx < -wi / 2 {
-                dx += wi;
+            if wrap_x {
+                if dx > wi / 2 {
+                    dx -= wi;
+                } else if dx < -wi / 2 {
+                    dx += wi;
+                }
             }
             ux += dx as f32;
             prev_x = cx;
@@ -244,7 +272,14 @@ fn meander_smooth_river(
             let flare = 1.0 + 0.28 * smoothstep_f32(0.88, 1.0, t);
             w_val *= flare;
         }
-        out_pts.push([p.x.rem_euclid(wf), p.y]);
+        out_pts.push([
+            if wrap_x {
+                p.x.rem_euclid(wf)
+            } else {
+                p.x.clamp(0.0, wf)
+            },
+            p.y,
+        ]);
         out_w.push(w_val);
     }
     (out_pts, out_w)
@@ -722,6 +757,113 @@ pub fn compute(
         }
     }
 
+    // 4b. Сезонный сток (январь/июль) со снеготаянием, таянием ледников и аридными потерями
+    let mut runoff_jan = vec![0.0f32; n];
+    let mut runoff_jul = vec![0.0f32; n];
+    for i in 0..n {
+        if is_ocean[i] != 0 {
+            continue;
+        }
+        let t_jan = climate.temp_jan_c[i] as f64;
+        let t_jul = climate.temp_jul_c[i] as f64;
+        let liq_jan = ((t_jan + 2.0) / 4.0).clamp(0.08, 1.0);
+        let liq_jul = ((t_jul + 2.0) / 4.0).clamp(0.08, 1.0);
+        let p_jan = (climate.precip_jan_mm[i] as f64).max(0.0);
+        let p_jul = (climate.precip_jul_mm[i] as f64).max(0.0);
+        let snow_jan = p_jan * (1.0 - liq_jan);
+        let snow_jul = p_jul * (1.0 - liq_jul);
+        let melt_jul = (t_jul / 6.0).clamp(0.0, 1.0);
+        let melt_jan = (t_jan / 6.0).clamp(0.0, 1.0);
+        let glac = climate.glacier[i] as f64;
+        let glac_jan = if glac > 0.02 && t_jan > t_jul {
+            glac * ((t_jan + 2.0) / 8.0).clamp(0.0, 1.0) * 280.0
+        } else {
+            0.0
+        };
+        let glac_jul = if glac > 0.02 && t_jul >= t_jan {
+            glac * ((t_jul + 2.0) / 8.0).clamp(0.0, 1.0) * 280.0
+        } else {
+            0.0
+        };
+        let eff_jan = (p_jan * liq_jan + snow_jul * melt_jan + glac_jan).max(0.0);
+        let eff_jul = (p_jul * liq_jul + snow_jan * melt_jul + glac_jul).max(0.0);
+        let eff_mean = 0.5 * (eff_jan + eff_jul);
+        if eff_mean > 1e-6 {
+            runoff_jan[i] = runoff_m3s[i] * (eff_jan / eff_mean).clamp(0.02, 2.4) as f32;
+            runoff_jul[i] = runoff_m3s[i] * (eff_jul / eff_mean).clamp(0.02, 2.4) as f32;
+        } else {
+            runoff_jan[i] = runoff_m3s[i];
+            runoff_jul[i] = runoff_m3s[i];
+        }
+    }
+
+    let mut discharge_jan_m3s = runoff_jan;
+    let mut discharge_jul_m3s = runoff_jul;
+    let seasonal_trans_loss = |q: f32, temp_c: f32, precip_mm: f32, ai: f64, step: f64| -> f32 {
+        if q <= 0.0 {
+            return 0.0;
+        }
+        let pet = (58.93 * (temp_c as f64).clamp(0.0, 30.0)).max(40.0);
+        let deficit_m_yr = (pet - (precip_mm as f64).max(0.0)).max(0.0) * 1e-3;
+        if deficit_m_yr <= 0.0 {
+            return q;
+        }
+        let infil = 1.0 + 1.8 * ((0.22 - ai).max(0.0) / 0.22);
+        let w_eff_m = 25.0 * (q as f64).powf(0.45) * 10.0 * infil;
+        let raw_loss = (w_eff_m * step * deficit_m_yr) / SECONDS_PER_YEAR;
+        let max_frac = if ai < 0.15 { 0.28 } else { 0.20 };
+        let loss = raw_loss.min((q as f64) * max_frac) as f32;
+        (q - loss).max(0.0)
+    };
+
+    for &c in order.iter().rev() {
+        if is_ocean[c] != 0 || closed_basin_cell[c] != 0 {
+            continue;
+        }
+        let bi = basin_id[c];
+        if bi < 0 && step_m[c] > 0.0 {
+            let ai = climate.aridity_index[c] as f64;
+            if ai < 0.45 || water_loss_m3s[c] > 0.0 {
+                discharge_jan_m3s[c] = seasonal_trans_loss(
+                    discharge_jan_m3s[c],
+                    climate.temp_jan_c[c],
+                    climate.precip_jan_mm[c],
+                    ai,
+                    step_m[c],
+                );
+                discharge_jul_m3s[c] = seasonal_trans_loss(
+                    discharge_jul_m3s[c],
+                    climate.temp_jul_c[c],
+                    climate.precip_jul_mm[c],
+                    ai,
+                    step_m[c],
+                );
+            }
+        }
+        let r = receiver[c];
+        if r >= 0 {
+            let ru = r as usize;
+            let mut out_jan = discharge_jan_m3s[c];
+            let mut out_jul = discharge_jul_m3s[c];
+            if bi >= 0 && basin_id[ru] != bi {
+                let scale = open_lake_scale[bi as usize];
+                out_jan = ((0.35 * discharge_m3s[c] as f64 + 0.65 * out_jan as f64) * scale) as f32;
+                out_jul = ((0.35 * discharge_m3s[c] as f64 + 0.65 * out_jul as f64) * scale) as f32;
+            }
+            discharge_jan_m3s[ru] += out_jan;
+            discharge_jul_m3s[ru] += out_jul;
+        }
+    }
+
+    let mut flow_seasonality = vec![0.0f32; n];
+    for i in 0..n {
+        if is_ocean[i] == 0 {
+            let qj = discharge_jan_m3s[i];
+            let ql = discharge_jul_m3s[i];
+            flow_seasonality[i] = ((ql - qj).abs() / (ql + qj + 1e-3)).clamp(0.0, 1.0);
+        }
+    }
+
     // 5. Речная сеть, порядок Стрелера и дерево "главный ствол + притоки"
     let river_threshold_m3s = (4200.0 * (180.0 / w as f32).min(1.0).powf(0.65)).clamp(1500.0, 4200.0);
     let mut river_mask = vec![0u8; n];
@@ -827,6 +969,57 @@ pub fn compute(
     });
 
     let slope = slope_field(rel_height_km, grid);
+
+    // 5b. Пересыхающие русла (вади) и предгорные/инфильтрационные оазисы
+    let mut is_wadi = vec![0u8; n];
+    let mut oasis_cands: Vec<(usize, f32)> = Vec::new();
+    for i in 0..n {
+        if is_ocean[i] != 0 || is_lake[i] != 0 || is_salt_flat[i] != 0 {
+            continue;
+        }
+        let ai = climate.aridity_index[i];
+        let q_peak = discharge_jan_m3s[i].max(discharge_jul_m3s[i]);
+        if river_mask[i] == 0
+            && ai < 0.34
+            && q_peak >= 0.22 * river_threshold_m3s
+            && (flow_seasonality[i] >= 0.25 || water_loss_m3s[i] > 0.0)
+        {
+            is_wadi[i] = 1;
+        }
+        if ai < 0.28 && climate.temp_c[i] > 5.0 && rel_height_km[i] < 1.6 {
+            let trig_infil = (water_loss_m3s[i] > 0.0 || is_wadi[i] != 0)
+                && discharge_m3s[i].max(q_peak) >= 120.0
+                && river_mask[i] == 0;
+            let mut trig_piedmont = false;
+            if !trig_infil && discharge_m3s[i] >= 40.0 && slope[i] < 0.035 {
+                let (nbs8, cnt8) = grid.neighbors8(i);
+                for &nb in &nbs8[..cnt8] {
+                    if rel_height_km[nb] > rel_height_km[i] + 0.35
+                        && (climate.snow_frac[nb] > 0.15
+                            || climate.precip_mm[nb] > climate.precip_mm[i] * 1.45)
+                    {
+                        trig_piedmont = true;
+                        break;
+                    }
+                }
+            }
+            if trig_infil || trig_piedmont {
+                let score = discharge_m3s[i]
+                    + 2.0 * water_loss_m3s[i]
+                    + if trig_piedmont { 150.0 } else { 0.0 };
+                oasis_cands.push((i, score));
+            }
+        }
+    }
+    oasis_cands.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    let mut is_oasis = vec![0u8; n];
+    for (i, _) in oasis_cands {
+        let (nbs8, cnt8) = grid.neighbors8(i);
+        if nbs8[..cnt8].iter().any(|&nb| is_oasis[nb] != 0) {
+            continue;
+        }
+        is_oasis[i] = 1;
+    }
 
     struct RawRiver {
         id: u32,
@@ -944,6 +1137,27 @@ pub fn compute(
     let mut rivers = Vec::with_capacity(raw_rivers.len());
     for rr in raw_rivers {
         let starts_from_lake = rr.cells.first().is_some_and(|&c| has_lake_inflow[c] != 0);
+        let mut max_q_jan = 0.0f32;
+        let mut max_q_jul = 0.0f32;
+        let mut sum_snow = 0.0f32;
+        for &c in &rr.cells {
+            max_q_jan = max_q_jan.max(discharge_jan_m3s[c]);
+            max_q_jul = max_q_jul.max(discharge_jul_m3s[c]);
+            sum_snow += climate.snow_frac[c];
+        }
+        let mean_snow = sum_snow / rr.cells.len().max(1) as f32;
+        let q_hi = max_q_jan.max(max_q_jul);
+        let q_lo = max_q_jan.min(max_q_jul);
+        let seasonality = ((q_hi - q_lo) / (q_hi + q_lo + 1e-3)).clamp(0.0, 1.0);
+        let regime = if matches!(rr.mouth, MouthKind::Endorheic) && q_lo < 0.35 * q_hi {
+            FlowRegime::EphemeralWadi
+        } else if mean_snow > 0.22 && seasonality > 0.22 {
+            FlowRegime::Snowmelt
+        } else if seasonality > 0.28 {
+            FlowRegime::SeasonalMonsoon
+        } else {
+            FlowRegime::Perennial
+        };
         let (smoothed_pts, widths) = meander_smooth_river(
             &rr.cells,
             &discharge_m3s,
@@ -955,12 +1169,16 @@ pub fn compute(
             rr.id,
             rr.mouth,
             starts_from_lake,
+            true,
         );
         rivers.push(River {
             id: rr.id,
             order: rr.order,
             length_km: rr.length_km,
             max_discharge_m3s: rr.max_discharge_m3s,
+            discharge_jan_m3s: max_q_jan,
+            discharge_jul_m3s: max_q_jul,
+            regime,
             mouth: rr.mouth,
             cells: rr.cells,
             smoothed_pts,
@@ -1020,10 +1238,15 @@ pub fn compute(
         is_lake,
         is_endorheic_lake,
         is_salt_flat,
+        is_wadi,
+        is_oasis,
         lake_surface_km,
         filled_km,
         receiver,
         discharge_m3s,
+        discharge_jan_m3s,
+        discharge_jul_m3s,
+        flow_seasonality,
         river_mask,
         river_order,
         coast_type,

@@ -105,6 +105,89 @@ pub struct Biomes {
     pub soil_fertility: Vec<f32>,
 }
 
+/// Классифицирует наземный биом по физическим параметрам среды.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn classify_land_biome(
+    lat: f64,
+    elev: f32,
+    slope: f32,
+    discharge_m3s: f32,
+    alluvium_km: f32,
+    temp_c: f32,
+    temp_jan_c: f32,
+    temp_jul_c: f32,
+    precip_mm: f32,
+    precip_jan_mm: f32,
+    precip_jul_mm: f32,
+    aridity_index: f64,
+    monsoon_index: f32,
+    glacier: f32,
+) -> Biome {
+    let lat_abs = lat.abs();
+    let t_warm = temp_jan_c.max(temp_jul_c);
+    let t_cold = temp_jan_c.min(temp_jul_c);
+    let (p_sum, p_win) = if lat >= 0.0 {
+        (precip_jul_mm, precip_jan_mm)
+    } else {
+        (precip_jan_mm, precip_jul_mm)
+    };
+
+    if glacier > 0.35 || (t_warm < -2.0 && precip_mm >= 80.0) {
+        Biome::IceSheet
+    } else if t_warm < 0.0 {
+        Biome::PolarDesert
+    } else if t_warm < 10.0 {
+        if elev > 1.8 && lat_abs < 60.0 {
+            Biome::Alpine
+        } else if aridity_index < 0.25 {
+            Biome::PolarDesert
+        } else {
+            Biome::Tundra
+        }
+    } else if elev > 2.6 || (elev > 1.9 && temp_c < 6.0) {
+        Biome::Alpine
+    } else if slope < 0.008
+        && t_warm > 6.0
+        && aridity_index > 0.75
+        && (discharge_m3s > 18_000.0
+            || (alluvium_km > 0.035 && aridity_index > 1.0 && slope < 0.005))
+    {
+        Biome::Wetland
+    } else if temp_c < 4.5 {
+        if aridity_index < 0.30 {
+            Biome::ColdDesert
+        } else if aridity_index < 0.55 {
+            Biome::TemperateGrassland
+        } else {
+            Biome::BorealForest
+        }
+    } else if temp_c < 18.0 {
+        if aridity_index < 0.22 {
+            if temp_c < 12.0 {
+                Biome::ColdDesert
+            } else {
+                Biome::HotDesert
+            }
+        } else if aridity_index < 0.55 {
+            Biome::TemperateGrassland
+        } else if temp_c > 9.0 && t_cold > 2.0 && p_win > 1.75 * p_sum && aridity_index < 1.35 {
+            Biome::Mediterranean
+        } else if aridity_index > 1.65 || precip_mm > 1550.0 {
+            Biome::TemperateRainforest
+        } else {
+            Biome::TemperateForest
+        }
+    } else if aridity_index < 0.22 {
+        Biome::HotDesert
+    } else if aridity_index < 0.65 || (monsoon_index > 0.48 && aridity_index < 1.05) {
+        Biome::TropicalSavanna
+    } else if aridity_index < 1.25 || monsoon_index > 0.42 {
+        Biome::TropicalSeasonalForest
+    } else {
+        Biome::TropicalRainforest
+    }
+}
+
 /// Классифицирует коренные породы, плодородие почв и биомы по физическим полям планеты.
 pub fn classify(
     grid: &Grid,
@@ -130,7 +213,6 @@ pub fn classify(
 
     for y in 0..h {
         let lat = grid.lat_deg(y);
-        let lat_abs = lat.abs();
         let row = y * w;
         for x in 0..w {
             let i = row + x;
@@ -195,73 +277,29 @@ pub fn classify(
             let temp_f = ((t + 6.0) / 10.0).clamp(0.05, 1.0);
             let slope_f = (1.0 - 0.85 * (slope[i] as f64 / 0.08).clamp(0.0, 1.0)).max(0.1);
             let glac_f = (1.0 - climate.glacier[i] as f64).clamp(0.0, 1.0);
-            soil_fertility[i] = (base_min * moist_f * temp_f * slope_f * glac_f).clamp(0.0, 1.0) as f32;
+            let mut sf = (base_min * moist_f * temp_f * slope_f * glac_f).clamp(0.0, 1.0) as f32;
+            if hydrology.is_oasis[i] != 0 {
+                sf = sf.max(0.55);
+            }
+            soil_fertility[i] = sf;
 
             // 4. Физическая классификация биомов суши
-            let t_warm = climate.temp_jan_c[i].max(climate.temp_jul_c[i]);
-            let t_cold = climate.temp_jan_c[i].min(climate.temp_jul_c[i]);
-            let p = climate.precip_mm[i];
-            let elev = erosion.elevation_km[i];
-            let (p_sum, p_win) = if lat >= 0.0 {
-                (climate.precip_jul_mm[i], climate.precip_jan_mm[i])
-            } else {
-                (climate.precip_jan_mm[i], climate.precip_jul_mm[i])
-            };
-
-            biome[i] = if climate.glacier[i] > 0.35 || (t_warm < -2.0 && p >= 80.0) {
-                Biome::IceSheet
-            } else if t_warm < 0.0 {
-                Biome::PolarDesert
-            } else if t_warm < 10.0 {
-                if elev > 1.8 && lat_abs < 60.0 {
-                    Biome::Alpine
-                } else if ai < 0.25 {
-                    Biome::PolarDesert
-                } else {
-                    Biome::Tundra
-                }
-            } else if elev > 2.6 || (elev > 1.9 && t < 6.0) {
-                Biome::Alpine
-            } else if slope[i] < 0.008
-                && t_warm > 6.0
-                && ai > 0.75
-                && (hydrology.discharge_m3s[i] > 18_000.0
-                    || (erosion.alluvium_km[i] > 0.035 && ai > 1.0 && slope[i] < 0.005))
-            {
-                Biome::Wetland
-            } else if t < 4.5 {
-                if ai < 0.30 {
-                    Biome::ColdDesert
-                } else if ai < 0.55 {
-                    Biome::TemperateGrassland
-                } else {
-                    Biome::BorealForest
-                }
-            } else if t < 18.0 {
-                if ai < 0.22 {
-                    if t < 12.0 {
-                        Biome::ColdDesert
-                    } else {
-                        Biome::HotDesert
-                    }
-                } else if ai < 0.55 {
-                    Biome::TemperateGrassland
-                } else if t > 9.0 && t_cold > 2.0 && p_win > 1.75 * p_sum && ai < 1.35 {
-                    Biome::Mediterranean
-                } else if ai > 1.65 || p > 1550.0 {
-                    Biome::TemperateRainforest
-                } else {
-                    Biome::TemperateForest
-                }
-            } else if ai < 0.22 {
-                Biome::HotDesert
-            } else if ai < 0.65 || (climate.monsoon_index[i] > 0.48 && ai < 1.05) {
-                Biome::TropicalSavanna
-            } else if ai < 1.25 || climate.monsoon_index[i] > 0.42 {
-                Biome::TropicalSeasonalForest
-            } else {
-                Biome::TropicalRainforest
-            };
+            biome[i] = classify_land_biome(
+                lat,
+                erosion.elevation_km[i],
+                slope[i],
+                hydrology.discharge_m3s[i],
+                erosion.alluvium_km[i],
+                climate.temp_c[i],
+                climate.temp_jan_c[i],
+                climate.temp_jul_c[i],
+                climate.precip_mm[i],
+                climate.precip_jan_mm[i],
+                climate.precip_jul_mm[i],
+                ai,
+                climate.monsoon_index[i],
+                climate.glacier[i],
+            );
         }
     }
 

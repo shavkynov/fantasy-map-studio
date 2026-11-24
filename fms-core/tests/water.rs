@@ -1,4 +1,4 @@
-use fms_core::climate;
+use fms_core::climate::{self, ClimateParams};
 use fms_core::currents;
 use fms_core::grid::{distance_to_mask_km, Grid};
 use fms_core::hydrology::{self, MouthKind};
@@ -542,4 +542,166 @@ fn hydrology_lake_evap_and_desert_loss() {
         hyd_des.discharge_m3s[lower_des],
         hyd_des.discharge_m3s[upper_des]
     );
+}
+
+#[test]
+fn climate_and_currents_rotation_rate_physics() {
+    let grid = Grid::new(120, 60, 6371.0);
+    let mut elev = vec![0.3f32; grid.len()];
+    for y in 4..56 {
+        for x in 10..55 {
+            elev[grid.idx(x, y)] = -2.5;
+        }
+    }
+
+    let cur_slow = currents::solve_with_rotation(&grid, &elev, 0.4);
+    let cur_fast = currents::solve_with_rotation(&grid, &elev, 2.2);
+
+    for cur in [&cur_slow, &cur_fast] {
+        assert!(cur.u.iter().all(|&v| v.is_finite() && v.abs() <= 2.0));
+        assert!(cur.v.iter().all(|&v| v.is_finite() && v.abs() <= 2.0));
+        assert!(cur.speed.iter().all(|&v| v.is_finite()));
+    }
+
+    let mut p_slow = ClimateParams::default();
+    p_slow.rotation_rate = 0.4;
+    let mut p_fast = ClimateParams::default();
+    p_fast.rotation_rate = 2.2;
+
+    let c_slow = climate::compute_with_params(&grid, &elev, &cur_slow, "rot", &p_slow);
+    let c_fast = climate::compute_with_params(&grid, &elev, &cur_fast, "rot", &p_fast);
+
+    let mut diff_wind = 0.0f64;
+    let mut diff_prec = 0.0f64;
+    for i in 0..grid.len() {
+        assert!(c_slow.temp_c[i].is_finite() && c_fast.temp_c[i].is_finite());
+        assert!(c_slow.precip_mm[i].is_finite() && c_fast.precip_mm[i].is_finite());
+        diff_wind += (c_slow.wind_u_jul[i] - c_fast.wind_u_jul[i]).abs() as f64;
+        diff_prec += (c_slow.precip_mm[i] - c_fast.precip_mm[i]).abs() as f64;
+    }
+    assert!(diff_wind > 100.0 && diff_prec > 1000.0);
+
+    // При медленном вращении перепад температур экватор–полюса сглаживается шире развёрнутыми ячейками Хэдли
+    let eq_y = grid.h / 2;
+    let mean_row = |clim: &climate::Climate, y: usize| -> f64 {
+        (0..grid.w)
+            .map(|x| clim.temp_c[grid.idx(x, y)] as f64)
+            .sum::<f64>()
+            / grid.w as f64
+    };
+    let eq_slow = mean_row(&c_slow, eq_y);
+    let pol_slow = 0.5 * (mean_row(&c_slow, 3) + mean_row(&c_slow, grid.h - 4));
+    let eq_fast = mean_row(&c_fast, eq_y);
+    let pol_fast = 0.5 * (mean_row(&c_fast, 3) + mean_row(&c_fast, grid.h - 4));
+    assert!(
+        (eq_slow - pol_slow) < (eq_fast - pol_fast),
+        "slow rotator gradient {:.2} should be weaker than fast rotator {:.2}",
+        eq_slow - pol_slow,
+        eq_fast - pol_fast
+    );
+}
+
+#[test]
+fn hydrology_seasonal_snowmelt_wadis_oases_and_closed_basins() {
+    let grid = Grid::new(90, 45, 6371.0);
+    let n = grid.len();
+    let mut elev = vec![0.0f32; n];
+    let force_lake = vec![0u8; n];
+    let margin = vec![0u8; n];
+
+    // Океан на x < 10, горная гряда на x = 55..=60, предгорная пустыня на x = 40..54,
+    // и замкнутая впадина на (x in 70..75, y in 20..25)
+    for y in 0..grid.h {
+        for x in 0..grid.w {
+            let e = if x < 10 {
+                -1.0
+            } else if (70..75).contains(&x) && (20..25).contains(&y) {
+                -0.8
+            } else if (68..=76).contains(&x) && (18..=26).contains(&y) {
+                3.5
+            } else if x >= 55 && x <= 60 {
+                3.2 + 0.02 * (x - 55) as f32
+            } else {
+                0.2 + 0.03 * (x as f32 - 10.0)
+            };
+            elev[grid.idx(x, y)] = e;
+        }
+    }
+    // Русло со снежных гор (x = 55..=60 -> пустынный выход x = 10..=54) по y = 12
+    for x in 10..=60 {
+        let base = if x >= 55 {
+            1.4 + 0.08 * (x - 55) as f32
+        } else {
+            0.05 + 0.028 * (x - 10) as f32
+        };
+        elev[grid.idx(x, 12)] = base;
+    }
+
+    let mut clim = climate::Climate::uniform(&grid, 22.0, 40.0, 0.06);
+    for i in 0..n {
+        clim.pet_mm[i] = 1800.0;
+        clim.aridity_index[i] = 40.0 / 1800.0;
+    }
+    // В верховье на (55..=60, 12) — холодная зима (-12C), тёплое лето (+14C), зимний снег тает в июле
+    for x in 55..=60 {
+        let i = grid.idx(x, 12);
+        clim.temp_jan_c[i] = -12.0;
+        clim.temp_jul_c[i] = 14.0;
+        clim.temp_c[i] = 1.0;
+        clim.precip_jan_mm[i] = 2800.0;
+        clim.precip_jul_mm[i] = 400.0;
+        clim.precip_mm[i] = 1600.0;
+        clim.moisture[i] = 0.9;
+        clim.snow_frac[i] = 0.70;
+        clim.pet_mm[i] = 400.0;
+        clim.aridity_index[i] = 4.0;
+    }
+    // Сосед предгорья для подпитки оазиса
+    let mtn_nb = grid.idx(54, 11);
+    clim.precip_mm[mtn_nb] = 900.0;
+    clim.snow_frac[mtn_nb] = 0.45;
+    elev[mtn_nb] = 2.4;
+
+    // Дождь в замкнутую аридную котловину, чтобы проверить отсутствие сезонной утечки наружу
+    for y in 20..25 {
+        for x in 70..75 {
+            let i = grid.idx(x, y);
+            clim.precip_jan_mm[i] = 250.0;
+            clim.precip_jul_mm[i] = 250.0;
+            clim.precip_mm[i] = 250.0;
+        }
+    }
+
+    let hyd = hydrology::compute(&grid, &elev, &force_lake, &margin, &clim, "seasonal");
+    let mut clim_dry_dep = clim;
+    for y in 20..25 {
+        for x in 70..75 {
+            let i = grid.idx(x, y);
+            clim_dry_dep.precip_jan_mm[i] = 0.0;
+            clim_dry_dep.precip_jul_mm[i] = 0.0;
+            clim_dry_dep.precip_mm[i] = 0.0;
+        }
+    }
+    let hyd_dry = hydrology::compute(&grid, &elev, &force_lake, &margin, &clim_dry_dep, "seasonal");
+
+    let foothills = grid.idx(50, 12);
+    assert!(
+        hyd.discharge_jul_m3s[foothills] > hyd.discharge_jan_m3s[foothills],
+        "expected summer snowmelt peak at foothills: jul={} vs jan={}",
+        hyd.discharge_jul_m3s[foothills],
+        hyd.discharge_jan_m3s[foothills]
+    );
+    assert!(
+        hyd.is_oasis.iter().any(|&v| v != 0),
+        "expected desert oasis near mountain front / losing stream"
+    );
+    for i in 0..n {
+        assert!(hyd.discharge_jan_m3s[i].is_finite() && hyd.discharge_jul_m3s[i].is_finite());
+        assert!((0.0..=1.0).contains(&hyd.flow_seasonality[i]));
+        let (x, y) = grid.xy(i);
+        if !((70..75).contains(&x) && (20..25).contains(&y)) {
+            assert_eq!(hyd.discharge_jan_m3s[i], hyd_dry.discharge_jan_m3s[i]);
+            assert_eq!(hyd.discharge_jul_m3s[i], hyd_dry.discharge_jul_m3s[i]);
+        }
+    }
 }

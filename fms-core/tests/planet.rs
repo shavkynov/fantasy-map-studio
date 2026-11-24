@@ -1,6 +1,7 @@
 use fms_core::biomes::Biome;
 use fms_core::geography::{LandmassKind, MarineZone};
 use fms_core::planet::{self, PlanetOptions};
+use fms_core::region::{self, RegionOptions};
 use fms_core::tectonic::Options;
 use std::collections::HashSet;
 use std::f64::consts::PI;
@@ -197,6 +198,64 @@ fn geography_resources_and_civilization_laws() {
         assert_eq!(tr.cells.len(), tr.segments.len() + 1);
         assert!(tr.cost.is_finite() && tr.cost > 0.0);
     }
+
+    // 4. Расширенная география (заливы, перешейки, архипелаги, природные регионы и связи озёр)
+    assert!(!p.geography.natural_regions.is_empty(), "expected natural regions");
+    assert!(
+        p.geography
+            .natural_regions
+            .iter()
+            .all(|r| r.area_km2 > 0.0 && p.hydrology.is_ocean[r.center_cell] == 0)
+    );
+    assert!(
+        p.geography.bays.is_empty()
+            || p.geography
+                .marine_zone
+                .contains(&MarineZone::Bay)
+    );
+    for isth in &p.geography.isthmuses {
+        assert_eq!(p.hydrology.is_ocean[isth.cell], 0);
+        assert!(isth.width_km > 0.0);
+    }
+    for arch in &p.geography.archipelagos {
+        assert!(arch.island_ids.len() >= 2);
+        assert!(arch.total_area_km2 > 0.0);
+    }
+    let river_ids: HashSet<u32> = p.hydrology.rivers.iter().map(|r| r.id).collect();
+    for lk in &p.geography.lakes {
+        for rid in &lk.inflow_river_ids {
+            assert!(river_ids.contains(rid));
+        }
+        if let Some(oid) = lk.outflow_river_id {
+            assert!(river_ids.contains(&oid));
+        }
+    }
+
+    // 5. Культуры, изоляция и русская топонимика
+    assert!(!p.civilization.cultures.is_empty(), "expected cultures");
+    let mut cult_names = HashSet::new();
+    for c in &p.civilization.cultures {
+        assert!(!c.name.is_empty());
+        assert!(cult_names.insert(c.name.clone()), "duplicate culture name {}", c.name);
+        assert!((0.0..=1.0).contains(&c.isolation_index));
+    }
+    for s in &p.civilization.settlements {
+        assert!(!s.name.is_empty());
+        assert!((s.culture_id as usize) < p.civilization.cultures.len());
+    }
+    for r in &p.civilization.realms {
+        assert!(!r.name.is_empty());
+        assert!((r.culture_id as usize) < p.civilization.cultures.len());
+    }
+    assert_eq!(p.names.landmasses.len(), p.geography.landmasses.len());
+    assert_eq!(p.names.archipelagos.len(), p.geography.archipelagos.len());
+    assert_eq!(p.names.bays.len(), p.geography.bays.len());
+    assert_eq!(p.names.isthmuses.len(), p.geography.isthmuses.len());
+    assert_eq!(p.names.lakes.len(), p.geography.lakes.len());
+    assert_eq!(p.names.mountain_ranges.len(), p.geography.mountain_ranges.len());
+    assert_eq!(p.names.passes.len(), p.geography.passes.len());
+    assert_eq!(p.names.natural_regions.len(), p.geography.natural_regions.len());
+    assert_eq!(p.names.rivers.len(), p.hydrology.rivers.len());
 }
 
 #[test]
@@ -238,4 +297,77 @@ fn planet_options_axial_tilt_and_coarse_grid() {
         max_amp_hi > 20.0,
         "high axial tilt should produce strong seasonal amplitude, got {max_amp_hi}"
     );
+}
+
+#[test]
+fn regional_zoom_continuity_and_antimeridian() {
+    let mut opt = Options::new("a");
+    opt.w = 180;
+    let p = planet::generate(&opt).expect("planet generate");
+
+    // Ошибки валидации параметров
+    let bad_scale = RegionOptions::new(0.0, 0.0, 20.0, 15.0, 1);
+    assert!(region::generate_region(&p, &bad_scale).is_err());
+    let too_big_scale = RegionOptions::new(0.0, 0.0, 20.0, 15.0, 20);
+    assert!(region::generate_region(&p, &too_big_scale).is_err());
+    let huge_window = RegionOptions::new(0.0, 0.0, 180.0, 120.0, 8);
+    assert!(region::generate_region(&p, &huge_window).is_err());
+
+    // Стандартный зум вокруг крупной столицы или суши
+    let center_cell = p
+        .civilization
+        .settlements
+        .first()
+        .map(|s| s.cell)
+        .unwrap_or(p.grid.idx(p.grid.w / 2, p.grid.h / 2));
+    let mut r_opt = RegionOptions::around_cell(&p, center_cell, 24.0, 4);
+    r_opt.span_lon_deg = 32.0;
+
+    let r1 = region::generate_region(&p, &r_opt).expect("region 1");
+    let r2 = region::generate_region(&p, &r_opt).expect("region 2");
+    assert_eq!(r1.elevation_km, r2.elevation_km);
+    assert_eq!(r1.discharge_m3s, r2.discharge_m3s);
+    assert_eq!(r1.biome, r2.biome);
+
+    let rn = r1.w * r1.h;
+    assert_eq!(r1.elevation_km.len(), rn);
+    for i in 0..rn {
+        assert!(r1.elevation_km[i].is_finite());
+        assert!(r1.temp_c[i].is_finite());
+        assert!(r1.precip_mm[i].is_finite());
+        assert!(r1.discharge_m3s[i].is_finite());
+        let recv = r1.receiver[i];
+        if recv >= 0 {
+            assert!(
+                r1.filled_km[recv as usize] <= r1.filled_km[i],
+                "uphill regional receiver at {i} -> {recv}: {} -> {}",
+                r1.filled_km[i],
+                r1.filled_km[recv as usize]
+            );
+        }
+    }
+    assert!(!r1.rivers.is_empty(), "expected refined regional rivers");
+
+    // Бесшовный зум строго через антимеридиан ±180°
+    let seam_opt = RegionOptions::new(10.0, 179.5, 30.0, 20.0, 4);
+    let seam = region::generate_region(&p, &seam_opt).expect("antimeridian region");
+    assert_eq!(seam.elevation_km.len(), seam.w * seam.h);
+    let mid_y = seam.h / 2;
+    let x_l = seam.w / 2 - 1;
+    let x_r = seam.w / 2;
+    assert!(seam.lon_deg(x_l) > 170.0 || seam.lon_deg(x_l) < -170.0);
+    let seam_jump = (seam.elevation_km[seam.idx(x_r, mid_y)]
+        - seam.elevation_km[seam.idx(x_l, mid_y)])
+    .abs();
+    assert!(
+        seam_jump < 1.5,
+        "unexpected jump across +-180 seam: {seam_jump} km"
+    );
+    for i in 0..(seam.w * seam.h) {
+        assert!(seam.elevation_km[i].is_finite());
+        let recv = seam.receiver[i];
+        if recv >= 0 {
+            assert!(seam.filled_km[recv as usize] <= seam.filled_km[i]);
+        }
+    }
 }

@@ -12,6 +12,7 @@ use crate::grid::Grid;
 use crate::hydrology::{self, Hydrology};
 use crate::resources::{self, Resources};
 use crate::tectonic::{self, Options, World};
+use crate::toponymy::{self, WorldNames};
 
 /// Расширенные настройки генерации планеты и мира.
 #[derive(Clone, Debug)]
@@ -46,6 +47,7 @@ impl PlanetOptions {
 /// Полная физическая и антропогеографическая модель сгенерированной планеты.
 #[derive(Clone)]
 pub struct Planet {
+    pub seed: String,
     pub grid: Grid,
     pub tectonic: World,
     pub currents: Currents,
@@ -56,6 +58,7 @@ pub struct Planet {
     pub geography: Geography,
     pub resources: Resources,
     pub civilization: Civilization,
+    pub names: WorldNames,
 }
 
 /// Генерирует планету с настройками Земли по умолчанию поверх параметров тектоники `opt`.
@@ -69,11 +72,11 @@ pub fn generate_with_options(opt: &PlanetOptions) -> Result<Planet, String> {
     let grid = Grid::new(tectonic.w, tectonic.h, opt.tectonic.radius_km);
     let seed = &opt.tectonic.seed;
 
-    let cur0 = currents::solve(&grid, &tectonic.elevation_km);
+    let cur0 = currents::solve_with_rotation(&grid, &tectonic.elevation_km, opt.climate.rotation_rate);
     let clim0 = climate::compute_with_params(&grid, &tectonic.elevation_km, &cur0, seed, &opt.climate);
     let erosion = erosion::erode_with_params(&grid, &tectonic, &clim0, seed, &opt.erosion);
 
-    let currents = currents::solve(&grid, &erosion.elevation_km);
+    let currents = currents::solve_with_rotation(&grid, &erosion.elevation_km, opt.climate.rotation_rate);
     let climate = climate::compute_with_params(&grid, &erosion.elevation_km, &currents, seed, &opt.climate);
 
     let force_lake = vec![0u8; grid.len()];
@@ -86,7 +89,7 @@ pub fn generate_with_options(opt: &PlanetOptions) -> Result<Planet, String> {
         seed,
     );
     let biomes = biomes::classify(&grid, &tectonic, &erosion, &climate, &hydrology);
-    let geography = geography::analyze(&grid, &tectonic, &erosion, &climate, &hydrology);
+    let geography = geography::analyze(&grid, &tectonic, &erosion, &climate, &hydrology, &biomes);
     let resources = resources::compute(
         &grid,
         &tectonic,
@@ -106,9 +109,19 @@ pub fn generate_with_options(opt: &PlanetOptions) -> Result<Planet, String> {
         &geography,
         &resources,
         opt.target_realms,
+        seed,
+    );
+    let names = toponymy::name_world(
+        &grid,
+        &hydrology,
+        &biomes,
+        &geography,
+        &civilization,
+        seed,
     );
 
     Ok(Planet {
+        seed: seed.clone(),
         grid,
         tectonic,
         currents,
@@ -119,5 +132,6 @@ pub fn generate_with_options(opt: &PlanetOptions) -> Result<Planet, String> {
         geography,
         resources,
         civilization,
+        names,
     })
 }

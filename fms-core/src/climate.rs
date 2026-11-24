@@ -7,13 +7,15 @@ use crate::grid::{blur_xwrap, distance_to_mask_km, Grid};
 use crate::rng::{Noise, Rng};
 use std::f64::consts::TAU;
 
-/// Планетарные параметры климата (наклон оси вращения и инсоляция).
+/// Планетарные параметры климата (наклон оси вращения, инсоляция и скорость вращения).
 #[derive(Clone, Copy, Debug)]
 pub struct ClimateParams {
     /// Наклон оси вращения планеты, градусы (`23.4°` для Земли; `0°` — мир без времён года).
     pub axial_tilt_deg: f64,
     /// Глобальный температурный сдвиг инсоляции/парникового эффекта, °C (`0.0` — Земля).
     pub solar_offset_c: f64,
+    /// Скорость вращения планеты относительно Земли (`1.0` — Земля, `0.25..=3.0`).
+    pub rotation_rate: f64,
 }
 
 impl Default for ClimateParams {
@@ -21,6 +23,7 @@ impl Default for ClimateParams {
         Self {
             axial_tilt_deg: 23.4,
             solar_offset_c: 0.0,
+            rotation_rate: 1.0,
         }
     }
 }
@@ -143,6 +146,8 @@ fn season_temperature(
     let n = grid.len();
     let mut temp_s = vec![0f32; n];
     let tilt_scale = (params.axial_tilt_deg.clamp(0.0, 60.0)) / 23.4;
+    let rot = params.rotation_rate.clamp(0.25, 3.0);
+    let grad_scale = 1.0 - 0.14 * (1.0 - rot).max(0.0);
 
     for y in 0..h {
         let lat_deg = grid.lat_deg(y);
@@ -152,8 +157,10 @@ fn season_temperature(
             let cont = (dist_to_sea_km[i] as f64 / 2000.0).clamp(0.0, 1.0);
             let lat_eq = season_sign * tilt_scale * (5.0 + 10.0 * cont);
             let eff_lat = (lat_deg - lat_eq).clamp(-90.0, 90.0).to_radians();
-            let t_base =
-                -18.5 + params.solar_offset_c + 47.0 * eff_lat.cos().max(0.0).powf(0.95);
+            let t_base = -18.5
+                + 23.5 * (1.0 - grad_scale)
+                + params.solar_offset_c
+                + 47.0 * grad_scale * eff_lat.cos().max(0.0).powf(0.95);
 
             let hemi_s = season_sign * (lat_deg / 90.0);
             let mid_env = (lat_deg.abs() / 48.0).clamp(0.0, 1.0)
@@ -192,6 +199,7 @@ fn season_winds(
     temp_s: &[f32],
     season_sign: f64,
     tilt_scale: f64,
+    rot: f64,
 ) -> (Vec<f32>, Vec<f32>) {
     let w = grid.w;
     let h = grid.h;
@@ -225,6 +233,8 @@ fn season_winds(
 
     let lat_itcz = season_sign * 11.0 * tilt_scale;
     let dy_km = grid.dy_km();
+    let rot = rot.clamp(0.25, 3.0);
+    let rot_k = rot.sqrt();
     let mut wind_u = vec![0.0f32; n];
     let mut wind_v = vec![0.0f32; n];
 
@@ -235,11 +245,11 @@ fn season_winds(
         let y0 = y.saturating_sub(1);
         let y1 = (y + 1).min(h - 1);
         let span_y = ((y1 - y0).max(1) as f64) * dy_km;
-        let cor = 0.35 * lat_rad.sin();
+        let cor = (0.35 * rot).clamp(0.08, 0.90) * lat_rad.sin();
 
         let sl_rad = (lat_deg - lat_itcz).clamp(-90.0, 90.0).to_radians();
-        let u_base = -0.85 * (3.0 * sl_rad).cos() + 0.15 * (5.0 * sl_rad).cos();
-        let v_base = -0.45 * (6.0 * sl_rad).sin();
+        let u_base = -0.85 * (3.0 * rot_k * sl_rad).cos() + 0.15 * (5.0 * rot_k * sl_rad).cos();
+        let v_base = -0.45 * (6.0 * rot_k * sl_rad).sin();
 
         let row = y * w;
         for x in 0..w {
@@ -269,6 +279,7 @@ fn advect_moisture_season(
     wind_v: &[f32],
     current_temp: &[f32],
     lat_itcz: f64,
+    rot_k: f64,
 ) -> Vec<f32> {
     let w = grid.w;
     let h = grid.h;
@@ -288,12 +299,17 @@ fn advect_moisture_season(
     let mut curr_mod_arr = vec![1.0f64; n];
     let mut recycle_temp = vec![0.0f64; n];
 
+    let sub_center = (26.0 / rot_k).clamp(14.0, 56.0);
+    let sub_width = (9.0 / rot_k).clamp(5.0, 18.0);
+    let storm_center = (50.0 / rot_k).clamp(26.0, 76.0);
+    let storm_width = (12.0 / rot_k).clamp(7.0, 22.0);
+
     for y in 0..h {
         let lat_deg = grid.lat_deg(y);
         let sl = (lat_deg - lat_itcz).abs();
         let itcz_conv = 0.34 * (-(sl / 12.0).powi(2)).exp();
-        let storm_conv = 0.26 * (-((sl - 50.0) / 12.0).powi(2)).exp();
-        let sub_dry = 0.21 * (-((sl - 26.0) / 9.0).powi(2)).exp();
+        let storm_conv = 0.26 * (-((sl - storm_center) / storm_width).powi(2)).exp();
+        let sub_dry = 0.21 * (-((sl - sub_center) / sub_width).powi(2)).exp();
         let cr = (0.14 + itcz_conv + storm_conv - sub_dry).clamp(0.02, 0.58);
         let dx_row = grid.dx_km(y).max(40.0);
 
@@ -437,6 +453,8 @@ pub fn compute_with_params(
     assert_eq!(rel_height_km.len(), n);
     assert_eq!(currents.temp_anomaly.len(), n);
     let tilt_scale = (params.axial_tilt_deg.clamp(0.0, 60.0)) / 23.4;
+    let rot = params.rotation_rate.clamp(0.25, 3.0);
+    let rot_k = rot.sqrt();
     let itcz_shift = 11.0 * tilt_scale;
 
     let mut water_mask = vec![0u8; n];
@@ -487,9 +505,9 @@ pub fn compute_with_params(
 
     // 2. Сезонные приземные ветры с термическими муссонами.
     let (wind_u_jan, wind_v_jan) =
-        season_winds(grid, rel_height_km, &temp_jan_c, -1.0, tilt_scale);
+        season_winds(grid, rel_height_km, &temp_jan_c, -1.0, tilt_scale, rot);
     let (wind_u_jul, wind_v_jul) =
-        season_winds(grid, rel_height_km, &temp_jul_c, 1.0, tilt_scale);
+        season_winds(grid, rel_height_km, &temp_jul_c, 1.0, tilt_scale, rot);
 
     // 3. Сезонный 2D-перенос влаги (полулагранжев перенос + Клаузиус-Клапейрон + рециклинг с суши).
     let rain_jan = advect_moisture_season(
@@ -500,6 +518,7 @@ pub fn compute_with_params(
         &wind_v_jan,
         &current_temp,
         -itcz_shift,
+        rot_k,
     );
     let rain_jul = advect_moisture_season(
         grid,
@@ -509,6 +528,7 @@ pub fn compute_with_params(
         &wind_v_jul,
         &current_temp,
         itcz_shift,
+        rot_k,
     );
 
     let mut rain_ann = vec![0.0f32; n];
@@ -541,10 +561,12 @@ pub fn compute_with_params(
     let mut glacier = vec![0f32; n];
     let mut snow_line_km = vec![0f32; n];
 
+    let sub_lat = (27.0 / rot_k).clamp(15.0, 58.0);
+    let sub_w = (9.5 / rot_k).clamp(5.0, 18.0);
     for y in 0..h {
         let lat = grid.lat_deg(y).abs();
         let itcz_boost = 0.10 * (-(lat / 11.0).powi(2)).exp();
-        let subtrop_dry = 0.16 * (-((lat - 27.0) / 9.5).powi(2)).exp();
+        let subtrop_dry = 0.16 * (-((lat - sub_lat) / sub_w).powi(2)).exp();
         for x in 0..w {
             let i = grid.idx(x, y);
             let p = grid.unit_vec(x, y);

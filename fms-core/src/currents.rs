@@ -20,20 +20,30 @@ pub struct Currents {
 
 /// Профиль ветрового ротора `G(φ) = -(1 / cos φ) * d(τ_x cos φ) / dφ` для пассатов, западных ветров и полярных ветров.
 #[inline]
-fn wind_curl(lat_rad: f64) -> f64 {
+fn wind_curl(lat_rad: f64, rot: f64) -> f64 {
     let cl = lat_rad.cos().abs().max(0.18);
-    // Гладкое зональное напряжение ветра: пассаты (- на экваторе), западные ветры (+ в 45°), полярные (-)
-    let tau = -0.85 * (3.0 * lat_rad).cos() + 0.15 * (5.0 * lat_rad).cos();
-    let dtau = 2.55 * (3.0 * lat_rad).sin() - 0.75 * (5.0 * lat_rad).sin();
+    let k = rot.clamp(0.25, 3.0).sqrt();
+    let k3 = 3.0 * k;
+    let k5 = 5.0 * k;
+    // Гладкое зональное напряжение ветра: пассаты (- на экваторе), западные ветры (+ в средних), полярные (-)
+    let tau = -0.85 * (k3 * lat_rad).cos() + 0.15 * (k5 * lat_rad).cos();
+    let dtau = 0.85 * k3 * (k3 * lat_rad).sin() - 0.15 * k5 * (k5 * lat_rad).sin();
     -(dtau * cl - tau * lat_rad.sin()) / cl
 }
 
-/// Решает функцию тока `ψ` Стоммела на грубой сферической сетке и интерполирует скорости на полную сетку.
+/// Решает функцию тока `ψ` Стоммела на грубой сферической сетке с параметрами вращения Земли по умолчанию.
 pub fn solve(grid: &Grid, rel_height_km: &[f32]) -> Currents {
+    solve_with_rotation(grid, rel_height_km, 1.0)
+}
+
+/// Решает функцию тока `ψ` Стоммела на грубой сферической сетке для заданной скорости вращения `rotation_rate` (`1.0` — Земля).
+pub fn solve_with_rotation(grid: &Grid, rel_height_km: &[f32], rotation_rate: f64) -> Currents {
     let w = grid.w;
     let h = grid.h;
     let n = grid.len();
     assert_eq!(rel_height_km.len(), n);
+    let rot = rotation_rate.clamp(0.25, 3.0);
+    let rot_k = rot.sqrt();
 
     let cw = (w / 3).clamp(60, 120);
     let ch = (h / 3).clamp(30, 60);
@@ -66,8 +76,8 @@ pub fn solve(grid: &Grid, rel_height_km: &[f32]) -> Currents {
     let d_lon = std::f64::consts::TAU / cw as f64;
     let d_lat = PI / ch as f64;
     let inv_dlat2 = 1.0 / (d_lat * d_lat);
-    let r_fric = 0.085f64;
-    let beta = 1.0f64;
+    let beta = rot.powf(0.65);
+    let r_fric = 0.085f64.max(0.60 * beta * d_lon);
 
     let mut rhs = vec![0.0f64; cn];
     let mut cos_row = vec![0.0f64; ch];
@@ -77,7 +87,7 @@ pub fn solve(grid: &Grid, rel_height_km: &[f32]) -> Currents {
         let cl = lat.cos().abs().max(0.18);
         cos_row[cy] = cl;
         tan_row[cy] = lat.sin().clamp(-0.98, 0.98) / cl;
-        let g = wind_curl(lat);
+        let g = wind_curl(lat, rot);
         for cx in 0..cw {
             if water_c[cy * cw + cx] != 0 {
                 rhs[cy * cw + cx] = g;
@@ -190,9 +200,11 @@ pub fn solve(grid: &Grid, rel_height_km: &[f32]) -> Currents {
             speed[i] = uu.hypot(vv);
 
             // Поток к полюсу (v * lat_sign > 0) несёт тёплую воду, к экватору — холодную.
-            // В умеренных широтах (35..65°) восточный дрейф приносит тепло с запада.
+            // В умеренных широтах (сдвигаются с ростом вращения) восточный дрейф приносит тепло с запада.
             let poleward = vv * lat_sign;
-            let mid_drift = if (34.0..=66.0).contains(&lat_abs) {
+            let mid_lo = (34.0 / rot_k as f32).clamp(15.0, 58.0);
+            let mid_hi = (66.0 / rot_k as f32).clamp(32.0, 82.0);
+            let mid_drift = if (mid_lo..=mid_hi).contains(&lat_abs) {
                 0.35 * uu.max(0.0)
             } else {
                 0.0

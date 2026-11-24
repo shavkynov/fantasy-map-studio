@@ -9,8 +9,10 @@ use crate::geography::{Geography, MarineZone};
 use crate::grid::{blur_xwrap, slope_field, Grid};
 use crate::hydrology::{Hydrology, MouthKind};
 use crate::resources::Resources;
+use crate::rng::Rng;
+use crate::toponymy;
 use std::cmp::Ordering;
-use std::collections::{BTreeSet, BinaryHeap};
+use std::collections::{BTreeSet, BinaryHeap, HashSet};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
@@ -39,6 +41,43 @@ impl Livelihood {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum CultureEthos {
+    Agrarian = 0,
+    Riverine = 1,
+    Maritime = 2,
+    SteppeNomad = 3,
+    Highland = 4,
+    DesertOasis = 5,
+    Woodland = 6,
+}
+
+impl CultureEthos {
+    pub fn name(self) -> &'static str {
+        match self {
+            CultureEthos::Agrarian => "Земледельческая",
+            CultureEthos::Riverine => "Речная",
+            CultureEthos::Maritime => "Морская",
+            CultureEthos::SteppeNomad => "Степная",
+            CultureEthos::Highland => "Горная",
+            CultureEthos::DesertOasis => "Оазисная",
+            CultureEthos::Woodland => "Лесная",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Culture {
+    pub id: u32,
+    pub name: String,
+    pub hearth_cell: usize,
+    pub ethos: CultureEthos,
+    pub phonology_profile: u8,
+    pub area_km2: f64,
+    pub isolation_index: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SettlementRole {
     Capital,
     Port,
@@ -52,10 +91,12 @@ pub enum SettlementRole {
 #[derive(Clone, Debug)]
 pub struct Settlement {
     pub id: u32,
+    pub name: String,
     pub cell: usize,
     pub role: SettlementRole,
     /// Идентификатор государства (`u32::MAX`, если вне государственной досягаемости).
     pub realm_id: u32,
+    pub culture_id: u32,
     pub population_score: f32,
     pub is_port: bool,
     pub river_access: bool,
@@ -80,19 +121,23 @@ pub struct TradeRoute {
 #[derive(Clone, Debug)]
 pub struct Realm {
     pub id: u32,
+    pub name: String,
     pub capital_settlement_id: u32,
     pub capital_cell: usize,
+    pub culture_id: u32,
     pub dominant_livelihood: Livelihood,
     pub area_km2: f64,
     pub carrying_capacity: f64,
 }
 
-/// Итоги расчёта антропогеографии планеты: пригодность, уклады, города, державы и пути сообщения.
+/// Итоги расчёта антропогеографии планеты: пригодность, уклады, культуры, города, державы и пути сообщения.
 #[derive(Clone, Debug)]
 pub struct Civilization {
     pub habitability: Vec<f32>,
     pub livelihood: Vec<Livelihood>,
+    pub culture_id: Vec<i32>,
     pub realm_id: Vec<i32>,
+    pub cultures: Vec<Culture>,
     pub settlements: Vec<Settlement>,
     pub realms: Vec<Realm>,
     pub trade_routes: Vec<TradeRoute>,
@@ -128,7 +173,7 @@ impl PartialOrd for DijkNode {
     }
 }
 
-/// Строит карту пригодности к жизни, поселений, торговых путей и государств.
+/// Строит карту пригодности к жизни, культур, поселений, торговых путей и государств.
 #[allow(clippy::too_many_arguments)]
 pub fn simulate(
     grid: &Grid,
@@ -140,6 +185,7 @@ pub fn simulate(
     geography: &Geography,
     resources: &Resources,
     target_realms: usize,
+    seed: &str,
 ) -> Civilization {
     let w = grid.w;
     let h = grid.h;
@@ -224,12 +270,18 @@ pub fn simulate(
 
             let mut adj_fresh_lake = false;
             let (nbs8, cnt8) = grid.neighbors8(i);
+            let mut near_bay = false;
             for &nb in &nbs8[..cnt8] {
                 if hydrology.is_lake[nb] != 0 && hydrology.is_endorheic_lake[nb] == 0 {
                     adj_fresh_lake = true;
                 }
-                if hydrology.is_ocean[nb] != 0 && geography.marine_zone[nb] == MarineZone::Strait {
-                    near_strait = true;
+                if hydrology.is_ocean[nb] != 0 {
+                    if geography.marine_zone[nb] == MarineZone::Strait {
+                        near_strait = true;
+                    }
+                    if geography.marine_zone[nb] == MarineZone::Bay {
+                        near_bay = true;
+                    }
                 }
             }
 
@@ -242,7 +294,8 @@ pub fn simulate(
                 * ((36.0 - t_mean) / 11.0).clamp(0.20, 1.0);
             let rain_water = (ai / 0.65).clamp(0.0, 1.0);
             let river_irrig = ((hydrology.discharge_m3s[i] as f64 / 2200.0).clamp(0.0, 1.0))
-                .max(if adj_fresh_lake { 0.80 } else { 0.0 });
+                .max(if adj_fresh_lake { 0.80 } else { 0.0 })
+                .max(if hydrology.is_oasis[i] != 0 { 0.62 } else { 0.0 });
             let flat_f = (1.0 - (slope[i] as f64 / 0.07).clamp(0.0, 1.0)).max(0.15);
 
             let rain_agr = biomes.soil_fertility[i] as f64 * rain_water * grow_f;
@@ -270,7 +323,8 @@ pub fn simulate(
                     _ => 0.50,
                 };
                 let strait_b = if near_strait { 0.16 } else { 0.0 };
-                ((0.30 + 0.50 * max_fish as f64) * harbor + strait_b)
+                let bay_b = if near_bay { 0.12 } else { 0.0 };
+                ((0.30 + 0.50 * max_fish as f64) * harbor + strait_b + bay_b)
                     * ((t_warm - 4.0) / 12.0).clamp(0.25, 1.0)
             } else {
                 0.0
@@ -307,7 +361,9 @@ pub fn simulate(
             habitability[i] = best as f32;
             hab_area_km2 += area_row[y] * best;
 
-            livelihood[i] = if ai < 0.25 && river_irrig > 0.35 && irrig_agr >= 0.20 {
+            livelihood[i] = if (ai < 0.25 && river_irrig > 0.35 && irrig_agr >= 0.20)
+                || (hydrology.is_oasis[i] != 0 && irrig_agr >= 0.14)
+            {
                 Livelihood::Oasis
             } else if maritime_score >= agr_score * 1.08 && maritime_score >= 0.28 {
                 Livelihood::Maritime
@@ -358,9 +414,18 @@ pub fn simulate(
             {
                 score += 0.20;
             }
+            if nbs8[..cnt8]
+                .iter()
+                .any(|&nb| geography.marine_zone[nb] == MarineZone::Bay)
+            {
+                score += 0.12;
+            }
         }
         if is_pass_zone[i] != 0 {
             score += if is_pass_zone[i] == 2 { 0.30 } else { 0.18 };
+        }
+        if hydrology.is_oasis[i] != 0 {
+            score += 0.26;
         }
         if deposit_bonus[i] >= 0.50 {
             score += 0.24 * deposit_bonus[i];
@@ -422,44 +487,10 @@ pub fn simulate(
     }
 
     let mut is_port_settlement = vec![0u8; n];
-    let mut settlements = Vec::with_capacity(raw_sites.len());
-    let max_score = raw_sites.first().map(|s| s.1).unwrap_or(1.0).max(0.1);
-
-    for (idx, &(cell, score)) in raw_sites.iter().enumerate() {
-        let is_port = is_coastal_land[cell] != 0;
-        if is_port {
+    for &(cell, _) in &raw_sites {
+        if is_coastal_land[cell] != 0 {
             is_port_settlement[cell] = 1;
         }
-        let river_access = hydrology.river_mask[cell] != 0 || hydrology.discharge_m3s[cell] > 2200.0;
-        let role = if is_capital_idx[idx] {
-            SettlementRole::Capital
-        } else if is_port && (is_estuary[cell] != 0 || matches!(hydrology.coast_type[cell], 2 | 4))
-        {
-            SettlementRole::Port
-        } else if is_pass_zone[cell] != 0 {
-            SettlementRole::PassFortress
-        } else if livelihood[cell] == Livelihood::Oasis {
-            SettlementRole::OasisTown
-        } else if deposit_bonus[cell] >= 0.54 {
-            SettlementRole::MiningTown
-        } else if river_access || is_confluence[cell] != 0 {
-            SettlementRole::RiverHub
-        } else if is_port {
-            SettlementRole::Port
-        } else {
-            SettlementRole::MarketTown
-        };
-
-        let pop_score = ((score / max_score) * 100.0).clamp(5.0, 100.0);
-        settlements.push(Settlement {
-            id: idx as u32,
-            cell,
-            role,
-            realm_id: u32::MAX,
-            population_score: pop_score,
-            is_port,
-            river_access,
-        });
     }
 
     // 3. Физическая анизотропная функция транспортных затрат u -> v
@@ -511,7 +542,9 @@ pub fn simulate(
             let biome_pen = match biomes.biome[v] {
                 Biome::IceSheet => 12.0,
                 Biome::HotDesert | Biome::ColdDesert | Biome::PolarDesert | Biome::SaltFlat => {
-                    if habitability[v] >= 0.12 {
+                    if hydrology.is_oasis[v] != 0 || hydrology.is_wadi[v] != 0 {
+                        0.35
+                    } else if habitability[v] >= 0.12 {
                         0.4
                     } else {
                         4.5
@@ -544,6 +577,7 @@ pub fn simulate(
                 (0.55 * (wu * dir_e + wv * dir_n) + 0.45 * (cu * dir_e + cv * dir_n)).clamp(-1.2, 1.2);
             let sail_mult = (1.0 - 0.35 * align).clamp(0.55, 1.55);
             let zone_f = match geography.marine_zone[v] {
+                MarineZone::Bay => 0.30,
                 MarineZone::Strait | MarineZone::MarginalSea => 0.32,
                 MarineZone::OpenOcean => {
                     if erosion.elevation_km[v] >= -0.30 {
@@ -558,7 +592,309 @@ pub fn simulate(
         }
     };
 
-    // 4. Государства и естественные границы по логистической досягаемости от столиц
+    // 3b. Этнокультурные ареалы и географическая изоляция (до расселения государств)
+    let num_cultures = ((hab_area_km2 / 3_500_000.0).round() as usize)
+        .clamp(4, 12)
+        .min(raw_sites.len());
+    let mut hearth_cells: Vec<usize> = Vec::new();
+    let mut covered_lm = BTreeSet::new();
+    for &(cell, _) in &raw_sites {
+        if hearth_cells.len() >= num_cultures {
+            break;
+        }
+        let lid = geography.landmass_id[cell];
+        if lid < 0 || covered_lm.contains(&lid) {
+            continue;
+        }
+        let (cx, cy) = grid.xy(cell);
+        let uc = grid.unit_vec(cx, cy);
+        let too_close = hearth_cells.iter().any(|&other| {
+            let (ox, oy) = grid.xy(other);
+            grid.spherical_dist_km(uc, grid.unit_vec(ox, oy)) < 650.0
+        });
+        if !too_close {
+            covered_lm.insert(lid);
+            hearth_cells.push(cell);
+        }
+    }
+    for min_sep in [1100.0f64, 650.0, 320.0, 120.0, 0.0] {
+        for &(cell, _) in &raw_sites {
+            if hearth_cells.len() >= num_cultures {
+                break;
+            }
+            if hearth_cells.contains(&cell) {
+                continue;
+            }
+            let (cx, cy) = grid.xy(cell);
+            let uc = grid.unit_vec(cx, cy);
+            let too_close = min_sep > 0.0
+                && hearth_cells.iter().any(|&other| {
+                    let (ox, oy) = grid.xy(other);
+                    grid.spherical_dist_km(uc, grid.unit_vec(ox, oy)) < min_sep
+                });
+            if !too_close {
+                hearth_cells.push(cell);
+            }
+        }
+        if hearth_cells.len() >= num_cultures {
+            break;
+        }
+    }
+
+    let mut culture_id = vec![-1i32; n];
+    let mut cult_best = vec![f64::INFINITY; n];
+    let mut cult_heap = BinaryHeap::new();
+    let max_cult_cost = 5200.0f64;
+    for (cid, &hc) in hearth_cells.iter().enumerate() {
+        cult_best[hc] = 0.0;
+        culture_id[hc] = cid as i32;
+        cult_heap.push(DijkNode {
+            cost: 0.0,
+            cell: hc,
+            realm: cid as u32,
+        });
+    }
+    while let Some(DijkNode {
+        cost,
+        cell,
+        realm: cult,
+    }) = cult_heap.pop()
+    {
+        if cost > cult_best[cell] + 1e-6 {
+            continue;
+        }
+        let (nbs, cnt) = grid.neighbors8(cell);
+        for &nb in &nbs[..cnt] {
+            let mut c_step = step_cost(cell, nb);
+            if hydrology.is_ocean[nb] != 0 && geography.marine_zone[nb] == MarineZone::OpenOcean {
+                c_step *= 2.2;
+            }
+            if erosion.elevation_km[nb] > 1.8 {
+                c_step *= 1.8;
+            }
+            if matches!(
+                biomes.biome[nb],
+                Biome::HotDesert
+                    | Biome::ColdDesert
+                    | Biome::PolarDesert
+                    | Biome::SaltFlat
+                    | Biome::IceSheet
+            ) {
+                c_step *= 1.5;
+            }
+            let next_cost = cost + c_step;
+            if next_cost <= max_cult_cost && next_cost + 1e-6 < cult_best[nb] {
+                cult_best[nb] = next_cost;
+                if hydrology.is_ocean[nb] == 0
+                    && hydrology.is_lake[nb] == 0
+                    && habitability[nb] >= 0.03
+                {
+                    culture_id[nb] = cult as i32;
+                }
+                cult_heap.push(DijkNode {
+                    cost: next_cost,
+                    cell: nb,
+                    realm: cult,
+                });
+            }
+        }
+    }
+
+    let nc = hearth_cells.len();
+    let mut cult_area = vec![0.0f64; nc];
+    let mut cult_cap = vec![0.0f64; nc];
+    let mut cult_riv_cap = vec![0.0f64; nc];
+    let mut cult_elev_sum = vec![0.0f64; nc];
+    let mut cult_temp_sum = vec![0.0f64; nc];
+    let mut cult_liv = vec![[0.0f64; 7]; nc];
+    let mut cult_perim_tot = vec![0usize; nc];
+    let mut cult_perim_bar = vec![0usize; nc];
+    for i in 0..n {
+        let c_raw = culture_id[i];
+        if c_raw < 0 {
+            continue;
+        }
+        if hydrology.is_ocean[i] != 0 || hydrology.is_lake[i] != 0 || habitability[i] < 0.03 {
+            culture_id[i] = -1;
+            continue;
+        }
+        let cu = c_raw as usize;
+        let a = area_row[i / w];
+        let cap = a * habitability[i] as f64;
+        cult_area[cu] += a;
+        cult_cap[cu] += cap;
+        if hydrology.river_mask[i] != 0 || hydrology.discharge_m3s[i] > 2200.0 {
+            cult_riv_cap[cu] += cap;
+        }
+        cult_elev_sum[cu] += erosion.elevation_km[i] as f64 * a;
+        cult_temp_sum[cu] += climate.temp_c[i] as f64 * a;
+        let li = livelihood[i] as usize;
+        if li > 0 && li < 7 {
+            cult_liv[cu][li] += cap;
+        }
+        let (nbs4, cnt4) = grid.neighbors4(i);
+        for &nb in &nbs4[..cnt4] {
+            if culture_id[nb] != c_raw {
+                cult_perim_tot[cu] += 1;
+                if hydrology.is_ocean[nb] != 0
+                    || erosion.elevation_km[nb] > 1.8
+                    || climate.glacier[nb] > 0.25
+                    || matches!(
+                        biomes.biome[nb],
+                        Biome::HotDesert
+                            | Biome::ColdDesert
+                            | Biome::PolarDesert
+                            | Biome::SaltFlat
+                    )
+                {
+                    cult_perim_bar[cu] += 1;
+                }
+            }
+        }
+    }
+
+    let mut name_rng = Rng::sub(seed, "civilization-names");
+    let mut used_names: HashSet<String> = HashSet::new();
+    let mut cultures = Vec::with_capacity(nc);
+    for (cid, &hc) in hearth_cells.iter().enumerate() {
+        let mut best_li = livelihood[hc] as usize;
+        let mut best_v = -1.0f64;
+        for (li, &v) in cult_liv[cid].iter().enumerate().skip(1) {
+            if v > best_v {
+                best_v = v;
+                best_li = li;
+            }
+        }
+        let mean_elev = (cult_elev_sum[cid] / cult_area[cid].max(1e-6)) as f32;
+        let mean_temp = (cult_temp_sum[cid] / cult_area[cid].max(1e-6)) as f32;
+        let riv_frac = cult_riv_cap[cid] / cult_cap[cid].max(1e-6);
+        let ethos = match best_li {
+            3 => CultureEthos::Maritime,
+            2 => CultureEthos::SteppeNomad,
+            4 => CultureEthos::DesertOasis,
+            5 => CultureEthos::Highland,
+            6 => CultureEthos::Woodland,
+            1 => {
+                if mean_elev > 1.05 {
+                    CultureEthos::Highland
+                } else if riv_frac > 0.32 || hydrology.river_mask[hc] != 0 {
+                    CultureEthos::Riverine
+                } else {
+                    CultureEthos::Agrarian
+                }
+            }
+            _ => CultureEthos::Agrarian,
+        };
+        let profile = match ethos {
+            CultureEthos::Maritime => {
+                if hydrology.is_lake[hc] == 0 && (cid % 4 == 3) {
+                    6
+                } else {
+                    0
+                }
+            }
+            CultureEthos::Highland => 1,
+            CultureEthos::SteppeNomad => 2,
+            CultureEthos::DesertOasis => 3,
+            CultureEthos::Riverine | CultureEthos::Agrarian => {
+                if mean_elev > 1.2 {
+                    1
+                } else {
+                    4
+                }
+            }
+            CultureEthos::Woodland => {
+                if mean_temp < 1.0 {
+                    7
+                } else {
+                    5
+                }
+            }
+        };
+        let isolation_index =
+            (cult_perim_bar[cid] as f64 / cult_perim_tot[cid].max(1) as f64).clamp(0.0, 1.0)
+                as f32;
+        let name = toponymy::generate_proper_name(profile, &mut name_rng, 2, 3, &mut used_names);
+        cultures.push(Culture {
+            id: cid as u32,
+            name,
+            hearth_cell: hc,
+            ethos,
+            phonology_profile: profile,
+            area_km2: cult_area[cid],
+            isolation_index,
+        });
+    }
+
+    let nearest_culture = |cell: usize| -> u32 {
+        let c = culture_id[cell];
+        if c >= 0 {
+            return c as u32;
+        }
+        if cultures.is_empty() {
+            return 0;
+        }
+        let (cx, cy) = grid.xy(cell);
+        let uc = grid.unit_vec(cx, cy);
+        cultures
+            .iter()
+            .min_by(|a, b| {
+                let (ax, ay) = grid.xy(a.hearth_cell);
+                let (bx, by) = grid.xy(b.hearth_cell);
+                let da = grid.spherical_dist_km(uc, grid.unit_vec(ax, ay));
+                let db = grid.spherical_dist_km(uc, grid.unit_vec(bx, by));
+                da.total_cmp(&db)
+            })
+            .map(|c| c.id)
+            .unwrap_or(0)
+    };
+
+    let mut settlements = Vec::with_capacity(raw_sites.len());
+    let max_score = raw_sites.first().map(|s| s.1).unwrap_or(1.0).max(0.1);
+
+    for (idx, &(cell, score)) in raw_sites.iter().enumerate() {
+        let is_port = is_coastal_land[cell] != 0;
+        let river_access = hydrology.river_mask[cell] != 0 || hydrology.discharge_m3s[cell] > 2200.0;
+        let role = if is_capital_idx[idx] {
+            SettlementRole::Capital
+        } else if is_port && (is_estuary[cell] != 0 || matches!(hydrology.coast_type[cell], 2 | 4))
+        {
+            SettlementRole::Port
+        } else if is_pass_zone[cell] != 0 {
+            SettlementRole::PassFortress
+        } else if livelihood[cell] == Livelihood::Oasis {
+            SettlementRole::OasisTown
+        } else if deposit_bonus[cell] >= 0.54 {
+            SettlementRole::MiningTown
+        } else if river_access || is_confluence[cell] != 0 {
+            SettlementRole::RiverHub
+        } else if is_port {
+            SettlementRole::Port
+        } else {
+            SettlementRole::MarketTown
+        };
+
+        let cid = nearest_culture(cell);
+        let prof = cultures
+            .get(cid as usize)
+            .map(|c| c.phonology_profile)
+            .unwrap_or(4);
+        let name = toponymy::settlement_name(prof, role, &mut name_rng, &mut used_names);
+        let pop_score = ((score / max_score) * 100.0).clamp(5.0, 100.0);
+        settlements.push(Settlement {
+            id: idx as u32,
+            name,
+            cell,
+            role,
+            realm_id: u32::MAX,
+            culture_id: cid,
+            population_score: pop_score,
+            is_port,
+            river_access,
+        });
+    }
+
+    // 4. Государства и естественные границы по логистической досягаемости и культурной близости
     let mut realm_id = vec![-1i32; n];
     let mut best_cost = vec![f64::INFINITY; n];
     let mut heap = BinaryHeap::new();
@@ -567,6 +903,7 @@ pub fn simulate(
     let mut realms = Vec::with_capacity(capital_indices.len());
     for (rid, &s_idx) in capital_indices.iter().enumerate() {
         let cap_cell = settlements[s_idx].cell;
+        let cap_cult = settlements[s_idx].culture_id;
         let rid_u32 = rid as u32;
         settlements[s_idx].realm_id = rid_u32;
         best_cost[cap_cell] = 0.0;
@@ -578,8 +915,10 @@ pub fn simulate(
         });
         realms.push(Realm {
             id: rid_u32,
+            name: String::new(),
             capital_settlement_id: settlements[s_idx].id,
             capital_cell: cap_cell,
+            culture_id: cap_cult,
             dominant_livelihood: livelihood[cap_cell],
             area_km2: 0.0,
             carrying_capacity: 0.0,
@@ -590,13 +929,20 @@ pub fn simulate(
         if cost > best_cost[cell] + 1e-6 {
             continue;
         }
-        let cap_s_id = realms[realm as usize].capital_settlement_id as usize;
+        let r_ref = &realms[realm as usize];
+        let cap_s_id = r_ref.capital_settlement_id as usize;
+        let cap_cult = r_ref.culture_id as i32;
         let power_scale =
             1.0 / (0.75 + 0.45 * (settlements[cap_s_id].population_score as f64 / 100.0));
 
         let (nbs, cnt) = grid.neighbors8(cell);
         for &nb in &nbs[..cnt] {
-            let next_cost = cost + step_cost(cell, nb) * power_scale;
+            let cult_mult = if culture_id[nb] >= 0 && culture_id[nb] != cap_cult {
+                1.28
+            } else {
+                1.0
+            };
+            let next_cost = cost + step_cost(cell, nb) * power_scale * cult_mult;
             if next_cost <= max_admin_cost && next_cost + 1e-6 < best_cost[nb] {
                 best_cost[nb] = next_cost;
                 if hydrology.is_ocean[nb] == 0
@@ -653,6 +999,18 @@ pub fn simulate(
         if best_v > 0.0 {
             r.dominant_livelihood = best_l;
         }
+        let (prof, ethos) = cultures
+            .get(r.culture_id as usize)
+            .map(|c| (c.phonology_profile, c.ethos))
+            .unwrap_or((4, CultureEthos::Agrarian));
+        let root = toponymy::generate_proper_name(prof, &mut name_rng, 2, 3, &mut used_names);
+        let mut title = toponymy::realm_title(&root, r.dominant_livelihood, ethos, &mut name_rng);
+        while used_names.contains(&title) {
+            let alt = toponymy::generate_proper_name(prof, &mut name_rng, 2, 3, &mut used_names);
+            title = toponymy::realm_title(&alt, r.dominant_livelihood, ethos, &mut name_rng);
+        }
+        used_names.insert(title.clone());
+        r.name = title;
     }
 
     for s in &mut settlements {
@@ -799,7 +1157,9 @@ pub fn simulate(
     Civilization {
         habitability,
         livelihood,
+        culture_id,
         realm_id,
+        cultures,
         settlements,
         realms,
         trade_routes,

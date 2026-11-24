@@ -105,6 +105,7 @@ fn main() {
     let mut foreland_cnt = 0usize;
     let mut rift_cnt = 0usize;
     let mut volc_cnt = 0usize;
+    let mut suture_cnt = 0usize;
 
     let mut t_min = f32::MAX;
     let mut t_max = f32::MIN;
@@ -120,6 +121,8 @@ fn main() {
     let mut lake_cnt = 0usize;
     let mut salt_lake_cnt = 0usize;
     let mut salt_cnt = 0usize;
+    let mut wadi_cnt = 0usize;
+    let mut oasis_cnt = 0usize;
     let mut total_loss_m3s = 0.0f64;
 
     let mut biome_counts: BTreeMap<&'static str, usize> = BTreeMap::new();
@@ -144,6 +147,9 @@ fn main() {
         }
         if p.tectonic.volcanic[i] > 0.2 {
             volc_cnt += 1;
+        }
+        if p.tectonic.suture[i] > 0.25 {
+            suture_cnt += 1;
         }
 
         t_min = t_min
@@ -176,6 +182,12 @@ fn main() {
         }
         if p.hydrology.is_salt_flat[i] != 0 {
             salt_cnt += 1;
+        }
+        if p.hydrology.is_wadi[i] != 0 {
+            wadi_cnt += 1;
+        }
+        if p.hydrology.is_oasis[i] != 0 {
+            oasis_cnt += 1;
         }
         total_loss_m3s += p.hydrology.water_loss_m3s[i] as f64;
 
@@ -275,7 +287,7 @@ fn main() {
         elev_max
     );
     println!(
-        "geology: trench={trench_cnt} foreland={foreland_cnt} rift={rift_cnt} volcanic={volc_cnt} deposits={}",
+        "geology: trench={trench_cnt} foreland={foreland_cnt} rift={rift_cnt} volcanic={volc_cnt} suture={suture_cnt} deposits={}",
         p.resources.deposits.len()
     );
     println!(
@@ -286,21 +298,53 @@ fn main() {
         p.erosion.sea_level_shift_km
     );
     println!(
-        "hydrology: lake_cells={lake_cnt} (saline={salt_lake_cnt}) salt_flats={salt_cnt} rivers={} (ocean={r_oce} lake={r_lake} endorheic={r_end} conf={r_conf}) loss={:.0} m3/s",
+        "hydrology: lake_cells={lake_cnt} (saline={salt_lake_cnt}) salt_flats={salt_cnt} wadis={wadi_cnt} oases={oasis_cnt} rivers={} (ocean={r_oce} lake={r_lake} endorheic={r_end} conf={r_conf}) loss={:.0} m3/s",
         p.hydrology.rivers.len(),
         total_loss_m3s
     );
     println!(
-        "geography: continents={continents} large_islands={large_islands} islands={islands} lakes={} (rift={rift_lakes} glacial={glacial_lakes}) ranges={} passes={}",
+        "geography: continents={continents} large_islands={large_islands} islands={islands} archipelagos={} bays={} isthmuses={} lakes={} (rift={rift_lakes} glacial={glacial_lakes}) ranges={} passes={} regions={}",
+        p.geography.archipelagos.len(),
+        p.geography.bays.len(),
+        p.geography.isthmuses.len(),
         p.geography.lakes.len(),
         p.geography.mountain_ranges.len(),
-        p.geography.passes.len()
+        p.geography.passes.len(),
+        p.geography.natural_regions.len()
     );
     println!(
-        "civilization: realms={} settlements={} (ports={ports} river_hubs={river_hubs} pass_forts={pass_forts}) routes={} (road_seg={seg_road} river_seg={seg_river} sea_seg={seg_sea})",
+        "civilization: cultures={} realms={} settlements={} (ports={ports} river_hubs={river_hubs} pass_forts={pass_forts}) routes={} (road_seg={seg_road} river_seg={seg_river} sea_seg={seg_sea})",
+        p.civilization.cultures.len(),
         p.civilization.realms.len(),
         p.civilization.settlements.len(),
         p.civilization.trade_routes.len()
+    );
+    let sample_realms: Vec<&str> = p
+        .civilization
+        .realms
+        .iter()
+        .take(3)
+        .map(|r| r.name.as_str())
+        .collect();
+    let sample_rivers: Vec<&str> = p
+        .names
+        .rivers
+        .iter()
+        .take(3)
+        .map(|s| s.as_str())
+        .collect();
+    let sample_ranges: Vec<&str> = p
+        .names
+        .mountain_ranges
+        .iter()
+        .take(3)
+        .map(|s| s.as_str())
+        .collect();
+    println!(
+        "names: realms=[{}] rivers=[{}] ranges=[{}]",
+        sample_realms.join(", "),
+        sample_rivers.join(", "),
+        sample_ranges.join(", ")
     );
     print!("top biomes:");
     for (name, cnt) in top_biomes.iter().take(6) {
