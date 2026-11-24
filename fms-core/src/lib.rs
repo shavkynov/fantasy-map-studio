@@ -10,7 +10,6 @@ pub mod grid;
 pub mod hydrology;
 pub mod planet;
 pub mod region;
-pub mod render;
 pub mod resources;
 pub mod rng;
 pub mod tectonic;

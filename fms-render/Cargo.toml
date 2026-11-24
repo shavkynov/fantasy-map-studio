@@ -1,0 +1,10 @@
+[package]
+name = "fms-render"
+version = "0.1.0"
+edition = "2021"
+description = "Иллюстрированный картографический рендерер (PNG и многослойный SVG) для Fantasy Map Studio"
+license = "UNLICENSED"
+publish = false
+
+[dependencies]
+fms-core = { path = "../fms-core" }
