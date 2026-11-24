@@ -2,7 +2,7 @@
 //! перенос и отложение аллювия в котловинах, предгорьях и устьях с сохранением объёма воды.
 
 use crate::climate::Climate;
-use crate::grid::Grid;
+use crate::grid::{blur_xwrap, Grid};
 use crate::rng::{Noise, Rng};
 use crate::tectonic::World;
 use std::cmp::Ordering;
@@ -48,6 +48,8 @@ pub struct ErosionResult {
     pub glacial_carve_km: Vec<f32>,
     /// Относительная размываемость пород (`0.45..1.85`).
     pub erodibility: Vec<f32>,
+    /// Эффективная мощность коры после эрозионного среза и накопления аллювия, км.
+    pub effective_thickness_km: Vec<f32>,
     /// Сдвиг уровня моря при перераспределении объёма котловин/аллювия, км.
     pub sea_level_shift_km: f64,
 }
@@ -175,6 +177,8 @@ pub fn erode_with_params(
 
     let mut alluvium_km = vec![0.0f32; n];
     let mut glacial_carve_km = vec![0.0f32; n];
+    let mut rock_incised_km = vec![0.0f32; n];
+    let mut step_drop = vec![0.0f32; n];
 
     let mut is_ocean = vec![0u8; n];
     let mut comp_id = vec![-1i32; n];
@@ -373,6 +377,7 @@ pub fn erode_with_params(
 
         // 4d. Неявный врез FastScape (устья -> истоки) + расчёт потока осадков
         sed_flux.fill(0.0);
+        step_drop.fill(0.0);
         for &c in &order {
             if is_ocean[c] != 0 {
                 continue;
@@ -415,6 +420,8 @@ pub fn erode_with_params(
                 let h_target = (h[c] + k_tot * h_base) / (1.0 + k_tot);
                 let drop = (h[c] - h_target).clamp(0.0, params.max_incision_per_step_km);
                 h[c] -= drop;
+                step_drop[c] = drop as f32;
+                rock_incised_km[c] += drop as f32;
                 if kg > 0.0 {
                     glacial_carve_km[c] += (drop * (kg / k_tot)) as f32;
                 }
@@ -502,6 +509,15 @@ pub fn erode_with_params(
                 sed_flux[r as usize] += rem_flux;
             }
         }
+
+        // 4f. Локальная изостатическая компенсация разгрузки горных блоков
+        let r_iso = ((w as f64 / 90.0).round() as usize).max(1);
+        blur_xwrap(&mut step_drop, w, h_rows, r_iso);
+        for c in 0..n {
+            if h[c] > 0.0 && step_drop[c] > 0.0 {
+                h[c] += 0.28 * step_drop[c] as f64;
+            }
+        }
     }
 
     // 5. Выравнивание уровня моря для точного сохранения объёма воды океана
@@ -529,10 +545,13 @@ pub fn erode_with_params(
 
     let mut elevation_km = vec![0.0f32; n];
     let mut incised_km = vec![0.0f32; n];
+    let mut effective_thickness_km = vec![0.0f32; n];
     for i in 0..n {
         let e = (h[i] - sea_level_shift_km) as f32;
         elevation_km[i] = e;
         incised_km[i] = world.elevation_km[i] - e;
+        effective_thickness_km[i] =
+            (world.thickness[i] - (rock_incised_km[i] - alluvium_km[i]) * 2.0).clamp(0.0, 80.0);
     }
 
     ErosionResult {
@@ -541,6 +560,7 @@ pub fn erode_with_params(
         alluvium_km,
         glacial_carve_km,
         erodibility,
+        effective_thickness_km,
         sea_level_shift_km,
     }
 }

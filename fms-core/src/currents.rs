@@ -18,6 +18,13 @@ pub struct Currents {
     pub temp_anomaly: Vec<f32>,
 }
 
+/// Зональное напряжение ветра `τ_x(φ)` (пассаты < 0, западные ветры > 0, полярные < 0).
+#[inline]
+fn wind_tau(lat_rad: f64, rot: f64) -> f64 {
+    let k = rot.clamp(0.25, 3.0).sqrt();
+    -0.85 * (3.0 * k * lat_rad).cos() + 0.15 * (5.0 * k * lat_rad).cos()
+}
+
 /// Профиль ветрового ротора `G(φ) = -(1 / cos φ) * d(τ_x cos φ) / dφ` для пассатов, западных ветров и полярных ветров.
 #[inline]
 fn wind_curl(lat_rad: f64, rot: f64) -> f64 {
@@ -25,8 +32,7 @@ fn wind_curl(lat_rad: f64, rot: f64) -> f64 {
     let k = rot.clamp(0.25, 3.0).sqrt();
     let k3 = 3.0 * k;
     let k5 = 5.0 * k;
-    // Гладкое зональное напряжение ветра: пассаты (- на экваторе), западные ветры (+ в средних), полярные (-)
-    let tau = -0.85 * (k3 * lat_rad).cos() + 0.15 * (k5 * lat_rad).cos();
+    let tau = wind_tau(lat_rad, rot);
     let dtau = 0.85 * k3 * (k3 * lat_rad).sin() - 0.15 * k5 * (k5 * lat_rad).sin();
     -(dtau * cl - tau * lat_rad.sin()) / cl
 }
@@ -36,7 +42,7 @@ pub fn solve(grid: &Grid, rel_height_km: &[f32]) -> Currents {
     solve_with_rotation(grid, rel_height_km, 1.0)
 }
 
-/// Решает функцию тока `ψ` Стоммела на грубой сферической сетке для заданной скорости вращения `rotation_rate` (`1.0` — Земля).
+/// Решает функцию тока `ψ` Стоммела на сферической сетке с циркумполярными каналами и теплопереносом.
 pub fn solve_with_rotation(grid: &Grid, rel_height_km: &[f32], rotation_rate: f64) -> Currents {
     let w = grid.w;
     let h = grid.h;
@@ -45,11 +51,11 @@ pub fn solve_with_rotation(grid: &Grid, rel_height_km: &[f32], rotation_rate: f6
     let rot = rotation_rate.clamp(0.25, 3.0);
     let rot_k = rot.sqrt();
 
-    let cw = (w / 3).clamp(60, 120);
-    let ch = (h / 3).clamp(30, 60);
+    let cw = (w / 2).clamp(90, 180);
+    let ch = (h / 2).clamp(45, 90);
     let cn = cw * ch;
 
-    // Заполняем маску воды на грубой сетке (1 = океан/вода, 0 = суша)
+    // Заполняем маску воды на сетке решателя (порог 1/3 сохраняет узкие проливы)
     let mut water_c = vec![0u8; cn];
     for cy in 0..ch {
         let y0 = (cy * h) / ch;
@@ -67,10 +73,15 @@ pub fn solve_with_rotation(grid: &Grid, rel_height_km: &[f32], rotation_rate: f6
                     }
                 }
             }
-            if wcnt * 2 >= tot {
+            if wcnt * 3 >= tot {
                 water_c[cy * cw + cx] = 1;
             }
         }
+    }
+    // Полюсные строки считаем твёрдой границей (ψ фиксировано)
+    for cx in 0..cw {
+        water_c[cx] = 0;
+        water_c[(ch - 1) * cw + cx] = 0;
     }
 
     let d_lon = std::f64::consts::TAU / cw as f64;
@@ -82,8 +93,10 @@ pub fn solve_with_rotation(grid: &Grid, rel_height_km: &[f32], rotation_rate: f6
     let mut rhs = vec![0.0f64; cn];
     let mut cos_row = vec![0.0f64; ch];
     let mut tan_row = vec![0.0f64; ch];
+    let mut lat_row = vec![0.0f64; ch];
     for cy in 0..ch {
         let lat = PI * 0.5 - (cy as f64 + 0.5) * PI / ch as f64;
+        lat_row[cy] = lat;
         let cl = lat.cos().abs().max(0.18);
         cos_row[cy] = cl;
         tan_row[cy] = lat.sin().clamp(-0.98, 0.98) / cl;
@@ -95,17 +108,75 @@ pub fn solve_with_rotation(grid: &Grid, rel_height_km: &[f32], rotation_rate: f6
         }
     }
 
-    // Решаем `r ∇²ψ + β ∂ψ/∂λ = G(φ)` (SOR с замыканием X; ψ = 0 на суше и полюсах)
+    // Определяем сквозные зональные коридоры (Антарктическое циркумполярное / полярные кольца)
+    let open_row: Vec<bool> = (0..ch)
+        .map(|cy| {
+            cy > 0
+                && cy + 1 < ch
+                && (0..cw).all(|cx| water_c[cy * cw + cx] != 0)
+        })
+        .collect();
+
+    let north_cut = (1..(ch / 2)).filter(|&cy| open_row[cy]).max();
+    let south_cut = ((ch / 2)..(ch - 1)).filter(|&cy| open_row[cy]).min();
+
+    let acc_damp = (r_fric * 3.2).max(0.28);
+    let psi_north_cap = if let Some(nc) = north_cut {
+        let mut s = 0.0f64;
+        for cy in 1..=nc {
+            if open_row[cy] {
+                s -= (wind_tau(lat_row[cy], rot) / acc_damp) * d_lat;
+            }
+        }
+        s.clamp(-1.2, 1.2)
+    } else {
+        0.0
+    };
+    let psi_south_cap = if let Some(sc) = south_cut {
+        let mut s = 0.0f64;
+        for cy in sc..(ch - 1) {
+            if open_row[cy] {
+                s += (wind_tau(lat_row[cy], rot) / acc_damp) * d_lat;
+            }
+        }
+        s.clamp(-1.2, 1.2)
+    } else {
+        0.0
+    };
+
+    // Решаем `r ∇²ψ + β ∂ψ/∂λ = G(φ)` (SOR + upwind по β ∂ψ/∂λ для ровной западной интенсификации)
     let mut psi = vec![0.0f64; cn];
-    let omega = 1.45f64;
-    for _iter in 0..110 {
+    for cy in 0..ch {
+        let mut v_init = 0.0;
+        if let Some(nc) = north_cut {
+            if cy < nc {
+                v_init = psi_north_cap;
+            } else if cy == nc && water_c[cy * cw] == 0 {
+                v_init = psi_north_cap;
+            }
+        }
+        if let Some(sc) = south_cut {
+            if cy > sc {
+                v_init = psi_south_cap;
+            }
+        }
+        if v_init != 0.0 {
+            for cx in 0..cw {
+                psi[cy * cw + cx] = v_init;
+            }
+        }
+    }
+
+    let omega = 1.48f64;
+    for _iter in 0..240 {
+        let mut max_diff = 0.0f64;
         for cy in 1..(ch - 1) {
             let cl = cos_row[cy];
             let ax = r_fric / (cl * cl * d_lon * d_lon);
             let ay = r_fric * inv_dlat2;
-            let bx = beta / (2.0 * d_lon);
+            let b_up = beta / d_lon;
             let mt = r_fric * tan_row[cy] / (2.0 * d_lat);
-            let diag = 2.0 * ax + 2.0 * ay;
+            let diag = 2.0 * ax + 2.0 * ay + b_up;
             let row = cy * cw;
             for cx in 0..cw {
                 let i = row + cx;
@@ -122,11 +193,16 @@ pub fn solve_with_rotation(grid: &Grid, rel_height_km: &[f32], rotation_rate: f6
                 let num = ax * (p_e + p_w)
                     + ay * (p_n + p_s)
                     - mt * (p_n - p_s)
-                    + bx * (p_e - p_w)
+                    + b_up * p_e
                     - rhs[i];
                 let target = num / diag;
-                psi[i] = psi[i] + omega * (target - psi[i]);
+                let next = psi[i] + omega * (target - psi[i]);
+                max_diff = max_diff.max((next - psi[i]).abs());
+                psi[i] = next;
             }
+        }
+        if max_diff < 1e-5 {
+            break;
         }
     }
 
@@ -154,11 +230,97 @@ pub fn solve_with_rotation(grid: &Grid, rel_height_km: &[f32], rotation_rate: f6
         }
     }
 
-    // Нормализация к характерной шкале ~[-1, 1] и билинейная интерполяция на полную сетку
+    // Нормализация к характерной шкале ~[-1, 1]
     let inv_norm = (1.0 / (max_spd * 0.45)).min(2.0) as f32;
     for i in 0..cn {
         uc[i] = (uc[i] * inv_norm).clamp(-1.5, 1.5);
         vc[i] = (vc[i] * inv_norm).clamp(-1.5, 1.5);
+    }
+
+    // Стационарный адвективно-релаксационный перенос тепловой аномалии воды вдоль течений
+    let mut t_eq = vec![0.0f64; ch];
+    let mut max_cfl = 0.0f64;
+    for cy in 0..ch {
+        t_eq[cy] = lat_row[cy].cos().abs().powf(1.15);
+        let cl = cos_row[cy].max(0.22);
+        let row = cy * cw;
+        for cx in 0..cw {
+            let i = row + cx;
+            if water_c[i] != 0 {
+                let cfl = (uc[i].abs() as f64) / (cl * d_lon) + (vc[i].abs() as f64) / d_lat;
+                max_cfl = max_cfl.max(cfl);
+            }
+        }
+    }
+    let dt_adv = if max_cfl > 1e-6 { 0.42 / max_cfl } else { 0.02 };
+    let lambda = 0.45f64;
+    let mut t_sst = vec![0.0f64; cn];
+    let mut t_next = vec![0.0f64; cn];
+    for cy in 0..ch {
+        for cx in 0..cw {
+            t_sst[cy * cw + cx] = t_eq[cy];
+        }
+    }
+    for _step in 0..48 {
+        for cy in 1..(ch - 1) {
+            let cl = cos_row[cy].max(0.22);
+            let inv_dx = 1.0 / (cl * d_lon);
+            let inv_dy = 1.0 / d_lat;
+            let row = cy * cw;
+            for cx in 0..cw {
+                let i = row + cx;
+                if water_c[i] == 0 {
+                    t_next[i] = t_eq[cy];
+                    continue;
+                }
+                let u_val = uc[i] as f64;
+                let v_val = vc[i] as f64;
+                let xl = if cx == 0 { cw - 1 } else { cx - 1 };
+                let xr = if cx + 1 == cw { 0 } else { cx + 1 };
+
+                let t_c = t_sst[i];
+                let dtdx = if u_val >= 0.0 {
+                    let nb = row + xl;
+                    if water_c[nb] != 0 { (t_c - t_sst[nb]) * inv_dx } else { 0.0 }
+                } else {
+                    let nb = row + xr;
+                    if water_c[nb] != 0 { (t_sst[nb] - t_c) * inv_dx } else { 0.0 }
+                };
+                // +v — поток к северу (уменьшение индекса cy)
+                let dtdy = if v_val >= 0.0 {
+                    let nb = (cy + 1) * cw + cx;
+                    if water_c[nb] != 0 { (t_c - t_sst[nb]) * inv_dy } else { 0.0 }
+                } else {
+                    let nb = (cy - 1) * cw + cx;
+                    if water_c[nb] != 0 { (t_sst[nb] - t_c) * inv_dy } else { 0.0 }
+                };
+
+                let d_t = -(u_val * dtdx + v_val * dtdy) + lambda * (t_eq[cy] - t_c);
+                t_next[i] = (t_c + dt_adv * d_t).clamp(0.0, 1.0);
+            }
+        }
+        std::mem::swap(&mut t_sst, &mut t_next);
+    }
+
+    let mut anom_c = vec![0.0f32; cn];
+    for cy in 1..(ch - 1) {
+        let row = cy * cw;
+        let lat_abs = lat_row[cy].abs().to_degrees() as f32;
+        let mid_lo = (34.0 / rot_k as f32).clamp(15.0, 58.0);
+        let mid_hi = (66.0 / rot_k as f32).clamp(32.0, 82.0);
+        for cx in 0..cw {
+            let i = row + cx;
+            if water_c[i] == 0 {
+                continue;
+            }
+            let adv_a = ((t_sst[i] - t_eq[cy]) * 3.4) as f32;
+            let mid_drift = if (mid_lo..=mid_hi).contains(&lat_abs) {
+                0.18 * uc[i].max(0.0)
+            } else {
+                0.0
+            };
+            anom_c[i] = (adv_a + mid_drift).clamp(-1.0, 1.0);
+        }
     }
 
     let mut u = vec![0.0f32; n];
@@ -171,9 +333,6 @@ pub fn solve_with_rotation(grid: &Grid, rel_height_km: &[f32], rotation_rate: f6
         let cy0 = (fy.floor() as isize).clamp(0, ch as isize - 1) as usize;
         let cy1 = (cy0 + 1).min(ch - 1);
         let ty = (fy - cy0 as f64).clamp(0.0, 1.0) as f32;
-        let lat_rad = grid.lat_rad(y);
-        let lat_sign = if lat_rad >= 0.0 { 1.0f32 } else { -1.0f32 };
-        let lat_abs = lat_rad.abs().to_degrees() as f32;
 
         for x in 0..w {
             let i = grid.idx(x, y);
@@ -198,18 +357,7 @@ pub fn solve_with_rotation(grid: &Grid, rel_height_km: &[f32], rotation_rate: f6
             u[i] = uu;
             v[i] = vv;
             speed[i] = uu.hypot(vv);
-
-            // Поток к полюсу (v * lat_sign > 0) несёт тёплую воду, к экватору — холодную.
-            // В умеренных широтах (сдвигаются с ростом вращения) восточный дрейф приносит тепло с запада.
-            let poleward = vv * lat_sign;
-            let mid_lo = (34.0 / rot_k as f32).clamp(15.0, 58.0);
-            let mid_hi = (66.0 / rot_k as f32).clamp(32.0, 82.0);
-            let mid_drift = if (mid_lo..=mid_hi).contains(&lat_abs) {
-                0.35 * uu.max(0.0)
-            } else {
-                0.0
-            };
-            temp_anomaly[i] = (poleward * 1.15 + mid_drift).clamp(-1.0, 1.0);
+            temp_anomaly[i] = bilerp(&anom_c).clamp(-1.0, 1.0);
         }
     }
 

@@ -7,6 +7,7 @@ use crate::civilization::SettlementRole;
 use crate::grid::slope_field;
 use crate::hydrology::{evap_rate_m_yr, meander_smooth_river, FlowRegime, MouthKind, River};
 use crate::planet::Planet;
+use crate::resources::ResourceKind;
 use crate::rng::{Noise, Rng};
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, BinaryHeap};
@@ -115,6 +116,16 @@ pub struct RegionRoad {
     pub pts: Vec<[f32; 2]>,
 }
 
+/// Дискретное месторождение ресурса, привязанное к детальному рельефу и геологии региона.
+#[derive(Clone, Debug)]
+pub struct RegionDeposit {
+    pub kind: ResourceKind,
+    pub cell: usize,
+    pub x: usize,
+    pub y: usize,
+    pub richness: f32,
+}
+
 /// Детализированная физическая, гидрологическая и поселенческая модель региона.
 #[derive(Clone, Debug)]
 pub struct Region {
@@ -162,6 +173,7 @@ pub struct Region {
     pub passes: Vec<RegionPass>,
     pub settlements: Vec<RegionSettlement>,
     pub roads: Vec<RegionRoad>,
+    pub deposits: Vec<RegionDeposit>,
 }
 
 #[derive(Clone, Copy)]
@@ -2133,6 +2145,62 @@ pub fn generate_region(planet: &Planet, opt: &RegionOptions) -> Result<Region, S
         }
     }
 
+    // 9. Перенос и локальная привязка месторождений полезных ископаемых в регионе
+    let mut deposits: Vec<RegionDeposit> = Vec::new();
+    for dep in &planet.resources.deposits {
+        let (gx, gy) = planet.grid.xy(dep.cell);
+        let Some((ix, iy)) =
+            global_to_region_xy(planet.grid.lat_deg(gy), planet.grid.lon_deg(gx))
+        else {
+            continue;
+        };
+        let want_ocean = planet.hydrology.is_ocean[dep.cell] != 0;
+        let x0 = (ix as isize - snap_r).max(0) as usize;
+        let x1 = (ix as isize + snap_r).min(w as isize - 1) as usize;
+        let y0 = (iy as isize - snap_r).max(0) as usize;
+        let y1 = (iy as isize + snap_r).min(h as isize - 1) as usize;
+        let mut best_cell = None;
+        let mut best_score = f64::NEG_INFINITY;
+        for yy in y0..=y1 {
+            for xx in x0..=x1 {
+                let c = yy * w + xx;
+                let cell_ocean = is_ocean[c] != 0;
+                if want_ocean {
+                    if !cell_ocean {
+                        continue;
+                    }
+                } else if cell_ocean || is_lake[c] != 0 {
+                    continue;
+                }
+                let d2 = ((xx as f64 - ix as f64).powi(2) + (yy as f64 - iy as f64).powi(2)).sqrt();
+                let sc = match dep.kind {
+                    ResourceKind::Iron | ResourceKind::CopperGold | ResourceKind::GemsRare => {
+                        -d2 + 2.5 * elevation_km[c].max(0.0) as f64 + 1.8 * incised_km[c].max(0.0) as f64
+                    }
+                    ResourceKind::Hydrocarbons if want_ocean => {
+                        -d2 + 4.0 * if elevation_km[c] >= -0.45 { 1.0 } else { -1.0 }
+                    }
+                    _ => -d2 + 2.5 * alluvium_km[c] as f64 - 1.2 * (elevation_km[c] - 1.2).max(0.0) as f64,
+                };
+                if sc > best_score {
+                    best_score = sc;
+                    best_cell = Some(c);
+                }
+            }
+        }
+        if let Some(c) = best_cell {
+            if !deposits.iter().any(|d| d.kind == dep.kind && d.cell == c) {
+                deposits.push(RegionDeposit {
+                    kind: dep.kind,
+                    cell: c,
+                    x: c % w,
+                    y: c / w,
+                    richness: dep.richness,
+                });
+            }
+        }
+    }
+
     Ok(Region {
         w,
         h,
@@ -2178,5 +2246,6 @@ pub fn generate_region(planet: &Planet, opt: &RegionOptions) -> Result<Region, S
         passes,
         settlements,
         roads,
+        deposits,
     })
 }

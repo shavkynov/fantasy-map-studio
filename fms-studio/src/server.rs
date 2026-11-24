@@ -955,7 +955,7 @@ fn build_world_json(wkey: &WorldKey, planet: &Planet, cached: &CachedRender, qs:
     push_json_str(&mut out, &wkey.seed);
     let _ = write!(
         out,
-        ",\"width\":{},\"height\":{},\"grid_w\":{},\"grid_h\":{},\"continents_count\":{},\"rivers_count\":{},\"settlements_count\":{},\"realms_count\":{},\"suggested_region\":{{\"lat\":{:.4},\"lon\":{:.4},\"span\":{:.1}}},\"map_png_url\":",
+        ",\"width\":{},\"height\":{},\"grid_w\":{},\"grid_h\":{},\"continents_count\":{},\"rivers_count\":{},\"settlements_count\":{},\"realms_count\":{},\"deposits_count\":{},\"suggested_region\":{{\"lat\":{:.4},\"lon\":{:.4},\"span\":{:.1}}},\"map_png_url\":",
         cached.width,
         cached.height,
         planet.grid.w,
@@ -964,6 +964,7 @@ fn build_world_json(wkey: &WorldKey, planet: &Planet, cached: &CachedRender, qs:
         cached.rivers_count,
         cached.settlements_count,
         planet.civilization.realms.len(),
+        planet.resources.deposits.len(),
         sug.center_lat_deg,
         sug.center_lon_deg,
         sug.span_lon_deg
@@ -1139,11 +1140,27 @@ fn build_inspect_json(planet: &Planet, lat_deg: f64, lon_deg: f64) -> String {
         nearest_dist = 0.0;
     }
 
+    let mut nearest_dep_name = String::new();
+    let mut nearest_dep_dist = f64::INFINITY;
+    let mut nearest_dep_rich = 0.0f32;
+    for dep in &planet.resources.deposits {
+        let (dx, dy) = planet.grid.xy(dep.cell);
+        let d = planet.grid.spherical_dist_km(u_pt, planet.grid.unit_vec(dx, dy));
+        if d < nearest_dep_dist {
+            nearest_dep_dist = d;
+            nearest_dep_name = dep.kind.name().to_string();
+            nearest_dep_rich = dep.richness;
+        }
+    }
+    if !nearest_dep_dist.is_finite() {
+        nearest_dep_dist = 0.0;
+    }
+
     let r = &planet.resources;
     let mut out = String::with_capacity(1024);
     let _ = write!(
         out,
-        "{{\"in_bounds\":true,\"lat\":{:.4},\"lon\":{:.4},\"is_ocean\":{},\"elevation_m\":{:.1},\"temp_c\":{:.2},\"temp_jan_c\":{:.2},\"temp_jul_c\":{:.2},\"precip_mm\":{:.1},\"aridity_index\":{:.3},\"soil_fertility\":{:.3},\"discharge_m3s\":{:.1},\"river_order\":{},\"habitability\":{:.3},\"nearest_dist_km\":{:.1}",
+        "{{\"in_bounds\":true,\"lat\":{:.4},\"lon\":{:.4},\"is_ocean\":{},\"elevation_m\":{:.1},\"temp_c\":{:.2},\"temp_jan_c\":{:.2},\"temp_jul_c\":{:.2},\"precip_mm\":{:.1},\"aridity_index\":{:.3},\"soil_fertility\":{:.3},\"discharge_m3s\":{:.1},\"river_order\":{},\"habitability\":{:.3},\"nearest_dist_km\":{:.1},\"nearest_deposit_dist_km\":{:.1},\"nearest_deposit_richness\":{:.3}",
         lat_deg,
         lon_deg,
         is_ocean,
@@ -1157,7 +1174,9 @@ fn build_inspect_json(planet: &Planet, lat_deg: f64, lon_deg: f64) -> String {
         planet.hydrology.discharge_m3s[cell],
         planet.hydrology.river_order[cell],
         planet.civilization.habitability[cell],
-        nearest_dist
+        nearest_dist,
+        nearest_dep_dist,
+        nearest_dep_rich
     );
     out.push_str(",\"biome\":");
     push_json_str(&mut out, biome);
@@ -1175,6 +1194,8 @@ fn build_inspect_json(planet: &Planet, lat_deg: f64, lon_deg: f64) -> String {
     push_json_str(&mut out, landmass_name);
     out.push_str(",\"nearest_settlement\":");
     push_json_str(&mut out, &nearest_label);
+    out.push_str(",\"nearest_deposit\":");
+    push_json_str(&mut out, &nearest_dep_name);
     let _ = write!(
         out,
         ",\"resources\":{{\"iron\":{:.3},\"copper_gold\":{:.3},\"gems_rare\":{:.3},\"coal\":{:.3},\"hydrocarbons\":{:.3},\"salt\":{:.3},\"timber\":{:.3},\"fishery\":{:.3}}}}}",

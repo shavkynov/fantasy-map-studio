@@ -544,11 +544,12 @@ pub fn render_svg(
     }
     let _ = writeln!(s, "</g>");
 
-    // 3. Океанические течения Стоммела со стрелками
-    if ov.style == Style::Expedition {
+    // 3. Океанические течения Стоммела со стрелками (в обоих стилях с поддержкой отключения слоя)
+    {
         let lw = (if ov.is_world { 1.0 } else { 1.25 }) * us.max(0.6);
         let t_scale = if ov.is_world { 0.30 } else { 0.14 };
-        let _ = writeln!(s, r#"<g id="layer-currents" clip-path="url(#fmsFrameClip)" stroke-linecap="round" stroke-linejoin="round">"#);
+        let g_opacity = if ov.style == Style::Expedition { 0.96 } else { 0.58 };
+        let _ = writeln!(s, r#"<g id="layer-currents" clip-path="url(#fmsFrameClip)" stroke-linecap="round" stroke-linejoin="round" opacity="{g_opacity:.2}">"#);
         for st in &ov.currents {
             if st.len() < 2 {
                 continue;
@@ -827,6 +828,60 @@ pub fn render_svg(
         }
         let _ = writeln!(s, "</g>");
     }
+
+    // 7b. Месторождения полезных ископаемых
+    let _ = writeln!(s, r#"<g id="layer-deposits" clip-path="url(#fmsFrameClip)">"#);
+    let dep_r = (if ov.is_world { 4.2 } else { 5.4 }) * us.max(0.55);
+    for d in &ov.deposits {
+        if leg_r.inset(-6.0 * us, -6.0 * us).contains_pt(d.x, d.y)
+            || ((d.x - rose_cx).powi(2) + (d.y - rose_cy).powi(2)).sqrt() < rose_r + 12.0 * us
+        {
+            continue;
+        }
+        let pct = (d.richness * 100.0).round() as i32;
+        let fill = match d.kind {
+            "iron" => "#748696",
+            "copper" => "#e0a83e",
+            "gems" => "#40b89e",
+            "coal" => "#353230",
+            "oil" => "#94521e",
+            "salt" => "#f4efe4",
+            _ => "#c89b52",
+        };
+        let stroke = if d.kind == "coal" { "#d8cfbc" } else { "#1f1811" };
+        let shape = match d.kind {
+            "gems" | "salt" => format!(
+                r#"<polygon points="{:.1},{:.1} {:.1},{:.1} {:.1},{:.1} {:.1},{:.1}" fill="{fill}" stroke="{stroke}" stroke-width="{:.2}"/>"#,
+                d.x,
+                d.y - dep_r * 1.15,
+                d.x + dep_r * 1.0,
+                d.y,
+                d.x,
+                d.y + dep_r * 1.15,
+                d.x - dep_r * 1.0,
+                d.y,
+                1.1 * us
+            ),
+            "coal" | "iron" => format!(
+                r#"<rect x="{:.1}" y="{:.1}" width="{:.1}" height="{:.1}" rx="{:.1}" fill="{fill}" stroke="{stroke}" stroke-width="{:.2}"/>"#,
+                d.x - dep_r * 0.85,
+                d.y - dep_r * 0.85,
+                dep_r * 1.7,
+                dep_r * 1.7,
+                1.4 * us,
+                1.1 * us
+            ),
+            _ => format!(
+                r#"<circle cx="{:.1}" cy="{:.1}" r="{:.2}" fill="{fill}" stroke="{stroke}" stroke-width="{:.2}"/>"#,
+                d.x,
+                d.y,
+                dep_r * 0.95,
+                1.1 * us
+            ),
+        };
+        let _ = writeln!(s, r#"  <g>{shape}<title>{} ({pct}%)</title></g>"#, xml_escape(d.label));
+    }
+    let _ = writeln!(s, "</g>");
 
     // 8. Подписи, свитки городов и дуговые названия океанов
     let _ = writeln!(s, r#"<g id="layer-labels">"#);

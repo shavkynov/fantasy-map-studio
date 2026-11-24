@@ -705,3 +705,34 @@ fn hydrology_seasonal_snowmelt_wadis_oases_and_closed_basins() {
         }
     }
 }
+
+#[test]
+fn currents_circumpolar_channel_and_thermal_advection() {
+    let grid = Grid::new(180, 90, 6371.0);
+    let mut elev = vec![-2.5f32; grid.len()];
+    // Северный материковый барьер выше 32° ю.ш. и антарктическая шапка южнее 64° ю.ш. —
+    // оставляем открытый зональный коридор в зоне западных ветров (40..58° ю.ш.).
+    for y in 0..grid.h {
+        let lat = grid.lat_deg(y);
+        for x in 0..grid.w {
+            if (lat > -28.0 && (30..80).contains(&x)) || lat < -64.0 {
+                elev[grid.idx(x, y)] = 1.2;
+            }
+        }
+    }
+    let cur = currents::solve(&grid, &elev);
+    let acc_y = 66usize; // ~43°S (внутри открытого коридора западных ветров)
+    let mut east_cnt = 0usize;
+    for x in 0..grid.w {
+        let u = cur.u[grid.idx(x, acc_y)];
+        assert!(u.is_finite() && cur.temp_anomaly[grid.idx(x, acc_y)].is_finite());
+        if u > 0.05 {
+            east_cnt += 1;
+        }
+    }
+    assert!(
+        east_cnt * 10 >= grid.w * 8,
+        "expected continuous eastward circumpolar drift across southern channel, got {east_cnt}/{}",
+        grid.w
+    );
+}

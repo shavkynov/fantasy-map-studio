@@ -33,8 +33,9 @@ fn render_world_and_region_both_styles_png_and_svg() {
         assert!(w_svg.contains("<svg "));
         assert!(w_svg.contains("id=\"layer-labels\""));
         assert!(w_svg.contains("id=\"layer-compass\""));
+        assert!(w_svg.contains("id=\"layer-currents\""));
+        assert!(w_svg.contains("id=\"layer-deposits\""));
         if style == Style::Expedition {
-            assert!(w_svg.contains("id=\"layer-currents\""));
             assert!(w_svg.contains("id=\"layer-legend\""));
         }
 

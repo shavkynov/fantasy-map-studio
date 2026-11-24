@@ -10,11 +10,15 @@ pub mod terrain;
 
 pub use assets::AssetPack;
 pub use proj::{RegionProj, WorldProj};
-pub use terrain::{choose_region_window, MapLabel, OverlayModel, OverlayRoute, RenderOptions, SettlementPin, Style};
+pub use terrain::{
+    choose_region_window, DepositPin, MapLabel, OverlayModel, OverlayRoute, RenderOptions,
+    SettlementPin, Style,
+};
 
 use fms_core::civilization::SettlementRole;
 use fms_core::planet::Planet;
 use fms_core::region::{Region, RegionOptions};
+use fms_core::resources::ResourceKind;
 use fms_core::rng::{Noise, Rng};
 use proj::wrap_lon_deg;
 use terrain::{
@@ -66,6 +70,20 @@ impl RenderOutput {
         let doc = self.to_svg_standalone(pack);
         png::write_svg_file(path, &doc)
     }
+}
+
+fn deposit_kind_meta(kind: ResourceKind) -> (&'static str, &'static str) {
+    let slug = match kind {
+        ResourceKind::Iron => "iron",
+        ResourceKind::CopperGold => "copper",
+        ResourceKind::GemsRare => "gems",
+        ResourceKind::Coal => "coal",
+        ResourceKind::Hydrocarbons => "oil",
+        ResourceKind::Salt => "salt",
+        ResourceKind::Timber => "timber",
+        ResourceKind::Fishery => "fish",
+    };
+    (slug, kind.name())
 }
 
 /// Рендерит карту мира с настройками по умолчанию (`Style::Expedition`, ширина 2200 px).
@@ -187,6 +205,23 @@ pub fn render_world_with_options(planet: &Planet, seed: &str, pack: &AssetPack, 
             }
         })
         .collect();
+    let deposits: Vec<DepositPin> = planet
+        .resources
+        .deposits
+        .iter()
+        .map(|d| {
+            let (dx, dy) = planet.grid.xy(d.cell);
+            let pr = proj.project(planet.grid.lat_deg(dy), planet.grid.lon_deg(dx));
+            let (kind, label) = deposit_kind_meta(d.kind);
+            DepositPin {
+                x: pr[0],
+                y: pr[1],
+                kind,
+                label,
+                richness: d.richness,
+            }
+        })
+        .collect();
     let sett_pos: Vec<(f64, f64, SettlementRole, f64)> = planet
         .civilization
         .settlements
@@ -252,6 +287,7 @@ pub fn render_world_with_options(planet: &Planet, seed: &str, pack: &AssetPack, 
         graticule,
         routes: w_routes,
         settlements,
+        deposits,
         labels,
         currents,
         legend_realms: legend_realms
@@ -396,6 +432,21 @@ pub fn render_region_with_options(
         });
         sett_pos.push((pr[0], pr[1], s.role, score));
     }
+    let deposits: Vec<DepositPin> = reg
+        .deposits
+        .iter()
+        .map(|d| {
+            let pr = proj.project_cell(d.x as f64 + 0.5, d.y as f64 + 0.5);
+            let (kind, label) = deposit_kind_meta(d.kind);
+            DepositPin {
+                x: pr[0],
+                y: pr[1],
+                kind,
+                label,
+                richness: d.richness,
+            }
+        })
+        .collect();
 
     let (r_peaks, r_forests, r_hills) = extract_region_anchors(reg, &rg, &proj);
     let (mut base_rgb, r_dist, rd_dist, bridges) =
@@ -457,6 +508,7 @@ pub fn render_region_with_options(
         graticule,
         routes: r_routes,
         settlements,
+        deposits,
         labels,
         currents,
         legend_realms: legend_realms

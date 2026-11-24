@@ -83,6 +83,15 @@ pub struct SettlementPin {
 }
 
 #[derive(Clone, Debug)]
+pub struct DepositPin {
+    pub x: f64,
+    pub y: f64,
+    pub kind: &'static str,
+    pub label: &'static str,
+    pub richness: f32,
+}
+
+#[derive(Clone, Debug)]
 pub struct MapLabel {
     pub text: String,
     pub kind: &'static str,
@@ -103,6 +112,7 @@ pub struct OverlayModel {
     pub graticule: Vec<Vec<[f64; 2]>>,
     pub routes: Vec<OverlayRoute>,
     pub settlements: Vec<SettlementPin>,
+    pub deposits: Vec<DepositPin>,
     pub labels: Vec<MapLabel>,
     pub currents: Vec<Vec<[f64; 3]>>,
     pub legend_realms: Vec<(String, [f64; 3])>,
@@ -1218,8 +1228,10 @@ pub(crate) fn extract_world_anchors(
     let mut hills = Vec::new();
     let gw = planet.grid.w;
     let gh = planet.grid.h;
+    let dy_km = planet.grid.dy_km();
     for cy in 1..(gh - 1) {
         let lat = planet.grid.lat_deg(cy);
+        let step_km = planet.grid.dx_km(cy).min(dy_km).max(5.0);
         for cx in 0..gw {
             let i = cy * gw + cx;
             if planet.hydrology.is_ocean[i] != 0 || planet.hydrology.is_lake[i] != 0 {
@@ -1236,10 +1248,24 @@ pub(crate) fn extract_world_anchors(
                 continue;
             }
             let e = planet.erosion.elevation_km[i] as f64;
+            let (nbs, cnt) = planet.grid.neighbors8(i);
+            let mut min_nb = e;
+            let mut max_diff = 0.0f64;
+            for &nb in &nbs[..cnt] {
+                let en = (planet.erosion.elevation_km[nb] as f64).max(0.0);
+                min_nb = min_nb.min(en);
+                max_diff = max_diff.max((e - en).abs());
+            }
+            let local_relief = (e - min_nb).max(0.0);
+            let slope_est = max_diff / step_km;
+
             let bio = planet.biomes.biome[i];
-            if e >= 1.38 {
+            if (e >= 1.38 && (slope_est >= 0.012 || local_relief >= 0.20)) || e >= 2.25 {
                 peaks.push([pr[0], pr[1], e]);
-            } else if e >= 0.72 && sg.coast_dist[si] >= 4.0 * sg.ui_scale as f32 && !is_forest_biome(bio) {
+            } else if ((e >= 0.72 && e < 1.38) || (e >= 1.25 && slope_est < 0.012 && local_relief < 0.20))
+                && sg.coast_dist[si] >= 4.0 * sg.ui_scale as f32
+                && !is_forest_biome(bio)
+            {
                 hills.push([pr[0], pr[1]]);
             }
             if is_forest_biome(bio) && e < 2.25 && sg.coast_dist[si] >= 3.0 * sg.ui_scale as f32 {
@@ -1264,6 +1290,7 @@ pub(crate) fn extract_region_anchors(
     let rw = reg.w;
     let rh = reg.h;
     for ry in (1..(rh - 1)).step_by(2) {
+        let step_km = reg.dx_km_row[ry].min(reg.dy_km).max(2.0);
         for rx in (1..(rw - 1)).step_by(2) {
             let i = ry * rw + rx;
             if reg.is_ocean[i] != 0 || reg.is_lake[i] != 0 {
@@ -1280,10 +1307,24 @@ pub(crate) fn extract_region_anchors(
                 continue;
             }
             let e = reg.elevation_km[i] as f64;
+            let (nbs, cnt) = reg.neighbors8(i);
+            let mut min_nb = e;
+            let mut max_diff = 0.0f64;
+            for &nb in &nbs[..cnt] {
+                let en = (reg.elevation_km[nb] as f64).max(0.0);
+                min_nb = min_nb.min(en);
+                max_diff = max_diff.max((e - en).abs());
+            }
+            let local_relief = (e - min_nb).max(0.0);
+            let slope_est = max_diff / step_km;
+
             let bio = reg.biome[i];
-            if e >= 1.38 {
+            if (e >= 1.38 && (slope_est >= 0.012 || local_relief >= 0.20)) || e >= 2.25 {
                 peaks.push([pr[0], pr[1], e]);
-            } else if e >= 0.72 && sg.coast_dist[si] >= 4.0 * sg.ui_scale as f32 && !is_forest_biome(bio) {
+            } else if ((e >= 0.72 && e < 1.38) || (e >= 1.25 && slope_est < 0.012 && local_relief < 0.20))
+                && sg.coast_dist[si] >= 4.0 * sg.ui_scale as f32
+                && !is_forest_biome(bio)
+            {
                 hills.push([pr[0], pr[1]]);
             }
             if is_forest_biome(bio) && e < 2.25 && sg.coast_dist[si] >= 3.0 * sg.ui_scale as f32 {
@@ -1339,13 +1380,22 @@ pub(crate) fn trace_ocean_currents(
         let (lat_deg, lon_deg) = inv(px, py)?;
         let gx = ((lon_deg + 180.0).rem_euclid(360.0) / 360.0) * gw as f64 - 0.5;
         let gy = (((90.0 - lat_deg) / 180.0) * gh as f64 - 0.5).clamp(0.0, (gh - 1) as f64);
-        Some((
-            sample_bilinear_norm(&planet.climate.current_u, gw, gh, true, gx, gy),
-            sample_bilinear_norm(&planet.climate.current_v, gw, gh, true, gx, gy),
-            sample_bilinear_norm(&planet.climate.current_temp, gw, gh, true, gx, gy),
-        ))
+        let u_phys = sample_bilinear_norm(&planet.climate.current_u, gw, gh, true, gx, gy);
+        let v_phys = sample_bilinear_norm(&planet.climate.current_v, gw, gh, true, gx, gy);
+        let t_anom = sample_bilinear_norm(&planet.climate.current_temp, gw, gh, true, gx, gy);
+        let (sx, sy) = if grid.is_world {
+            let phi = lat_deg.to_radians();
+            let p2 = phi * phi;
+            let p4 = p2 * p2;
+            let dyp = 1.0148 + 5.0 * 0.23185 * p4 - 7.0 * 0.14499 * p4 * p2 + 9.0 * 0.02406 * p4 * p4;
+            let cl = phi.cos().abs().max(0.24);
+            (u_phys / cl, v_phys * dyp)
+        } else {
+            (u_phys, v_phys)
+        };
+        Some((sx, sy, t_anom))
     };
-    let margin = 6.0 * us;
+    let margin = 1.5 * us;
     let is_valid_sea = |px: f64, py: f64, min_cd: f32| -> bool {
         if px < fx + margin || px > fx + fw - margin || py < fy + margin || py > fy + fh - margin {
             return false;
@@ -1374,7 +1424,7 @@ pub(crate) fn trace_ocean_currents(
             let spdm = ux.hypot(vy);
             let nx = cx + dir * (ux / spdm) * ds;
             let ny = cy + dir * (-vy / spdm) * ds;
-            if !is_valid_sea(nx, ny, (5.5 * us) as f32) || near_any(bins, nx, ny, d_test2) {
+            if !is_valid_sea(nx, ny, (4.0 * us) as f32) || near_any(bins, nx, ny, d_test2) {
                 break;
             }
             let len = pts.len();
@@ -1393,10 +1443,10 @@ pub(crate) fn trace_ocean_currents(
 
     let mut out = Vec::new();
     let mut row = 0usize;
-    let mut sy = fy + 10.0 * us;
-    while sy <= fy + fh - 10.0 * us {
-        let mut sx = fx + 10.0 * us + if row % 2 == 1 { d_sep * 0.5 } else { 0.0 };
-        while sx <= fx + fw - 10.0 * us {
+    let mut sy = fy + 6.0 * us;
+    while sy <= fy + fh - 6.0 * us {
+        let mut sx = fx + 4.0 * us + if row % 2 == 1 { d_sep * 0.5 } else { 0.0 };
+        while sx <= fx + fw - 4.0 * us {
             if is_valid_sea(sx, sy, (7.0 * us) as f32) && !near_any(&bins, sx, sy, d_seed2) {
                 if let Some((u0, v0, t0)) = sample_flow(sx, sy) {
                     if u0.hypot(v0) >= 0.030 {

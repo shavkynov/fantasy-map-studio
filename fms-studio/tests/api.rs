@@ -14,6 +14,7 @@ fn api_world_inspect_and_region_smoke() {
     let body = String::from_utf8(world_res.body).expect("utf8 json");
     assert!(body.contains("\"seed\":\"e\""), "body={body}");
     assert!(body.contains("\"rivers_count\":"), "body={body}");
+    assert!(body.contains("\"deposits_count\":"), "body={body}");
 
     let svg_res = app.handle_get("/api/world/overlay.svg", &world_q);
     assert_eq!(svg_res.status, 200);
@@ -21,6 +22,7 @@ fn api_world_inspect_and_region_smoke() {
     assert!(svg.contains("<svg "));
     assert!(svg.contains("id=\"layer-labels\""));
     assert!(svg.contains("id=\"layer-currents\""));
+    assert!(svg.contains("id=\"layer-deposits\""));
 
     let png_res = app.handle_get("/api/world/map.png", &world_q);
     assert_eq!(png_res.status, 200);
@@ -33,6 +35,7 @@ fn api_world_inspect_and_region_smoke() {
     assert_eq!(ins_res.status, 200);
     let ins_json = String::from_utf8(ins_res.body).expect("utf8 inspect");
     assert!(ins_json.contains("\"in_bounds\":true"), "inspect={ins_json}");
+    assert!(ins_json.contains("\"nearest_deposit\":"), "inspect={ins_json}");
     assert!(ins_json.contains("\"resources\":{"), "inspect={ins_json}");
 
     let mut reg_q = world_q.clone();

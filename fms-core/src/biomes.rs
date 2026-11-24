@@ -230,7 +230,7 @@ pub fn classify(
                 let young_oro = world.t_oro_myr[i] >= 0.0
                     && (t_now - world.t_oro_myr[i] as f64) <= 450.0
                     && erosion.elevation_km[i] > 0.9;
-                if world.thickness[i] > 37.0 || young_oro {
+                if erosion.effective_thickness_km[i] > 37.0 || young_oro {
                     Bedrock::OrogenicFold
                 } else if world.marine_sediment_km[i] > 0.08 {
                     Bedrock::SedimentaryPlatform

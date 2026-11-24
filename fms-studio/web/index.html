@@ -451,6 +451,7 @@
       <div class="layer-list">
         <label class="chk"><input type="checkbox" data-layer="layer-labels" checked /> Названия</label>
         <label class="chk"><input type="checkbox" data-layer="layer-routes" checked /> Дороги и пути</label>
+        <label class="chk"><input type="checkbox" data-layer="layer-deposits" checked /> Месторождения</label>
         <label class="chk"><input type="checkbox" data-layer="layer-currents" checked /> Течения</label>
         <label class="chk"><input type="checkbox" data-layer="layer-graticule" checked /> Сетка</label>
         <label class="chk"><input type="checkbox" data-layer="layer-compass" checked /> Компас</label>
@@ -746,6 +747,7 @@ async function inspectPixel(px, py) {
     ['Культура', info.culture_name || '—'],
     ['Хоз. уклад', info.livelihood],
     ['Ближ. город', info.nearest_settlement ? `${info.nearest_settlement} (${Math.round(info.nearest_dist_km)} км)` : '—'],
+    ['Ближ. месторожд.', info.nearest_deposit ? `${info.nearest_deposit} ${Math.round(info.nearest_deposit_richness * 100)}% (${Math.round(info.nearest_deposit_dist_km)} км)` : '—'],
   ];
   $('inspect-kv').innerHTML = rows.map(([k, v]) => `<div class="k">${k}</div><div class="v">${v}</div>`).join('');
 

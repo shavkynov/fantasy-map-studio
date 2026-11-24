@@ -371,7 +371,22 @@ fn regional_zoom_continuity_and_antimeridian() {
         }
     }
 
-    // Проверка прокладки дорог по рельефу (глобальной и региональной)
+    assert!(
+        p.resources.coal != p.resources.hydrocarbons,
+        "coal and hydrocarbons should follow distinct sedimentary and alluvial controls"
+    );
+    assert_eq!(p.erosion.effective_thickness_km.len(), p.grid.len());
+    assert!(p
+        .erosion
+        .effective_thickness_km
+        .iter()
+        .all(|&t| t.is_finite() && (0.0..=80.0).contains(&t)));
+
+    // Проверка прокладки дорог и месторождений в регионе
+    for dep in &r1.deposits {
+        assert!(dep.cell < rn);
+        assert!(dep.richness.is_finite());
+    }
     if r1.settlements.len() >= 2 {
         assert!(!r1.roads.is_empty(), "expected relief-aware regional roads");
         for rd in &r1.roads {

@@ -568,7 +568,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
     let mut suture_pt = vec![0f32; n];
     for k in 0..n {
         if suture[order[k]] == 1 {
-            suture_pt[k] = 0.65;
+            suture_pt[k] = if tc >= 2 { 0.85 } else { 0.65 };
         }
     }
     let mut suture_hit_bin = vec![0u8; nb];
@@ -920,6 +920,20 @@ pub fn generate(opt: &Options) -> Result<World, String> {
                 t_oro[b] = time as f32;
                 t_arc[b] = time as f32;
                 volc_pt[k] = (volc_pt[k] + (inc / 5.0) as f32).min(1.0);
+            }
+            // Внутриматериковая компрессионная орогения вдоль швов при множестве материков
+            if tc >= 2 {
+                for k in 0..n {
+                    if suture_pt[k] > 0.35 && (thick[k] as f64) < T_ARC_MAX {
+                        let inc = (T_ARC_MAX - thick[k] as f64)
+                            .min(0.055 * opt.activity * (suture_pt[k] as f64) * dt);
+                        if inc > 0.0 {
+                            thick[k] = (thick[k] as f64 + inc) as f32;
+                            arc_added += inc * pa;
+                            t_oro[bin_idx[k]] = time as f32;
+                        }
+                    }
+                }
             }
             // поворот всех точек плит; независим по точкам — считаем в нескольких потоках
             {
