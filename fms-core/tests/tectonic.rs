@@ -132,7 +132,7 @@ fn flooding_record() {
 
 #[test]
 fn target_continents_and_zero_stop() {
-    for tc in [1u8, 3u8] {
+    for tc in [1u8, 3u8, 6u8] {
         let mut o = opts("tc_seed");
         o.target_continents = tc;
         let w = generate(&o).unwrap();

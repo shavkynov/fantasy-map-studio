@@ -9,7 +9,7 @@ use crate::hydrology::{evap_rate_m_yr, meander_smooth_river, FlowRegime, MouthKi
 use crate::planet::Planet;
 use crate::rng::{Noise, Rng};
 use std::cmp::Ordering;
-use std::collections::BinaryHeap;
+use std::collections::{BTreeSet, BinaryHeap};
 use std::f64::consts::TAU;
 
 const SECONDS_PER_YEAR: f64 = 31_557_600.0;
@@ -108,6 +108,13 @@ pub struct RegionSettlement {
     pub river_access: bool,
 }
 
+/// Сухопутная дорога в региональном масштабе, проложенная по рельефу и перевалам.
+#[derive(Clone, Debug)]
+pub struct RegionRoad {
+    pub cells: Vec<usize>,
+    pub pts: Vec<[f32; 2]>,
+}
+
 /// Детализированная физическая, гидрологическая и поселенческая модель региона.
 #[derive(Clone, Debug)]
 pub struct Region {
@@ -154,6 +161,258 @@ pub struct Region {
     pub rivers: Vec<River>,
     pub passes: Vec<RegionPass>,
     pub settlements: Vec<RegionSettlement>,
+    pub roads: Vec<RegionRoad>,
+}
+
+#[derive(Clone, Copy)]
+struct RoadNode {
+    cost: f64,
+    cell: usize,
+}
+
+impl Eq for RoadNode {}
+impl PartialEq for RoadNode {
+    fn eq(&self, other: &Self) -> bool {
+        self.cell == other.cell && self.cost.to_bits() == other.cost.to_bits()
+    }
+}
+impl Ord for RoadNode {
+    fn cmp(&self, other: &Self) -> Ordering {
+        other
+            .cost
+            .total_cmp(&self.cost)
+            .then_with(|| self.cell.cmp(&other.cell))
+    }
+}
+impl PartialOrd for RoadNode {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn route_region_road_fields(
+    w: usize,
+    h: usize,
+    dx_km_row: &[f64],
+    dy_km: f64,
+    elevation_km: &[f32],
+    is_ocean: &[u8],
+    is_lake: &[u8],
+    biome: &[Biome],
+    river_mask: &[u8],
+    passes: &[RegionPass],
+    from_cell: usize,
+    to_cell: usize,
+    existing_mask: Option<&[u8]>,
+) -> Option<RegionRoad> {
+    let n = w * h;
+    if from_cell >= n || to_cell >= n {
+        return None;
+    }
+    if is_ocean[from_cell] != 0
+        || is_lake[from_cell] != 0
+        || is_ocean[to_cell] != 0
+        || is_lake[to_cell] != 0
+        || biome[from_cell] == Biome::IceSheet
+        || biome[to_cell] == Biome::IceSheet
+    {
+        return None;
+    }
+    if from_cell == to_cell {
+        let pt = [(from_cell % w) as f32 + 0.5, (from_cell / w) as f32 + 0.5];
+        return Some(RegionRoad {
+            cells: vec![from_cell],
+            pts: vec![pt],
+        });
+    }
+
+    let mut is_pass_zone = vec![0u8; n];
+    for p in passes {
+        let px = p.x as isize;
+        let py = p.y as isize;
+        for dy in -3isize..=3 {
+            let yy = py + dy;
+            if yy < 0 || yy >= h as isize {
+                continue;
+            }
+            for dx in -3isize..=3 {
+                let xx = px + dx;
+                if xx < 0 || xx >= w as isize {
+                    continue;
+                }
+                is_pass_zone[yy as usize * w + xx as usize] = 1;
+            }
+        }
+    }
+
+    let mut dist = vec![f64::INFINITY; n];
+    let mut prev = vec![usize::MAX; n];
+    dist[from_cell] = 0.0;
+    let mut heap = BinaryHeap::new();
+    heap.push(RoadNode {
+        cost: 0.0,
+        cell: from_cell,
+    });
+
+    while let Some(RoadNode { cost, cell }) = heap.pop() {
+        if cost > dist[cell] + 1e-6 {
+            continue;
+        }
+        if cell == to_cell {
+            break;
+        }
+        let (ux, uy) = (cell % w, cell / w);
+        let (nbs, cnt) = reg_neighbors8(cell, w, h);
+        for &nb in &nbs[..cnt] {
+            if is_ocean[nb] != 0 || is_lake[nb] != 0 || biome[nb] == Biome::IceSheet {
+                continue;
+            }
+            let (vx, vy) = (nb % w, nb / w);
+            let step_e_km = (vx as f64 - ux as f64) * dx_km_row[uy];
+            let step_n_km = (vy as f64 - uy as f64) * dy_km;
+            let dist_km = step_e_km.hypot(step_n_km).max(0.25);
+
+            let elev_u = elevation_km[cell] as f64;
+            let elev_v = elevation_km[nb] as f64;
+            let dz = (elev_v - elev_u).abs();
+            let grade = dz / dist_km;
+            let in_pass = is_pass_zone[cell] != 0 || is_pass_zone[nb] != 0;
+
+            let slope_pen = if in_pass {
+                6.0 * grade
+            } else {
+                32.0 * grade + 850.0 * grade * grade
+            };
+            let alt_pen = if elev_v > 1.15 && !in_pass {
+                16.0 * (elev_v - 1.15).powf(1.6) + 55.0 * (elev_v - 1.85).max(0.0)
+            } else if elev_v > 1.4 && in_pass {
+                1.5 * (elev_v - 1.4)
+            } else {
+                0.0
+            };
+            let river_cross_pen = if river_mask[nb] != 0 && river_mask[cell] == 0 {
+                1.4
+            } else {
+                0.0
+            };
+            let biome_pen = match biome[nb] {
+                Biome::Wetland | Biome::TropicalRainforest => 1.6,
+                Biome::HotDesert | Biome::ColdDesert | Biome::PolarDesert | Biome::SaltFlat => 1.4,
+                Biome::Alpine => 1.2,
+                Biome::TemperateGrassland | Biome::TropicalSavanna | Biome::Mediterranean => 0.0,
+                _ => 0.35,
+            };
+            let reuse_mult = match existing_mask {
+                Some(m) if m[nb] != 0 => 0.62,
+                _ => 1.0,
+            };
+            let border_pen = if vx == 0 || vx + 1 == w || vy == 0 || vy + 1 == h {
+                0.35
+            } else {
+                0.0
+            };
+
+            let step_cost =
+                dist_km * (1.0 + slope_pen + alt_pen + river_cross_pen + biome_pen + border_pen) * reuse_mult;
+            let nc = cost + step_cost;
+            if nc + 1e-6 < dist[nb] {
+                dist[nb] = nc;
+                prev[nb] = cell;
+                heap.push(RoadNode { cost: nc, cell: nb });
+            }
+        }
+    }
+
+    if !dist[to_cell].is_finite() {
+        return None;
+    }
+
+    let mut cells = Vec::new();
+    let mut cur = to_cell;
+    while cur != usize::MAX {
+        cells.push(cur);
+        if cur == from_cell {
+            break;
+        }
+        cur = prev[cur];
+    }
+    if cells.last() != Some(&from_cell) {
+        return None;
+    }
+    cells.reverse();
+
+    let raw: Vec<[f32; 2]> = cells
+        .iter()
+        .map(|&c| [(c % w) as f32 + 0.5, (c / w) as f32 + 0.5])
+        .collect();
+    let pts = smooth_region_road_pts(&raw, w, h, elevation_km, is_ocean, is_lake);
+    Some(RegionRoad { cells, pts })
+}
+
+fn smooth_region_road_pts(
+    raw: &[[f32; 2]],
+    w: usize,
+    h: usize,
+    elevation_km: &[f32],
+    is_ocean: &[u8],
+    is_lake: &[u8],
+) -> Vec<[f32; 2]> {
+    if raw.len() < 3 {
+        return raw.to_vec();
+    }
+    let mut out = Vec::with_capacity(raw.len() * 2);
+    out.push(raw[0]);
+    for i in 0..(raw.len() - 1) {
+        let p0 = raw[i];
+        let p1 = raw[i + 1];
+        let ax = p0[0] * 0.75 + p1[0] * 0.25;
+        let ay = p0[1] * 0.75 + p1[1] * 0.25;
+        let bx = p0[0] * 0.25 + p1[0] * 0.75;
+        let by = p0[1] * 0.25 + p1[1] * 0.75;
+        let c0 = (p0[1].floor() as usize).min(h - 1) * w + (p0[0].floor() as usize).min(w - 1);
+        let c1 = (p1[1].floor() as usize).min(h - 1) * w + (p1[0].floor() as usize).min(w - 1);
+        let e_ref = 0.5 * (elevation_km[c0] + elevation_km[c1]) + 0.25;
+
+        let check_pt = |px: f32, py: f32| -> [f32; 2] {
+            let cx = (px.floor() as isize).clamp(0, w as isize - 1) as usize;
+            let cy = (py.floor() as isize).clamp(0, h as isize - 1) as usize;
+            let c = cy * w + cx;
+            if is_ocean[c] == 0 && is_lake[c] == 0 && elevation_km[c] <= e_ref {
+                [px, py]
+            } else {
+                [0.5 * (p0[0] + p1[0]), 0.5 * (p0[1] + p1[1])]
+            }
+        };
+        out.push(check_pt(ax, ay));
+        out.push(check_pt(bx, by));
+    }
+    out.push(*raw.last().unwrap());
+    out
+}
+
+/// Прокладывает сухопутную дорогу между двумя клетками детального региона по рельефу, долинам и перевалам.
+pub fn route_region_road(
+    reg: &Region,
+    from_cell: usize,
+    to_cell: usize,
+    existing_mask: Option<&[u8]>,
+) -> Option<RegionRoad> {
+    route_region_road_fields(
+        reg.w,
+        reg.h,
+        &reg.dx_km_row,
+        reg.dy_km,
+        &reg.elevation_km,
+        &reg.is_ocean,
+        &reg.is_lake,
+        &reg.biome,
+        &reg.river_mask,
+        &reg.passes,
+        from_cell,
+        to_cell,
+        existing_mask,
+    )
 }
 
 impl Region {
@@ -1826,6 +2085,54 @@ pub fn generate_region(planet: &Planet, opt: &RegionOptions) -> Result<Region, S
         }
     }
 
+    // 8. Сухопутные дороги в деталях региона (между местными поселениями по рельефу и перевалам)
+    let mut roads: Vec<RegionRoad> = Vec::new();
+    let mut road_used = vec![0u8; w * h];
+    let mut pairs: BTreeSet<(usize, usize)> = BTreeSet::new();
+    for a in 0..settlements.len() {
+        let sa = &settlements[a];
+        let mut cands: Vec<(usize, f64)> = Vec::new();
+        for b in 0..settlements.len() {
+            if a == b {
+                continue;
+            }
+            let sb = &settlements[b];
+            let ddx = (sb.x as f64 - sa.x as f64) * dx_km_row[sa.y];
+            let ddy = (sb.y as f64 - sa.y as f64) * dy_km;
+            let d = ddx.hypot(ddy);
+            if d <= 2200.0 {
+                cands.push((b, d));
+            }
+        }
+        cands.sort_by(|x, y| x.1.total_cmp(&y.1).then_with(|| x.0.cmp(&y.0)));
+        for &(b, _) in cands.iter().take(2) {
+            let p = if a < b { (a, b) } else { (b, a) };
+            pairs.insert(p);
+        }
+    }
+    for (a, b) in pairs {
+        if let Some(rd) = route_region_road_fields(
+            w,
+            h,
+            &dx_km_row,
+            dy_km,
+            &elevation_km,
+            &is_ocean,
+            &is_lake,
+            &biome,
+            &river_mask,
+            &passes,
+            settlements[a].cell,
+            settlements[b].cell,
+            Some(&road_used),
+        ) {
+            for &c in &rd.cells {
+                road_used[c] = 1;
+            }
+            roads.push(rd);
+        }
+    }
+
     Ok(Region {
         w,
         h,
@@ -1870,5 +2177,6 @@ pub fn generate_region(planet: &Planet, opt: &RegionOptions) -> Result<Region, S
         rivers,
         passes,
         settlements,
+        roads,
     })
 }

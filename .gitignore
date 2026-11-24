@@ -1,5 +1,6 @@
 /target/
 /dist/
+/Fantasy Map Studio.app/
 **/*.rs.bk
 .DS_Store
 *.tmp

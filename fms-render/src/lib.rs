@@ -325,38 +325,39 @@ pub fn render_region_with_options(
 
     let mut r_routes = Vec::new();
     let mut r_land_roads = Vec::new();
+    for rd in &reg.roads {
+        if rd.pts.len() < 2 {
+            continue;
+        }
+        let pts: Vec<[f64; 2]> = rd
+            .pts
+            .iter()
+            .map(|pt| proj.project_cell(pt[0] as f64, pt[1] as f64))
+            .collect();
+        r_land_roads.push(pts.clone());
+        r_routes.push(OverlayRoute { is_sea: false, pts });
+    }
     for tr in &planet.civilization.trade_routes {
         let mut cur = Vec::new();
-        let mut cur_sea = false;
         for &c in &tr.cells {
             let (cx, cy) = planet.grid.xy(c);
             let is_sea = planet.hydrology.is_ocean[c] != 0 || planet.hydrology.is_lake[c] != 0;
-            if let Some(pr) = proj.project_lat_lon(planet.grid.lat_deg(cy), planet.grid.lon_deg(cx)) {
-                if !cur.is_empty() && is_sea != cur_sea {
-                    let lp = cur.last().copied();
-                    if cur.len() >= 2 {
-                        if !cur_sea {
-                            r_land_roads.push(cur.clone());
-                        }
-                        r_routes.push(OverlayRoute {
-                            is_sea: cur_sea,
-                            pts: std::mem::take(&mut cur),
-                        });
-                    } else {
-                        cur.clear();
-                    }
-                    if let Some(p) = lp {
-                        cur.push(p);
-                    }
+            if !is_sea {
+                if cur.len() >= 2 {
+                    r_routes.push(OverlayRoute {
+                        is_sea: true,
+                        pts: std::mem::take(&mut cur),
+                    });
+                } else {
+                    cur.clear();
                 }
-                cur_sea = is_sea;
+                continue;
+            }
+            if let Some(pr) = proj.project_lat_lon(planet.grid.lat_deg(cy), planet.grid.lon_deg(cx)) {
                 cur.push(pr);
             } else if cur.len() >= 2 {
-                if !cur_sea {
-                    r_land_roads.push(cur.clone());
-                }
                 r_routes.push(OverlayRoute {
-                    is_sea: cur_sea,
+                    is_sea: true,
                     pts: std::mem::take(&mut cur),
                 });
             } else {
@@ -364,11 +365,8 @@ pub fn render_region_with_options(
             }
         }
         if cur.len() >= 2 {
-            if !cur_sea {
-                r_land_roads.push(cur.clone());
-            }
             r_routes.push(OverlayRoute {
-                is_sea: cur_sea,
+                is_sea: true,
                 pts: cur,
             });
         }
@@ -376,24 +374,27 @@ pub fn render_region_with_options(
 
     let mut settlements = Vec::new();
     let mut sett_pos = Vec::new();
-    for s in &planet.civilization.settlements {
-        let (sx, sy) = planet.grid.xy(s.cell);
-        if let Some(pr) = proj.project_lat_lon(planet.grid.lat_deg(sy), planet.grid.lon_deg(sx)) {
-            let kind = match s.role {
-                SettlementRole::Capital => "capital",
-                SettlementRole::Port => "port",
-                SettlementRole::PassFortress => "pass",
-                _ => "town",
-            };
-            settlements.push(SettlementPin {
-                name: s.name.clone(),
-                x: pr[0],
-                y: pr[1],
-                kind,
-                score: s.population_score as f64,
-            });
-            sett_pos.push((pr[0], pr[1], s.role, s.population_score as f64));
-        }
+    for s in &reg.settlements {
+        let pr = proj.project_cell(s.x as f64 + 0.5, s.y as f64 + 0.5);
+        let score = s
+            .global_id
+            .and_then(|gid| planet.civilization.settlements.get(gid as usize))
+            .map(|gs| gs.population_score as f64)
+            .unwrap_or(50.0);
+        let kind = match s.role {
+            SettlementRole::Capital => "capital",
+            SettlementRole::Port => "port",
+            SettlementRole::PassFortress => "pass",
+            _ => "town",
+        };
+        settlements.push(SettlementPin {
+            name: s.name.clone(),
+            x: pr[0],
+            y: pr[1],
+            kind,
+            score,
+        });
+        sett_pos.push((pr[0], pr[1], s.role, score));
     }
 
     let (r_peaks, r_forests, r_hills) = extract_region_anchors(reg, &rg, &proj);

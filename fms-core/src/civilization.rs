@@ -8,6 +8,7 @@ use crate::erosion::ErosionResult;
 use crate::geography::{Geography, MarineZone};
 use crate::grid::{blur_xwrap, slope_field, Grid};
 use crate::hydrology::{Hydrology, MouthKind};
+use crate::planet::Planet;
 use crate::resources::Resources;
 use crate::rng::Rng;
 use crate::toponymy;
@@ -171,6 +172,207 @@ impl PartialOrd for DijkNode {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn land_step_cost(
+    u: usize,
+    v: usize,
+    dist_km: f64,
+    elev: &[f32],
+    slope: &[f32],
+    is_pass_zone: &[u8],
+    hydrology: &Hydrology,
+    biomes: &Biomes,
+    habitability: &[f32],
+    existing_road_mask: Option<&[u8]>,
+) -> f64 {
+    if hydrology.is_lake[v] != 0 || hydrology.is_lake[u] != 0 {
+        return 0.55 * dist_km;
+    }
+    if hydrology.river_mask[u] != 0 && hydrology.river_mask[v] != 0 {
+        if hydrology.receiver[u] == v as i32 {
+            return 0.28 * dist_km;
+        }
+        if hydrology.receiver[v] == u as i32 {
+            return 0.48 * dist_km;
+        }
+    }
+    let dz = (elev[v] - elev[u]).abs() as f64;
+    let grade = dz / dist_km.max(1.0);
+    let grid_slope = slope[v] as f64;
+    let elev_v = elev[v] as f64;
+    let in_pass = is_pass_zone[u] != 0 || is_pass_zone[v] != 0;
+
+    let slope_pen = if in_pass {
+        4.5 * grid_slope + 8.0 * dz
+    } else {
+        30.0 * grid_slope + 450.0 * grade * grade + 20.0 * dz
+    };
+    let alt_pen = if elev_v > 1.15 && !in_pass {
+        14.0 * (elev_v - 1.15).powf(1.6) + 45.0 * (elev_v - 1.85).max(0.0)
+    } else if elev_v > 2.2 {
+        5.0 * (elev_v - 2.2)
+    } else {
+        0.0
+    };
+    let biome_pen = match biomes.biome[v] {
+        Biome::IceSheet => 14.0,
+        Biome::HotDesert | Biome::ColdDesert | Biome::PolarDesert | Biome::SaltFlat => {
+            if hydrology.is_oasis[v] != 0 || hydrology.is_wadi[v] != 0 {
+                0.35
+            } else if habitability[v] >= 0.12 {
+                0.45
+            } else {
+                4.5
+            }
+        }
+        Biome::Wetland | Biome::TropicalRainforest => 2.1,
+        Biome::TemperateGrassland | Biome::TropicalSavanna | Biome::Mediterranean => 0.0,
+        _ => 0.65,
+    };
+    let river_cross_pen = if hydrology.river_mask[v] != 0
+        && hydrology.discharge_m3s[v] > 3000.0
+        && hydrology.receiver[u] != v as i32
+        && hydrology.receiver[v] != u as i32
+    {
+        0.45
+    } else {
+        0.0
+    };
+    let valley_mult = if elev_v < 0.85 && grid_slope < 0.015 && habitability[v] >= 0.20 {
+        0.88
+    } else {
+        1.0
+    };
+    let reuse_mult = match existing_road_mask {
+        Some(m) if m[v] != 0 => 0.68,
+        _ => 1.0,
+    };
+    dist_km * (1.0 + slope_pen + alt_pen + biome_pen + river_cross_pen) * valley_mult * reuse_mult
+}
+
+/// Прокладывает сухопутный торговый маршрут между двумя клетками суши с учётом уклона, высот и перевалов.
+pub fn route_land_road(
+    planet: &Planet,
+    from_cell: usize,
+    to_cell: usize,
+    existing_road_mask: Option<&[u8]>,
+) -> Option<Vec<usize>> {
+    let grid = &planet.grid;
+    let w = grid.w;
+    let h = grid.h;
+    let n = grid.len();
+    if from_cell >= n || to_cell >= n {
+        return None;
+    }
+    if planet.hydrology.is_ocean[from_cell] != 0
+        || planet.hydrology.is_lake[from_cell] != 0
+        || planet.hydrology.is_ocean[to_cell] != 0
+        || planet.hydrology.is_lake[to_cell] != 0
+    {
+        return None;
+    }
+    if from_cell == to_cell {
+        return Some(vec![from_cell]);
+    }
+
+    let slope = slope_field(&planet.erosion.elevation_km, grid);
+    let mut is_pass_zone = vec![0u8; n];
+    for p in &planet.geography.passes {
+        let (px, py) = grid.xy(p.cell);
+        for dy in -1isize..=1 {
+            let yy = py as isize + dy;
+            if yy < 0 || yy >= h as isize {
+                continue;
+            }
+            for dx in -1isize..=1 {
+                let xx = grid.wrap_x(px as isize + dx);
+                let c = grid.idx(xx, yy as usize);
+                is_pass_zone[c] = 1;
+            }
+        }
+    }
+
+    let dy_km = grid.dy_km();
+    let dx_row: Vec<f64> = (0..h).map(|y| grid.dx_km(y)).collect();
+    let mut dist = vec![f64::INFINITY; n];
+    let mut prev = vec![usize::MAX; n];
+    dist[from_cell] = 0.0;
+    let mut heap = BinaryHeap::new();
+    heap.push(DijkNode {
+        cost: 0.0,
+        cell: from_cell,
+        realm: 0,
+    });
+
+    while let Some(DijkNode { cost, cell, .. }) = heap.pop() {
+        if cost > dist[cell] + 1e-6 {
+            continue;
+        }
+        if cell == to_cell {
+            break;
+        }
+        let (ux, uy) = (cell % w, cell / w);
+        let (nbs, cnt) = grid.neighbors8(cell);
+        for &nb in &nbs[..cnt] {
+            if planet.hydrology.is_ocean[nb] != 0 || planet.hydrology.is_lake[nb] != 0 {
+                continue;
+            }
+            let (vx, vy) = (nb % w, nb / w);
+            let mut dxi = vx as isize - ux as isize;
+            let wi = w as isize;
+            if dxi > wi / 2 {
+                dxi -= wi;
+            } else if dxi < -wi / 2 {
+                dxi += wi;
+            }
+            let dyi = vy as isize - uy as isize;
+            let dist_km = ((dxi as f64) * dx_row[uy])
+                .hypot(-(dyi as f64) * dy_km)
+                .max(1.0);
+            let step = land_step_cost(
+                cell,
+                nb,
+                dist_km,
+                &planet.erosion.elevation_km,
+                &slope,
+                &is_pass_zone,
+                &planet.hydrology,
+                &planet.biomes,
+                &planet.civilization.habitability,
+                existing_road_mask,
+            );
+            let nc = cost + step;
+            if nc + 1e-6 < dist[nb] {
+                dist[nb] = nc;
+                prev[nb] = cell;
+                heap.push(DijkNode {
+                    cost: nc,
+                    cell: nb,
+                    realm: 0,
+                });
+            }
+        }
+    }
+
+    if !dist[to_cell].is_finite() {
+        return None;
+    }
+    let mut path = Vec::new();
+    let mut cur = to_cell;
+    while cur != usize::MAX {
+        path.push(cur);
+        if cur == from_cell {
+            break;
+        }
+        cur = prev[cur];
+    }
+    if path.last() != Some(&from_cell) {
+        return None;
+    }
+    path.reverse();
+    Some(path)
 }
 
 /// Строит карту пригодности к жизни, культур, поселений, торговых путей и государств.
@@ -430,6 +632,10 @@ pub fn simulate(
         if deposit_bonus[i] >= 0.50 {
             score += 0.24 * deposit_bonus[i];
         }
+        score -= 4.5 * slope[i];
+        if erosion.elevation_km[i] > 1.85 && is_pass_zone[i] == 0 && deposit_bonus[i] < 0.50 {
+            score -= 0.45 * (erosion.elevation_km[i] - 1.85);
+        }
         site_cands.push((i, score));
     }
 
@@ -497,7 +703,7 @@ pub fn simulate(
     let dy_km = grid.dy_km();
     let dx_row: Vec<f64> = (0..h).map(|y| grid.dx_km(y)).collect();
 
-    let step_cost = |u: usize, v: usize| -> f64 {
+    let step_cost_base = |u: usize, v: usize, road_used: Option<&[u8]>| -> f64 {
         let (ux, uy) = (u % w, u / w);
         let (vx, vy) = (v % w, v / w);
         let mut dxi = vx as isize - ux as isize;
@@ -516,45 +722,18 @@ pub fn simulate(
         let v_oce = hydrology.is_ocean[v] != 0;
 
         if !u_oce && !v_oce {
-            if hydrology.is_lake[v] != 0 || hydrology.is_lake[u] != 0 {
-                return 0.55 * dist_km;
-            }
-            if hydrology.river_mask[u] != 0 && hydrology.river_mask[v] != 0 {
-                if hydrology.receiver[u] == v as i32 {
-                    return 0.28 * dist_km;
-                }
-                if hydrology.receiver[v] == u as i32 {
-                    return 0.48 * dist_km;
-                }
-            }
-            let climb = (erosion.elevation_km[v] - erosion.elevation_km[u]).max(0.0) as f64;
-            let in_pass = is_pass_zone[u] != 0 || is_pass_zone[v] != 0;
-            let slope_pen = if in_pass {
-                6.0 * slope[v] as f64
-            } else {
-                22.0 * slope[v] as f64 + 14.0 * climb
-            };
-            let alt_pen = if erosion.elevation_km[v] > 2.4 && !in_pass {
-                8.0 * (erosion.elevation_km[v] as f64 - 2.4)
-            } else {
-                0.0
-            };
-            let biome_pen = match biomes.biome[v] {
-                Biome::IceSheet => 12.0,
-                Biome::HotDesert | Biome::ColdDesert | Biome::PolarDesert | Biome::SaltFlat => {
-                    if hydrology.is_oasis[v] != 0 || hydrology.is_wadi[v] != 0 {
-                        0.35
-                    } else if habitability[v] >= 0.12 {
-                        0.4
-                    } else {
-                        4.5
-                    }
-                }
-                Biome::Wetland | Biome::TropicalRainforest => 2.1,
-                Biome::TemperateGrassland | Biome::TropicalSavanna | Biome::Mediterranean => 0.0,
-                _ => 0.75,
-            };
-            dist_km * (1.0 + slope_pen + alt_pen + biome_pen)
+            land_step_cost(
+                u,
+                v,
+                dist_km,
+                &erosion.elevation_km,
+                &slope,
+                &is_pass_zone,
+                hydrology,
+                biomes,
+                &habitability,
+                road_used,
+            )
         } else if u_oce != v_oce {
             let oce_c = if u_oce { u } else { v };
             let land_c = if u_oce { v } else { u };
@@ -665,7 +844,7 @@ pub fn simulate(
         }
         let (nbs, cnt) = grid.neighbors8(cell);
         for &nb in &nbs[..cnt] {
-            let mut c_step = step_cost(cell, nb);
+            let mut c_step = step_cost_base(cell, nb, None);
             if hydrology.is_ocean[nb] != 0 && geography.marine_zone[nb] == MarineZone::OpenOcean {
                 c_step *= 2.2;
             }
@@ -942,7 +1121,7 @@ pub fn simulate(
             } else {
                 1.0
             };
-            let next_cost = cost + step_cost(cell, nb) * power_scale * cult_mult;
+            let next_cost = cost + step_cost_base(cell, nb, None) * power_scale * cult_mult;
             if next_cost <= max_admin_cost && next_cost + 1e-6 < best_cost[nb] {
                 best_cost[nb] = next_cost;
                 if hydrology.is_ocean[nb] == 0
@@ -1052,9 +1231,11 @@ pub fn simulate(
     }
 
     let mut trade_routes = Vec::new();
+    let mut road_used = vec![0u8; n];
     let mut dist = vec![f64::INFINITY; n];
     let mut prev = vec![usize::MAX; n];
     let mut visited = Vec::with_capacity(n / 4);
+    let max_route_cost = 4200.0f64;
 
     for (a, targets) in adj_targets.iter().enumerate() {
         if targets.is_empty() {
@@ -1090,13 +1271,13 @@ pub fn simulate(
                     break;
                 }
             }
-            if cost > 3200.0 {
+            if cost > max_route_cost {
                 break;
             }
             let (nbs, cnt) = grid.neighbors8(cell);
             for &nb in &nbs[..cnt] {
-                let nc = cost + step_cost(cell, nb);
-                if nc <= 3200.0 && nc + 1e-6 < dist[nb] {
+                let nc = cost + step_cost_base(cell, nb, Some(&road_used));
+                if nc <= max_route_cost && nc + 1e-6 < dist[nb] {
                     if !dist[nb].is_finite() {
                         visited.push(nb);
                     }
@@ -1128,6 +1309,11 @@ pub fn simulate(
                 continue;
             }
             path.reverse();
+            for &c in &path {
+                if hydrology.is_ocean[c] == 0 && hydrology.is_lake[c] == 0 {
+                    road_used[c] = 1;
+                }
+            }
             let mut segments = Vec::with_capacity(path.len() - 1);
             for k in 0..(path.len() - 1) {
                 let u = path[k];

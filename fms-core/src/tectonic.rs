@@ -216,22 +216,29 @@ fn make_craton(p: [f64; 3], size: f64, r: &mut Rng) -> Craton {
     let (t2x, t2y, t2z) = (py * t1z - pz * t1y, pz * t1x - px * t1z, px * t1y - py * t1x);
     let th = r.next() * PI;
     // вытянутость умеренная (в отличие от общего коллажа): иначе длинные материки наезжают на соседей ещё на старте
-    let e = 1.0 + 0.5 * r.next();
+    let e = 1.0 + 0.9 * r.next();
     let rho = (0.4 + 0.3 * r.next()) * size;
     let pw = 1.1 + 1.6 * r.next();
     Craton { p, t1: [t1x, t1y, t1z], t2: [t2x, t2y, t2z], co: th.cos(), si: th.sin(), e, rho, pw }
 }
 
-/// Центры `k` материков: farthest-point на сфере в полосе `|z| <= 0.78`, угловое разнесение не меньше `1.9 / sqrt(k)` рад.
+/// Центры `k` материков: farthest-point на сфере в полосе `|z| <= 0.72`, угловое разнесение не меньше `1.95 / sqrt(k)` рад.
 /// Из кандидатов берётся случайный из почти наилучших, чтобы расклад был естественным, а не правильным многогранником.
 fn continent_centers(k: usize, r: &mut Rng) -> Vec<[f64; 3]> {
-    const ZMAX: f64 = 0.78;
-    let sep = 1.9 / (k as f64).sqrt();
+    const ZMAX: f64 = 0.72;
+    let sep = 1.95 / (k as f64).sqrt();
     let sample = |r: &mut Rng| -> [f64; 3] {
-        let z = (r.next() * 2.0 - 1.0) * ZMAX;
-        let a = r.next() * TAU;
-        let rr = (1.0 - z * z).sqrt();
-        [rr * a.cos(), rr * a.sin(), z]
+        loop {
+            let z = (r.next() * 2.0 - 1.0) * ZMAX;
+            let a = r.next() * TAU;
+            let rr = (1.0 - z * z).sqrt();
+            let c = [rr * a.cos(), rr * a.sin(), z];
+            // Оставляем чистый океанский коридор около меридиана разреза при k >= 2
+            if k >= 2 && c[0] < -0.95 && c[1].abs() < 0.22 {
+                continue;
+            }
+            return c;
+        }
     };
     let mut centers = vec![sample(r)];
     while centers.len() < k {
@@ -260,19 +267,24 @@ fn multi_continent_cratons(k: usize, seed: &str) -> (Vec<Craton>, Vec<u8>) {
     let centers = continent_centers(k, &mut cr);
     let mut out = Vec::new();
     let mut cluster = Vec::new();
+    let k_scale = (2.2 / k as f64).sqrt().clamp(0.54, 1.0);
     for (i, c) in centers.iter().enumerate() {
-        let sz = if i == 0 { 1.12 } else { 0.85 + 0.2 * cr.next() };
-        let ncr = 2 + (cr.next() * 2.0).floor() as usize;
+        let sz = (if i == 0 { 1.06 } else { 0.80 + 0.22 * cr.next() }) * k_scale;
+        let ncr = 4 + (cr.next() * 2.0).floor() as usize;
         let ax = if c[2].abs() > 0.9 { [1.0, 0.0, 0.0] } else { [0.0, 0.0, 1.0] };
         let u0 = [c[1] * ax[2] - c[2] * ax[1], c[2] * ax[0] - c[0] * ax[2], c[0] * ax[1] - c[1] * ax[0]];
         let ul = (u0[0] * u0[0] + u0[1] * u0[1] + u0[2] * u0[2]).sqrt().max(1e-12);
         let u = [u0[0] / ul, u0[1] / ul, u0[2] / ul];
         let v = [c[1] * u[2] - c[2] * u[1], c[2] * u[0] - c[0] * u[2], c[0] * u[1] - c[1] * u[0]];
         for j in 0..ncr {
-            let (a, phi) = if j == 0 { (0.0, 0.0) } else { (0.10 + 0.14 * cr.next(), cr.next() * TAU) };
+            let (a, phi) = if j == 0 {
+                (0.0, 0.0)
+            } else {
+                ((0.10 + 0.16 * cr.next()) * k_scale, cr.next() * TAU)
+            };
             let d = [u[0] * phi.cos() + v[0] * phi.sin(), u[1] * phi.cos() + v[1] * phi.sin(), u[2] * phi.cos() + v[2] * phi.sin()];
             let p = [c[0] * a.cos() + d[0] * a.sin(), c[1] * a.cos() + d[1] * a.sin(), c[2] * a.cos() + d[2] * a.sin()];
-            let csz = if j == 0 { sz } else { sz * (0.55 + 0.30 * cr.next()) };
+            let csz = if j == 0 { sz } else { sz * (0.38 + 0.42 * cr.next()) };
             out.push(make_craton(p, csz, &mut cr));
             cluster.push(i as u8);
         }
@@ -466,8 +478,17 @@ pub fn generate(opt: &Options) -> Result<World, String> {
             let d = dcr(c, sx[i], sy[i], sz[i]);
             if d < d1 { d2 = d1; d1 = d; } else if d < d2 { d2 = d; }
         }
-        score[i] = (d1 + 0.05 * noise.get(sx[i] * 5.3 + 3.0, sy[i] * 5.3 + 9.0, sz[i] * 5.3 + 1.0)) as f32;
-        suture[i] = if d2 < 1.25 && d1 < 1.25 { 1 } else { 0 };
+        let n_amp = if tc >= 2 { 0.22 } else { 0.05 };
+        score[i] = (d1
+            + n_amp * noise.get(sx[i] * 5.3 + 3.0, sy[i] * 5.3 + 9.0, sz[i] * 5.3 + 1.0)
+            + 0.45 * n_amp * noise.get(sx[i] * 11.7 + 7.0, sy[i] * 11.7 + 1.0, sz[i] * 11.7 + 4.0)) as f32;
+        suture[i] = if tc >= 2 {
+            if d1 < 1.05 && d2 < 1.18 && (d2 - d1) < 0.14 { 1 } else { 0 }
+        } else if d2 < 1.25 && d1 < 1.25 {
+            1
+        } else {
+            0
+        };
         if tc > 0 {
             let (mut bd, mut bc) = (9.0f64, 0usize);
             for (ci, c) in crat.iter().enumerate() {
@@ -479,7 +500,12 @@ pub fn generate(opt: &Options) -> Result<World, String> {
     }
     let mut order: Vec<usize> = (0..np).collect();
     order.sort_by(|&a, &b| score[a].partial_cmp(&score[b]).unwrap_or(std::cmp::Ordering::Equal));
-    let n = jsround(opt.continental_fraction * np as f64) as usize;
+    let eff_cf = if tc >= 3 {
+        opt.continental_fraction.min(0.33)
+    } else {
+        opt.continental_fraction
+    };
+    let n = jsround(eff_cf * np as f64) as usize;
     // материк, которому принадлежит каждая континентальная точка (при заданном числе материков)
     let pcl: Vec<u8> = if tc > 0 { (0..n).map(|k| pcl_pt[order[k]]).collect() } else { Vec::new() };
     let no = (OCE_CAP * nb as f64).ceil() as usize;
@@ -491,7 +517,10 @@ pub fn generate(opt: &Options) -> Result<World, String> {
     for k in 0..n {
         let i = order[k];
         x[3 * k] = sx[i]; x[3 * k + 1] = sy[i]; x[3 * k + 2] = sz[i];
-        thick[k] = (TREF - 15.0 * smooth(0.7, 1.0, k as f64 / n as f64) + if suture[i] == 1 { 8.0 } else { 0.0 }) as f32;
+        let edge_drop = if tc >= 2 { 11.0 } else { 15.0 };
+        let base_t = if tc >= 2 { 27.5 } else { TREF };
+        let ridge_bump = if suture[i] == 1 { 8.5 } else { 0.0 };
+        thick[k] = (base_t - edge_drop * smooth(0.55, 1.0, k as f64 / n as f64) + ridge_bump).max(16.0) as f32;
         alive[k] = 1;
     }
     let mut free: Vec<usize> = Vec::new();
@@ -585,7 +614,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
         // случайными трещинами, но дуги, орогения и эрозия работают как обычно), плюс 2..3 океанские плиты.
         // Дрейф сдержан: суперконтинент — умеренно (плиты крупные, 3..4), разнесённые материки — заметно медленнее,
         // чтобы не слипаться в меньшее число масс.
-        let vf = match tc { 0 => 1.0, 1 => 0.65, _ => 0.22 };
+        let vf = match tc { 0 => 1.0, 1 => 0.65, 2..=3 => 0.18, _ => 0.10 };
         let kp = if tc > 0 { tc + 2 + (r.next() * 2.0).floor() as usize } else { 4 + (r.next() * 5.0).floor() as usize };
         let pick = |r: &mut Rng| -> usize {
             loop {
@@ -1110,6 +1139,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
             }
             for a in 0..kp {
                 for s in (a + 1)..kp {
+                    if tc >= 2 && a < tc && s < tc { continue; }
                     if find(&mut par, a) != a || find(&mut par, s) != s || pair[a * kp + s] == 0 { continue; }
                     if pair[a * kp + s] as f64 > (6f64).max(WELD_FRAC * csz[a].min(csz[s]) / PTS_PER_BIN) {
                         par[s] = a;

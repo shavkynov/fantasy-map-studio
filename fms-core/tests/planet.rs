@@ -370,4 +370,34 @@ fn regional_zoom_continuity_and_antimeridian() {
             assert!(seam.filled_km[recv as usize] <= seam.filled_km[i]);
         }
     }
+
+    // Проверка прокладки дорог по рельефу (глобальной и региональной)
+    if r1.settlements.len() >= 2 {
+        assert!(!r1.roads.is_empty(), "expected relief-aware regional roads");
+        for rd in &r1.roads {
+            assert!(rd.cells.len() >= 2);
+            for &c in &rd.cells {
+                assert_eq!(r1.is_ocean[c], 0, "road stepped into ocean");
+                assert_eq!(r1.is_lake[c], 0, "road stepped into lake");
+            }
+        }
+        let rd = region::route_region_road(&r1, r1.settlements[0].cell, r1.settlements[1].cell, None)
+            .expect("route region road between first two regional settlements");
+        assert!(rd.cells.len() >= 2);
+    }
+    for tr in &p.civilization.trade_routes {
+        if let (Some(&a), Some(&b)) = (tr.cells.first(), tr.cells.last()) {
+            if p.hydrology.is_ocean[a] == 0
+                && p.hydrology.is_lake[a] == 0
+                && p.hydrology.is_ocean[b] == 0
+                && p.hydrology.is_lake[b] == 0
+                && tr.segments.iter().all(|s| *s != fms_core::civilization::RouteKind::SeaLane)
+            {
+                if let Some(path) = fms_core::civilization::route_land_road(&p, a, b, None) {
+                    assert!(path.iter().all(|&c| p.hydrology.is_ocean[c] == 0 && p.hydrology.is_lake[c] == 0));
+                    break;
+                }
+            }
+        }
+    }
 }

@@ -73,3 +73,36 @@ fn render_is_deterministic() {
     assert_eq!(a.flat_rgb, b.flat_rgb);
     assert_eq!(a.to_svg_with_image_href(&pack, "x.png"), b.to_svg_with_image_href(&pack, "x.png"));
 }
+
+#[test]
+fn six_continents_projection_frame_invertible() {
+    let pack = AssetPack::load_default().expect("assets");
+    let mut opt = Options::new("e");
+    opt.w = 180;
+    opt.target_continents = 6;
+    let planet = planet::generate(&opt).expect("planet tc=6");
+    let proj = fms_render::WorldProj::fit(&planet, 1100);
+    let [fx, fy, fw, fh] = proj.frame;
+    for gy in 0..=4 {
+        for gx in 0..=4 {
+            let px = fx + 1.0 + (fw - 2.0) * (gx as f64 / 4.0);
+            let py = fy + 1.0 + (fh - 2.0) * (gy as f64 / 4.0);
+            assert!(
+                proj.inverse(px, py).is_some(),
+                "frame point ({px:.1}, {py:.1}) should map back inside sphere"
+            );
+        }
+    }
+    let out = render_world_with_options(
+        &planet,
+        "e",
+        &pack,
+        &RenderOptions {
+            style: Style::Expedition,
+            target_width: 900,
+            title: None,
+        },
+    );
+    assert_eq!(&out.to_png_bytes()[..8], &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]);
+    assert!(out.to_svg_standalone(&pack).contains("<svg "));
+}

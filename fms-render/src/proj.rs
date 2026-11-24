@@ -1,5 +1,6 @@
 //! Изотропная цилиндрическая проекция Паттерсона без разрезания континентов и региональная проекция.
 
+use fms_core::geography::LandmassKind;
 use fms_core::planet::Planet;
 use fms_core::region::{Region, RegionOptions};
 use std::f64::consts::PI;
@@ -40,13 +41,15 @@ pub fn patterson_phi(y: f64) -> Option<f64> {
     Some(phi.clamp(-PI * 0.5, PI * 0.5))
 }
 
-/// Подбирает океанический меридиан разреза с максимальным свободным окном без суши.
+/// Подбирает океанический меридиан разреза: приоритет — чистое окно без материков, иначе минимум взвешенного пересечения суши.
 pub fn find_optimal_seam_lon(planet: &Planet) -> f64 {
     let gw = planet.grid.w;
     let gh = planet.grid.h;
     let n_bins = 720usize;
-    let mut bin_hit = vec![false; n_bins];
+    let mut cont_hit = vec![false; n_bins];
+    let mut land_cost = vec![0.0f64; n_bins];
     for y in 0..gh {
+        let cos_lat = planet.grid.lat_rad(y).cos().max(0.05);
         for x in 0..gw {
             let i = y * gw + x;
             if planet.hydrology.is_ocean[i] != 0 {
@@ -54,14 +57,37 @@ pub fn find_optimal_seam_lon(planet: &Planet) -> f64 {
             }
             let lon = planet.grid.lon_deg(x);
             let b = (((lon + 180.0).rem_euclid(360.0) / 360.0) * n_bins as f64).floor() as usize % n_bins;
-            bin_hit[b] = true;
+            let lid = planet.geography.landmass_id[i];
+            let kind = if lid >= 0 {
+                planet
+                    .geography
+                    .landmasses
+                    .get(lid as usize)
+                    .map(|l| l.kind)
+                    .unwrap_or(LandmassKind::Island)
+            } else {
+                LandmassKind::Island
+            };
+            match kind {
+                LandmassKind::Continent => {
+                    cont_hit[b] = true;
+                    land_cost[b] += 12.0 * cos_lat;
+                }
+                LandmassKind::LargeIsland => {
+                    land_cost[b] += 2.5 * cos_lat;
+                }
+                LandmassKind::Island => {
+                    land_cost[b] += 0.4 * cos_lat;
+                }
+            }
         }
     }
+
     let mut best_len = 0usize;
     let mut best_mid = 180.0f64;
     let mut run = 0usize;
     for k in 0..(n_bins * 2) {
-        if !bin_hit[k % n_bins] {
+        if !cont_hit[k % n_bins] {
             run += 1;
             if run > best_len && run <= n_bins {
                 best_len = run;
@@ -73,7 +99,25 @@ pub fn find_optimal_seam_lon(planet: &Planet) -> f64 {
             run = 0;
         }
     }
-    best_mid
+    if best_len >= 6 {
+        return best_mid;
+    }
+
+    let mut best_cost = f64::INFINITY;
+    let mut best_bin = 0usize;
+    for b in 0..n_bins {
+        let mut s = 0.0f64;
+        for d in -10isize..=10isize {
+            let idx = (b as isize + d).rem_euclid(n_bins as isize) as usize;
+            let wgt = (11 - d.abs()) as f64;
+            s += land_cost[idx] * wgt;
+        }
+        if s < best_cost {
+            best_cost = s;
+            best_bin = b;
+        }
+    }
+    wrap_lon_deg(((best_bin as f64 + 0.5) / n_bins as f64) * 360.0 - 180.0)
 }
 
 /// Проекция карты мира без искажений (вписывает все материки целиком при `scale_x == scale_y`).
@@ -132,15 +176,24 @@ impl WorldProj {
         let pad_bot = (64.0 * k_s).round().max(20.0);
         let canvas_w = target_w.max(320);
         let inner_w = canvas_w as f64 - 2.0 * pad_x;
-        let px_per_unit = (inner_w / span_x_rad).max(inner_w / (2.0 * PI));
-        let inner_h_fit = (span_y_pat * px_per_unit).round();
-        let inner_h = inner_h_fit.clamp((inner_w * 0.44).round(), (inner_w * 0.66).round());
-        let px_per_unit = px_per_unit.min(inner_h / span_y_pat).max(inner_w / (2.0 * PI));
-        let inner_h = ((span_y_pat * px_per_unit).max(inner_h)).round();
+        let min_inner_h = (inner_w * 0.44).round();
+        let max_inner_h = (inner_w * (max_y_pat / PI)).floor().max(min_inner_h);
+
+        let px_per_unit_w = (inner_w / span_x_rad).max(inner_w / (2.0 * PI));
+        let inner_h_fit = (span_y_pat * px_per_unit_w).round();
+        let inner_h_pre = inner_h_fit.clamp(min_inner_h, max_inner_h);
+        let px_per_unit = px_per_unit_w
+            .min(inner_h_pre / span_y_pat)
+            .max(inner_w / (2.0 * PI))
+            .max(inner_h_pre / (2.0 * max_y_pat));
+        let inner_h = (span_y_pat * px_per_unit).round().clamp(min_inner_h, max_inner_h);
+        let px_per_unit = px_per_unit.max(inner_h / (2.0 * max_y_pat));
         let canvas_h = (pad_top + inner_h + pad_bot).round() as usize;
 
         let half_w_rad = (0.5 * inner_w / px_per_unit).min(PI);
         let origin_x_rad = mid_x_rad.clamp(-PI + half_w_rad, PI - half_w_rad);
+        let half_h_pat = (0.5 * inner_h / px_per_unit).min(max_y_pat);
+        let origin_y_pat = mid_y_pat.clamp(-max_y_pat + half_h_pat, max_y_pat - half_h_pat);
 
         Self {
             canvas_w,
@@ -150,7 +203,7 @@ impl WorldProj {
             center_lon_deg,
             px_per_unit,
             origin_x_rad,
-            origin_y_pat: mid_y_pat,
+            origin_y_pat,
         }
     }
 

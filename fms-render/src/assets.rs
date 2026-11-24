@@ -56,11 +56,16 @@ fn load_sprite(path: &Path) -> Result<Sprite, String> {
 }
 
 fn resolve_default_assets_dir() -> Result<PathBuf, String> {
-    let candidates = [
-        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/assets")),
-        PathBuf::from("fms-render/assets"),
-        PathBuf::from("assets"),
-    ];
+    let mut candidates = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            candidates.push(dir.join("../Resources/assets"));
+            candidates.push(dir.join("assets"));
+        }
+    }
+    candidates.push(PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/assets")));
+    candidates.push(PathBuf::from("fms-render/assets"));
+    candidates.push(PathBuf::from("assets"));
     for p in &candidates {
         if p.join("paper_tex.bin").is_file() && p.join("sprites/capital_0.rgba").is_file() {
             return Ok(p.clone());

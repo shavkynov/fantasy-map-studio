@@ -1,10 +1,10 @@
 //! Многопоточный HTTP-сервер картографической студии (`std::net`) без внешних зависимостей.
 
 use fms_core::biomes::Bedrock;
-use fms_core::civilization::SettlementRole;
+use fms_core::civilization::{route_land_road, SettlementRole};
 use fms_core::geography::{LandmassKind, MarineZone};
 use fms_core::planet::{self, Planet, PlanetOptions};
-use fms_core::region::{self, Region, RegionOptions};
+use fms_core::region::{self, route_region_road, Region, RegionOptions};
 use fms_render::{
     choose_region_window, render_region_with_options, render_world_with_options, AssetPack,
     RegionProj, RenderOptions, RenderOutput, Style, WorldProj,
@@ -101,6 +101,7 @@ struct CachedRender {
     overlay_svg: String,
     standalone_svg: String,
     reg_proj: Option<RegionProj>,
+    region: Option<Arc<Region>>,
 }
 
 impl CachedRender {
@@ -126,12 +127,13 @@ impl CachedRender {
             overlay_svg,
             standalone_svg,
             reg_proj: None,
+            region: None,
         }
     }
 
     fn from_region(
         out: RenderOutput,
-        reg: &Region,
+        reg: Arc<Region>,
         reg_opt: &RegionOptions,
         pack: &AssetPack,
         png_href: &str,
@@ -140,7 +142,7 @@ impl CachedRender {
         let full_png = out.to_png_bytes();
         let overlay_svg = out.to_svg_with_image_href(pack, png_href);
         let standalone_svg = out.to_svg_standalone(pack);
-        let reg_proj = RegionProj::new(reg, reg_opt, out.width);
+        let reg_proj = RegionProj::new(&reg, reg_opt, out.width);
         Self {
             width: out.width,
             height: out.height,
@@ -158,6 +160,7 @@ impl CachedRender {
             overlay_svg,
             standalone_svg,
             reg_proj: Some(reg_proj),
+            region: Some(reg),
         }
     }
 }
@@ -238,27 +241,27 @@ impl StudioApp {
             .get("activity")
             .and_then(|s| s.parse::<f64>().ok())
             .unwrap_or(1.0)
-            .clamp(0.2, 2.5);
+            .clamp(0.75, 1.35);
         let water_depth = q
             .get("water_depth")
             .and_then(|s| s.parse::<f64>().ok())
             .unwrap_or(2.62)
-            .clamp(1.2, 4.5);
+            .clamp(2.20, 3.05);
         let tilt = q
             .get("tilt")
             .and_then(|s| s.parse::<f64>().ok())
             .unwrap_or(23.4)
-            .clamp(0.0, 45.0);
+            .clamp(15.0, 30.0);
         let solar = q
             .get("solar")
             .and_then(|s| s.parse::<f64>().ok())
             .unwrap_or(0.0)
-            .clamp(-15.0, 15.0);
+            .clamp(-3.5, 3.5);
         let rot = q
             .get("rotation")
             .and_then(|s| s.parse::<f64>().ok())
             .unwrap_or(1.0)
-            .clamp(0.25, 3.0);
+            .clamp(0.70, 1.40);
 
         let mut opt = PlanetOptions::new(&seed);
         opt.tectonic.w = w;
@@ -411,7 +414,7 @@ impl StudioApp {
         }
         let span_lat = (span * 0.68).clamp(4.0, 56.0);
         let reg_opt = RegionOptions::new(lat, lon, span, span_lat, scale);
-        let reg = region::generate_region(&planet, &reg_opt)?;
+        let reg = Arc::new(region::generate_region(&planet, &reg_opt)?);
         let ropt = RenderOptions {
             style,
             target_width: target_w,
@@ -419,11 +422,16 @@ impl StudioApp {
         };
         let out = render_region_with_options(&planet, &reg, &reg_opt, &wkey.seed, &self.pack, &ropt);
         let png_href = format!("/api/region/map.png?{full_qs}");
-        let cached = Arc::new(CachedRender::from_region(out, &reg, &reg_opt, &self.pack, &png_href));
+        let cached = Arc::new(CachedRender::from_region(out, reg, &reg_opt, &self.pack, &png_href));
         let mut guard = self.cache.lock().map_err(|_| "cache poisoned".to_string())?;
         let cache = &mut *guard;
         StudioCache::insert_bounded(&mut cache.region_renders, &mut cache.region_lru, rkey, Arc::clone(&cached), 4);
         Ok((wkey, planet, cached, full_qs))
+    }
+
+    pub fn handle_raw_target(&self, raw_target: &str) -> StudioResponse {
+        let (path, q) = parse_target(raw_target);
+        self.handle_get(path, &q)
     }
 
     pub fn handle_get(&self, path: &str, q: &HashMap<String, String>) -> StudioResponse {
@@ -533,6 +541,7 @@ impl StudioApp {
                 Err(e) => StudioResponse::err(400, &e),
             },
             "/api/inspect" => self.handle_inspect(q),
+            "/api/route_road" => self.handle_route_road(q),
             _ => StudioResponse::err(404, "Not found"),
         }
     }
@@ -579,6 +588,188 @@ impl StudioApp {
         };
         StudioResponse::json(build_inspect_json(&planet, lat, lon))
     }
+
+    fn handle_route_road(&self, q: &HashMap<String, String>) -> StudioResponse {
+        let mode = q.get("mode").map(|s| s.as_str()).unwrap_or("world");
+        let to_px = q.get("to_px").and_then(|s| s.parse::<f64>().ok());
+        let to_py = q.get("to_py").and_then(|s| s.parse::<f64>().ok());
+        let to_lat_arg = q.get("to_lat").and_then(|s| s.parse::<f64>().ok());
+        let to_lon_arg = q.get("to_lon").and_then(|s| s.parse::<f64>().ok());
+
+        if mode == "region" {
+            let Ok((_, _, cached, _)) = self.get_or_render_region(q) else {
+                return StudioResponse::err(400, "Failed to load region");
+            };
+            let (Some(reg), Some(rp)) = (&cached.region, &cached.reg_proj) else {
+                return StudioResponse::err(500, "Missing region projection");
+            };
+            let from_ll = if let (Some(lat), Some(lon)) = (
+                q.get("from_lat").and_then(|s| s.parse::<f64>().ok()),
+                q.get("from_lon").and_then(|s| s.parse::<f64>().ok()),
+            ) {
+                Some((lat, lon))
+            } else if let (Some(px), Some(py)) = (
+                q.get("from_px").and_then(|s| s.parse::<f64>().ok()),
+                q.get("from_py").and_then(|s| s.parse::<f64>().ok()),
+            ) {
+                rp.inverse(px, py)
+            } else {
+                None
+            };
+            let Some((f_lat, f_lon)) = from_ll else {
+                return StudioResponse::json("{\"ok\":false,\"error\":\"Точка вне карты\"}".into());
+            };
+            let Some(from_cell) = snap_region_land_cell(reg, rp.span_lon_deg, f_lat, f_lon) else {
+                return StudioResponse::json("{\"ok\":false,\"error\":\"Поселение и дорога требуют суши\"}".into());
+            };
+            let placed = rp.project_cell((from_cell % reg.w) as f64 + 0.5, (from_cell / reg.w) as f64 + 0.5);
+
+            let mut routed = None;
+            let mut target_name = String::new();
+            if let Some((t_lat, t_lon)) = to_lat_arg.zip(to_lon_arg).or_else(|| to_px.zip(to_py).and_then(|(x, y)| rp.inverse(x, y))) {
+                if let Some(tc) = snap_region_land_cell(reg, rp.span_lon_deg, t_lat, t_lon) {
+                    if let Some(rd) = route_region_road(reg, from_cell, tc, None) {
+                        target_name = "Выбранный город".to_string();
+                        routed = Some(rd);
+                    }
+                }
+            } else {
+                let fx = from_cell % reg.w;
+                let fy = from_cell / reg.w;
+                let mut cands: Vec<(usize, f64, &str)> = reg
+                    .settlements
+                    .iter()
+                    .filter(|s| s.cell != from_cell)
+                    .map(|s| {
+                        let d = ((s.x as f64 - fx as f64) * reg.dx_km_row[fy])
+                            .hypot((s.y as f64 - fy as f64) * reg.dy_km);
+                        (s.cell, d, s.name.as_str())
+                    })
+                    .collect();
+                cands.sort_by(|a, b| a.1.total_cmp(&b.1));
+                for (tc, _, nm) in cands.into_iter().take(4) {
+                    if let Some(rd) = route_region_road(reg, from_cell, tc, None) {
+                        target_name = nm.to_string();
+                        routed = Some(rd);
+                        break;
+                    }
+                }
+            }
+
+            if let Some(rd) = routed {
+                let mut len_km = 0.0f64;
+                let mut max_elev = f32::NEG_INFINITY;
+                for &c in &rd.cells {
+                    max_elev = max_elev.max(reg.elevation_km[c]);
+                }
+                for w in rd.cells.windows(2) {
+                    let (ax, ay) = reg.xy(w[0]);
+                    let (bx, by) = reg.xy(w[1]);
+                    len_km += ((bx as f64 - ax as f64) * reg.dx_km_row[ay])
+                        .hypot((by as f64 - ay as f64) * reg.dy_km);
+                }
+                let pts: Vec<[f64; 2]> = rd
+                    .pts
+                    .iter()
+                    .map(|p| rp.project_cell(p[0] as f64, p[1] as f64))
+                    .collect();
+                return StudioResponse::json(build_road_json(
+                    placed,
+                    &target_name,
+                    len_km,
+                    max_elev * 1000.0,
+                    &pts,
+                ));
+            }
+            return StudioResponse::json(build_road_json(placed, "", 0.0, reg.elevation_km[from_cell] * 1000.0, &[]));
+        }
+
+        let Ok((_, planet, cached, _)) = self.get_or_render_world(q) else {
+            return StudioResponse::err(400, "Failed to load world");
+        };
+        let wp = WorldProj::fit(&planet, cached.width);
+        let from_ll = if let (Some(lat), Some(lon)) = (
+            q.get("from_lat").and_then(|s| s.parse::<f64>().ok()),
+            q.get("from_lon").and_then(|s| s.parse::<f64>().ok()),
+        ) {
+            Some((lat, lon))
+        } else if let (Some(px), Some(py)) = (
+            q.get("from_px").and_then(|s| s.parse::<f64>().ok()),
+            q.get("from_py").and_then(|s| s.parse::<f64>().ok()),
+        ) {
+            wp.inverse(px, py)
+        } else {
+            None
+        };
+        let Some((f_lat, f_lon)) = from_ll else {
+            return StudioResponse::json("{\"ok\":false,\"error\":\"Точка вне карты\"}".into());
+        };
+        let Some(from_cell) = snap_world_land_cell(&planet, f_lat, f_lon) else {
+            return StudioResponse::json("{\"ok\":false,\"error\":\"Поселение и дорога требуют суши\"}".into());
+        };
+        let (fcx, fcy) = planet.grid.xy(from_cell);
+        let placed = wp.project(planet.grid.lat_deg(fcy), planet.grid.lon_deg(fcx));
+
+        let mut routed = None;
+        let mut target_name = String::new();
+        if let Some((t_lat, t_lon)) = to_lat_arg.zip(to_lon_arg).or_else(|| to_px.zip(to_py).and_then(|(x, y)| wp.inverse(x, y))) {
+            if let Some(tc) = snap_world_land_cell(&planet, t_lat, t_lon) {
+                if let Some(cells) = route_land_road(&planet, from_cell, tc, None) {
+                    target_name = "Выбранный город".to_string();
+                    routed = Some(cells);
+                }
+            }
+        } else {
+            let u_from = planet.grid.unit_vec(fcx, fcy);
+            let mut cands: Vec<(usize, f64, &str)> = planet
+                .civilization
+                .settlements
+                .iter()
+                .filter(|s| s.cell != from_cell)
+                .map(|s| {
+                    let (sx, sy) = planet.grid.xy(s.cell);
+                    let d = planet.grid.spherical_dist_km(u_from, planet.grid.unit_vec(sx, sy));
+                    (s.cell, d, s.name.as_str())
+                })
+                .collect();
+            cands.sort_by(|a, b| a.1.total_cmp(&b.1));
+            for (tc, _, nm) in cands.into_iter().take(4) {
+                if let Some(cells) = route_land_road(&planet, from_cell, tc, None) {
+                    target_name = nm.to_string();
+                    routed = Some(cells);
+                    break;
+                }
+            }
+        }
+
+        if let Some(cells) = routed {
+            let mut len_km = 0.0f64;
+            let mut max_elev = f32::NEG_INFINITY;
+            for &c in &cells {
+                max_elev = max_elev.max(planet.erosion.elevation_km[c]);
+            }
+            for w in cells.windows(2) {
+                let (ax, ay) = planet.grid.xy(w[0]);
+                let (bx, by) = planet.grid.xy(w[1]);
+                len_km += planet.grid.spherical_dist_km(planet.grid.unit_vec(ax, ay), planet.grid.unit_vec(bx, by));
+            }
+            let pts: Vec<[f64; 2]> = cells
+                .iter()
+                .map(|&c| {
+                    let (cx, cy) = planet.grid.xy(c);
+                    wp.project(planet.grid.lat_deg(cy), planet.grid.lon_deg(cx))
+                })
+                .collect();
+            return StudioResponse::json(build_road_json(
+                placed,
+                &target_name,
+                len_km,
+                max_elev * 1000.0,
+                &pts,
+            ));
+        }
+        StudioResponse::json(build_road_json(placed, "", 0.0, planet.erosion.elevation_km[from_cell] * 1000.0, &[]))
+    }
 }
 
 pub fn serve(cfg: StudioConfig) -> Result<(), String> {
@@ -615,8 +806,7 @@ fn handle_connection(mut stream: TcpStream, app: &StudioApp) -> std::io::Result<
     let resp = if method != "GET" {
         StudioResponse::err(405, "Only GET is supported")
     } else {
-        let (path, q) = parse_target(raw_target);
-        app.handle_get(path, &q)
+        app.handle_raw_target(raw_target)
     };
 
     let reason = match resp.status {
@@ -997,5 +1187,92 @@ fn build_inspect_json(planet: &Planet, lat_deg: f64, lon_deg: f64) -> String {
         r.timber[cell],
         r.fishery[cell]
     );
+    out
+}
+
+fn snap_world_land_cell(planet: &Planet, lat_deg: f64, lon_deg: f64) -> Option<usize> {
+    let w = planet.grid.w;
+    let h = planet.grid.h;
+    let fy = ((90.0 - lat_deg) / 180.0 * h as f64 - 0.5).clamp(0.0, (h - 1) as f64);
+    let lon_norm = (lon_deg + 180.0).rem_euclid(360.0);
+    let fx = (lon_norm / 360.0 * w as f64 - 0.5).rem_euclid(w as f64);
+    let x0 = (fx.round() as usize) % w;
+    let y0 = (fy.round() as usize).min(h - 1);
+    let mut best = None;
+    let mut best_d = 999.0f64;
+    for dy in -2isize..=2 {
+        let yy = y0 as isize + dy;
+        if yy < 0 || yy >= h as isize {
+            continue;
+        }
+        for dx in -2isize..=2 {
+            let xx = planet.grid.wrap_x(x0 as isize + dx);
+            let c = planet.grid.idx(xx, yy as usize);
+            if planet.hydrology.is_ocean[c] == 0 && planet.hydrology.is_lake[c] == 0 {
+                let d = (dx as f64).hypot(dy as f64);
+                if d < best_d {
+                    best_d = d;
+                    best = Some(c);
+                }
+            }
+        }
+    }
+    best
+}
+
+fn snap_region_land_cell(reg: &Region, span_lon_deg: f64, lat_deg: f64, lon_deg: f64) -> Option<usize> {
+    let dlon = (lon_deg - reg.center_lon_deg + 540.0).rem_euclid(360.0) - 180.0;
+    let fx = ((dlon / span_lon_deg.max(1e-6) + 0.5) * reg.w as f64 - 0.5).clamp(0.0, (reg.w - 1) as f64);
+    let fy = ((reg.lat_max_deg - lat_deg) / (reg.lat_max_deg - reg.lat_min_deg).max(1e-6) * reg.h as f64 - 0.5)
+        .clamp(0.0, (reg.h - 1) as f64);
+    let x0 = (fx.round() as usize).min(reg.w - 1);
+    let y0 = (fy.round() as usize).min(reg.h - 1);
+    let mut best = None;
+    let mut best_d = 999.0f64;
+    for dy in -2isize..=2 {
+        let yy = y0 as isize + dy;
+        if yy < 0 || yy >= reg.h as isize {
+            continue;
+        }
+        for dx in -2isize..=2 {
+            let xx = x0 as isize + dx;
+            if xx < 0 || xx >= reg.w as isize {
+                continue;
+            }
+            let c = reg.idx(xx as usize, yy as usize);
+            if reg.is_ocean[c] == 0 && reg.is_lake[c] == 0 {
+                let d = (dx as f64).hypot(dy as f64);
+                if d < best_d {
+                    best_d = d;
+                    best = Some(c);
+                }
+            }
+        }
+    }
+    best
+}
+
+fn build_road_json(
+    placed: [f64; 2],
+    target_name: &str,
+    length_km: f64,
+    max_elev_m: f32,
+    pts: &[[f64; 2]],
+) -> String {
+    let mut out = String::with_capacity(512 + pts.len() * 18);
+    let _ = write!(
+        out,
+        "{{\"ok\":true,\"placed\":[{:.2},{:.2}],\"length_km\":{:.1},\"max_elev_m\":{:.0},\"target_name\":",
+        placed[0], placed[1], length_km, max_elev_m
+    );
+    push_json_str(&mut out, target_name);
+    out.push_str(",\"pts\":[");
+    for (i, p) in pts.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        let _ = write!(out, "[{:.2},{:.2}]", p[0], p[1]);
+    }
+    out.push_str("]}");
     out
 }
