@@ -23,6 +23,10 @@ const AGE_REF: f64 = 65.0;
 const SUBSIDE: f64 = 0.26;
 const SED_RATE: f64 = 0.03;
 const T_CONT: f64 = 12.0;
+/// Выше этой итоговой (после эрозии) толщины коры, км, клетка в поле `rift` не попадает:
+/// это утолщённый ороген, а не растяжение. Толщину проверяем на растре, а не в симуляции,
+/// где кора до эрозии везде толстая (в среднем ≈47 км).
+const RIFT_T_MAX: f64 = TREF + 3.0;
 const HOT_N: usize = 8;
 const HOT_RATE: f64 = 0.25;
 const HOT_RAD: f64 = 0.11;
@@ -931,6 +935,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
                             thick[k] = (thick[k] as f64 + inc) as f32;
                             arc_added += inc * pa;
                             t_oro[bin_idx[k]] = time as f32;
+                            rift_pt[k] = 0.0;
                         }
                     }
                 }
@@ -1149,6 +1154,8 @@ pub fn generate(opt: &Options) -> Result<World, String> {
             for k in 0..n {
                 if suture_hit_bin[bin_idx[k]] != 0 {
                     suture_pt[k] = (suture_pt[k] + (dt / 18.0) as f32).min(1.0);
+                    // столкновение стирает прежний рифт
+                    rift_pt[k] = 0.0;
                 }
             }
             for a in 0..kp {
@@ -1387,7 +1394,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
     };
     for v in volcanic.iter_mut() { *v = v.clamp(0.0, 1.0); }
     let rift_raw: Vec<f32> = (0..nc)
-        .map(|i| if te[i] >= T_CONT as f32 { rift_grid[i].clamp(0.0, 1.0) } else { 0.0 })
+        .map(|i| if te[i] >= T_CONT as f32 && (te[i] as f64) < RIFT_T_MAX { rift_grid[i].clamp(0.0, 1.0) } else { 0.0 })
         .collect();
     let mut rift = if w_ >= 180 {
         blur_y(&blur_x(&rift_raw, w_, h_, 1), w_, h_, 1)
@@ -1395,7 +1402,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
         rift_raw
     };
     for i in 0..nc {
-        rift[i] = if te[i] >= T_CONT as f32 { rift[i].clamp(0.0, 1.0) } else { 0.0 };
+        rift[i] = if te[i] >= T_CONT as f32 && (te[i] as f64) < RIFT_T_MAX { rift[i].clamp(0.0, 1.0) } else { 0.0 };
     }
     let suture_raw: Vec<f32> = (0..nc)
         .map(|i| if te[i] >= T_CONT as f32 { suture_grid[i].clamp(0.0, 1.0) } else { 0.0 })
