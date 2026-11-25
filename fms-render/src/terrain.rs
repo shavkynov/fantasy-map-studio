@@ -1504,6 +1504,41 @@ pub(crate) fn pick_ocean_hub(sg: &SampledGrid, is_world: bool) -> Vec<[f64; 2]> 
     vec![[fx + fw * 0.52, fy + fh * 0.78]]
 }
 
+/// Эталонная высота равнин, км. Пороги высот для гор, холмов и хвойного леса рассчитаны на неё:
+/// у Земли гипсометрический максимум суши лежит почти у уровня моря.
+const REF_PLAINS_KM: f64 = 0.4;
+
+/// Сдвиг высот для классификации рельефа (горы, холмы, хвойный лес), км, не меньше нуля.
+///
+/// Реальный уровень равнин зависит от объёма воды и числа материков (при той же доле суши они могут
+/// стоять и на 0.5, и на 1 км), а абсолютные пороги этого не знают, и «горами» становились обычные
+/// плато. Поэтому уровнем равнин считаем площадно-взвешенную медиану высоты суши планеты и вычитаем из
+/// высот её превышение над `REF_PLAINS_KM`. Пороги тем самым отсчитываются от равнин, а не от моря.
+pub(crate) fn plains_shift_km(planet: &Planet) -> f64 {
+    let mut v: Vec<(f64, f64)> = Vec::new();
+    for i in 0..planet.erosion.elevation_km.len() {
+        if planet.hydrology.is_ocean[i] != 0 || planet.hydrology.is_lake[i] != 0 {
+            continue;
+        }
+        v.push((planet.erosion.elevation_km[i] as f64, planet.tectonic.cell_area[i]));
+    }
+    if v.is_empty() {
+        return 0.0;
+    }
+    v.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let total: f64 = v.iter().map(|x| x.1).sum();
+    let mut acc = 0.0;
+    let mut median = v[v.len() - 1].0;
+    for &(e, a) in &v {
+        acc += a;
+        if acc >= total * 0.5 {
+            median = e;
+            break;
+        }
+    }
+    (median - REF_PLAINS_KM).max(0.0)
+}
+
 pub(crate) fn extract_world_anchors(
     planet: &Planet,
     sg: &SampledGrid,
@@ -1515,6 +1550,7 @@ pub(crate) fn extract_world_anchors(
     let gw = planet.grid.w;
     let gh = planet.grid.h;
     let dy_km = planet.grid.dy_km();
+    let plains_shift = plains_shift_km(planet);
     for cy in 1..(gh - 1) {
         let lat = planet.grid.lat_deg(cy);
         let step_km = planet.grid.dx_km(cy).min(dy_km).max(5.0);
@@ -1547,6 +1583,7 @@ pub(crate) fn extract_world_anchors(
             }
             let local_relief = (e - min_nb).max(0.0);
             let slope_est = max_diff / step_km;
+            let e = e - plains_shift;
 
             let bio = planet.biomes.biome[i];
             if (e >= 1.38 && (slope_est >= 0.012 || local_relief >= 0.20)) || e >= 2.25 {
@@ -1572,6 +1609,7 @@ pub(crate) fn extract_region_anchors(
     reg: &Region,
     sg: &SampledGrid,
     proj: &RegionProj,
+    plains_shift: f64,
 ) -> (Vec<[f64; 3]>, Vec<[f64; 4]>, Vec<[f64; 2]>) {
     let mut peaks = Vec::new();
     let mut forests = Vec::new();
@@ -1606,6 +1644,7 @@ pub(crate) fn extract_region_anchors(
             }
             let local_relief = (e - min_nb).max(0.0);
             let slope_est = max_diff / step_km;
+            let e = e - plains_shift;
 
             let bio = reg.biome[i];
             if (e >= 1.38 && (slope_est >= 0.012 || local_relief >= 0.20)) || e >= 2.25 {
@@ -1891,6 +1930,7 @@ pub(crate) fn generate_world_ocean_labels(
 
 /// Подбирает богатое окно для регионального масштаба (горы, леса, реки, залив и города).
 pub fn choose_region_window(planet: &Planet) -> RegionOptions {
+    let plains_shift = plains_shift_km(planet);
     let mut best_cell = planet.grid.len() / 2;
     let mut best_score = -1.0f64;
     let mut seed_pts: Vec<(f64, f64)> = planet
@@ -1938,7 +1978,7 @@ pub fn choose_region_window(planet: &Planet) -> RegionOptions {
                     if planet.hydrology.river_mask[ii] != 0 {
                         n_riv += 1;
                     }
-                    if planet.erosion.elevation_km[ii] > 1.35 {
+                    if planet.erosion.elevation_km[ii] as f64 - plains_shift > 1.35 {
                         n_hi += 1;
                     }
                     if is_forest_biome(planet.biomes.biome[ii]) {

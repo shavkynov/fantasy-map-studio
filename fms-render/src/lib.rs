@@ -655,7 +655,7 @@ pub fn render_region_with_options(
         })
         .collect();
 
-    let (r_peaks, r_forests, r_hills) = extract_region_anchors(reg, &rg, &proj);
+    let (r_peaks, r_forests, r_hills) = extract_region_anchors(reg, &rg, &proj, terrain::plains_shift_km(planet));
     let (mut base_rgb, r_dist, rd_dist, bridges) = paint_terrain_rivers_roads(
         &rg,
         opt.style,
