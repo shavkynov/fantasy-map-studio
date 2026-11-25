@@ -23,10 +23,10 @@ const AGE_REF: f64 = 65.0;
 const SUBSIDE: f64 = 0.26;
 const SED_RATE: f64 = 0.03;
 const T_CONT: f64 = 12.0;
-/// Выше этой итоговой (после эрозии) толщины коры, км, клетка в поле `rift` не попадает:
+/// Выше базовой толщины коры плюс это значение (км, после эрозии) клетка в поле `rift` не попадает:
 /// это утолщённый ороген, а не растяжение. Толщину проверяем на растре, а не в симуляции,
 /// где кора до эрозии везде толстая (в среднем ≈47 км).
-const RIFT_T_MAX: f64 = TREF + 3.0;
+const RIFT_DT_MAX: f64 = 3.0;
 const HOT_N: usize = 8;
 const HOT_RATE: f64 = 0.25;
 const HOT_RAD: f64 = 0.11;
@@ -426,6 +426,8 @@ pub fn generate(opt: &Options) -> Result<World, String> {
         if l == 0.0 { 1.0 } else { l }
     };
     let tc = opt.target_continents as usize;
+    // Базовая (невозмущённая) толщина континентальной коры: к ней эрозия возвращает древние орогены.
+    let t_base: f64 = if tc >= 2 { 27.5 } else { TREF };
     let mut c0 = [cx / cl, cy / cl, cz / cl];
     if tc == 1 && c0[2].abs() > 0.55 {
         // суперконтинент держим в средних широтах, а не в полярной шапке
@@ -522,7 +524,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
         let i = order[k];
         x[3 * k] = sx[i]; x[3 * k + 1] = sy[i]; x[3 * k + 2] = sz[i];
         let edge_drop = if tc >= 2 { 11.0 } else { 15.0 };
-        let base_t = if tc >= 2 { 27.5 } else { TREF };
+        let base_t = t_base;
         let ridge_bump = if suture[i] == 1 { 8.5 } else { 0.0 };
         thick[k] = (base_t - edge_drop * smooth(0.55, 1.0, k as f64 / n as f64) + ridge_bump).max(16.0) as f32;
         alive[k] = 1;
@@ -1314,11 +1316,11 @@ pub fn generate(opt: &Options) -> Result<World, String> {
     let (mut rem_tot, mut tot0, mut lost) = (0f64, 0f64, 0f64);
     for i in 0..nc {
         tot0 += t[i] as f64 * area[i];
-        let ex = (t[i] as f64 - TREF).max(0.0);
+        let ex = (t[i] as f64 - t_base).max(0.0);
         if ex == 0.0 { continue; }
         let age = if t_oro_grid[i] < 0.0 { t_end } else { (t_end - t_oro_grid[i] as f64).max(0.0) };
         let keep = ex * (-age / TAU_EROSION).exp();
-        te[i] = ((t[i] as f64).min(TREF) + keep) as f32;
+        te[i] = ((t[i] as f64).min(t_base) + keep) as f32;
         removed[i] = t[i] - te[i];
         rem_tot += removed[i] as f64 * area[i];
     }
@@ -1330,7 +1332,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
         let cont = blur_y(&blur_x(&cont_in, w_, h_, rr), w_, h_, rr);
         let mut dep_tot = 0f64;
         for i in 0..nc {
-            dep[i] = (dep[i] as f64 * smooth(0.02, 0.2, cont[i] as f64) * if (te[i] as f64) < TREF { 1.0 } else { 0.0 }) as f32;
+            dep[i] = (dep[i] as f64 * smooth(0.02, 0.2, cont[i] as f64) * if (te[i] as f64) < t_base { 1.0 } else { 0.0 }) as f32;
             dep_tot += dep[i] as f64 * area[i];
         }
         let sc = if dep_tot > 0.0 { rem_tot / dep_tot } else { 0.0 };
@@ -1394,7 +1396,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
     };
     for v in volcanic.iter_mut() { *v = v.clamp(0.0, 1.0); }
     let rift_raw: Vec<f32> = (0..nc)
-        .map(|i| if te[i] >= T_CONT as f32 && (te[i] as f64) < RIFT_T_MAX { rift_grid[i].clamp(0.0, 1.0) } else { 0.0 })
+        .map(|i| if te[i] >= T_CONT as f32 && (te[i] as f64) < t_base + RIFT_DT_MAX { rift_grid[i].clamp(0.0, 1.0) } else { 0.0 })
         .collect();
     let mut rift = if w_ >= 180 {
         blur_y(&blur_x(&rift_raw, w_, h_, 1), w_, h_, 1)
@@ -1402,7 +1404,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
         rift_raw
     };
     for i in 0..nc {
-        rift[i] = if te[i] >= T_CONT as f32 && (te[i] as f64) < RIFT_T_MAX { rift[i].clamp(0.0, 1.0) } else { 0.0 };
+        rift[i] = if te[i] >= T_CONT as f32 && (te[i] as f64) < t_base + RIFT_DT_MAX { rift[i].clamp(0.0, 1.0) } else { 0.0 };
     }
     let suture_raw: Vec<f32> = (0..nc)
         .map(|i| if te[i] >= T_CONT as f32 { suture_grid[i].clamp(0.0, 1.0) } else { 0.0 })
@@ -1443,9 +1445,9 @@ pub fn generate(opt: &Options) -> Result<World, String> {
 
     let load: Vec<f32> = (0..nc)
         .map(|i| {
-            if te[i] as f64 > TREF {
+            if te[i] as f64 > t_base {
                 let age = if t_oro_grid[i] < 0.0 { t_end } else { (t_end - t_oro_grid[i] as f64).max(0.0) };
-                ((te[i] as f64 - TREF) * (-age / 350.0).exp()) as f32
+                ((te[i] as f64 - t_base) * (-age / 350.0).exp()) as f32
             } else {
                 0.0
             }
@@ -1456,7 +1458,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
     let load_bulge = blur_y(&blur_x(&load_flex, w_, h_, r_flex), w_, h_, r_flex);
     let mut foreland = vec![0f32; nc];
     for i in 0..nc {
-        if (te[i] as f64) >= T_CONT && (te[i] as f64) < TREF + 2.0 {
+        if (te[i] as f64) >= T_CONT && (te[i] as f64) < t_base + 2.0 {
             foreland[i] = ((load_flex[i] - 0.7 * load[i]).max(0.0) / 8.0).clamp(0.0, 1.0);
         }
     }
