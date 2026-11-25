@@ -442,6 +442,7 @@
       <div class="style-grid">
         <button id="btn-style-expedition" class="active-tab">Экспедиционный</button>
         <button id="btn-style-painted">Живописный</button>
+        <button id="btn-style-ink">Рисунок пером</button>
       </div>
     </div>
 
@@ -661,6 +662,547 @@ function fitToViewport() {
 function applyLayerToggles() {
   const svg = $('map-stage').querySelector('svg');
   if (!svg) return;
+  document.querySelectorAll('input[data-layer]').forEach((cb) => {
+    const el = svg.getElementById(cb.dataset.layer);
+    if (el) el.style.display = cb.checked ? '' : 'none';
+  });
+}
+
+// opts.ver: отбросить ответ, если вид успел измениться; opts.view: () => {scale, tx, ty} вместо вписывания в окно
+async function renderSvgOverlay(url, opts = {}) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(await res.text());
+  const text = await res.text();
+  if (opts.ver !== undefined && opts.ver !== lodVersion) return false;
+  const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
+  const svg = doc.documentElement;
+  const stage = $('map-stage');
+  stage.innerHTML = '';
+  stage.appendChild(document.importNode(svg, true));
+  applyLayerToggles();
+  if (opts.view) {
+    sizeSvg();
+    const v = opts.view();
+    state.scale = v.scale;
+    state.tx = v.tx;
+    state.ty = v.ty;
+    applyTransform();
+  } else {
+    fitToViewport();
+  }
+  return true;
+}
+
+function triggerDownload(url, filename) {
+  if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.fmsSave) {
+    window.webkit.messageHandlers.fmsSave.postMessage({ url, filename });
+  } else {
+    window.open(url, '_blank');
+  }
+}
+
+function saveBase64(dataBase64, mime, filename) {
+  if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.fmsSave) {
+    window.webkit.messageHandlers.fmsSave.postMessage({ dataBase64, filename });
+  } else {
+    const a = document.createElement('a');
+    a.href = `data:${mime};base64,${dataBase64}`;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+}
+
+async function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(fr.result);
+    fr.onerror = reject;
+    fr.readAsDataURL(blob);
+  });
+}
+
+async function buildSelfContainedSvgXml(active) {
+  const liveSvg = $('map-stage').querySelector('svg');
+  if (!liveSvg) return null;
+  const clone = liveSvg.cloneNode(true);
+  clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+  const vb = liveSvg.viewBox.baseVal;
+  const w = vb && vb.width ? vb.width : active.width;
+  const h = vb && vb.height ? vb.height : active.height;
+  clone.setAttribute('width', String(w));
+  clone.setAttribute('height', String(h));
+  clone.style.width = '';
+  clone.style.height = '';
+  const baseImg = clone.querySelector('#layer-base');
+  if (baseImg && active.map_png_url) {
+    const res = await fetch(active.map_png_url);
+    if (res.ok) {
+      const dataUrl = await blobToDataUrl(await res.blob());
+      baseImg.setAttribute('href', dataUrl);
+      baseImg.removeAttribute('xlink:href');
+    }
+  }
+  return { xml: new XMLSerializer().serializeToString(clone), w, h };
+}
+
+async function exportLivePng(active, filename) {
+  setLoading(true, 'Экспорт полного PNG с подписями...');
+  try {
+    const built = await buildSelfContainedSvgXml(active);
+    if (!built) {
+      triggerDownload(active.download_png_url, filename);
+      return;
+    }
+    const svgDataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(built.xml);
+    const img = new Image();
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = reject;
+      img.src = svgDataUrl;
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = built.w;
+    canvas.height = built.h;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, built.w, built.h);
+    const pngUrl = canvas.toDataURL('image/png');
+    const comma = pngUrl.indexOf(',');
+    saveBase64(pngUrl.slice(comma + 1), 'image/png', filename);
+  } catch (_) {
+    triggerDownload(active.download_png_url, filename);
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function exportLiveSvg(active, filename) {
+  if (state.customCount === 0) {
+    triggerDownload(active.download_svg_url, filename);
+    return;
+  }
+  setLoading(true, 'Экспорт автономного SVG...');
+  try {
+    const built = await buildSelfContainedSvgXml(active);
+    if (!built) {
+      triggerDownload(active.download_svg_url, filename);
+      return;
+    }
+    const bytes = new TextEncoder().encode(built.xml);
+    let bin = '';
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    saveBase64(btoa(bin), 'image/svg+xml', filename);
+  } catch (_) {
+    triggerDownload(active.download_svg_url, filename);
+  } finally {
+    setLoading(false);
+  }
+}
+
+function updateDownloads() {
+  const active = state.mode === 'world' ? state.world : state.region;
+  if (!active) return;
+  const seed = ($('inp-seed').value.trim() || 'world').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const prefix = state.mode === 'world' ? 'atlas' : 'region';
+  $('btn-dl-png').onclick = () => exportLivePng(active, `${prefix}_${seed}_${state.style}.png`);
+  $('btn-dl-svg').onclick = () => exportLiveSvg(active, `${prefix}_${seed}_${state.style}.svg`);
+}
+
+function renderRealmsList(realms) {
+  const box = $('realms-list');
+  if (!realms || realms.length === 0) {
+    box.textContent = 'Нет выделенных держав';
+    return;
+  }
+  box.innerHTML = realms.map((r) => `
+    <div class="realm-item" data-lat="${r.lat}" data-lon="${r.lon}" title="Кликните, чтобы приблизиться к столице">
+      <span><span class="swatch" style="background:rgb(${r.color[0]},${r.color[1]},${r.color[2]})"></span>${r.name}</span>
+      <span style="color:var(--muted);">${r.capital}</span>
+    </div>
+  `).join('');
+  box.querySelectorAll('.realm-item').forEach((el) => {
+    el.onclick = () => focusOn(parseFloat(el.dataset.lat), parseFloat(el.dataset.lon), 20);
+  });
+}
+
+function regionParams(req) {
+  const p = worldParams();
+  p.set('lat', req.lat.toFixed(4));
+  p.set('lon', req.lon.toFixed(4));
+  p.set('span', req.span.toFixed(1));
+  p.set('scale', String(req.scale));
+  p.set('target_w', String(LOD.TARGET_W));
+  return p;
+}
+
+// Параметры текущего регионального окна для запросов инспектора и дорог (ключи reg_*, чтобы не путать с географическим lat/lon)
+function addRegionWindow(p) {
+  const r = state.regionReq;
+  if (state.mode !== 'region' || !r) return;
+  p.set('reg_lat', r.lat.toFixed(4));
+  p.set('reg_lon', r.lon.toFixed(4));
+  p.set('reg_span', r.span.toFixed(1));
+  p.set('scale', String(r.scale));
+  p.set('target_w', String(LOD.TARGET_W));
+}
+
+// o.view(data) => {scale, tx, ty} сохраняет текущий вид; o.ver отбрасывает устаревший ответ
+async function loadWorld(o = {}) {
+  if (o.ver === undefined) lodVersion++;
+  setLoading(true, o.ver === undefined ? 'Генерация и рендер планеты...' : 'Возвращаюсь к карте мира...');
+  try {
+    const p = worldParams();
+    const res = await fetch('/api/world?' + p.toString());
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    if (o.ver !== undefined && o.ver !== lodVersion) return false;
+    const ok = await renderSvgOverlay(data.overlay_svg_url, {
+      ver: o.ver,
+      view: o.view ? () => o.view(data) : null,
+    });
+    if (!ok) return false;
+    state.world = data;
+    state.mode = 'world';
+    state.regionReq = null;
+    $('btn-view-world').classList.add('active-tab');
+    $('world-stats-pill').innerHTML = `Материков: <strong>${data.continents_count}</strong> • Рек: <strong>${data.rivers_count}</strong> • Городов: <strong>${data.settlements_count}</strong> • Держав: <strong>${data.realms_count}</strong>`;
+    renderRealmsList(data.realms);
+    $('inspect-pin').style.display = 'none';
+    updateDownloads();
+    return true;
+  } catch (err) {
+    if (o.ver === undefined) alert('Ошибка генерации мира: ' + err.message);
+    else console.warn('LOD world:', err);
+    return false;
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function loadRegion(req, o = {}) {
+  if (o.ver === undefined) lodVersion++;
+  setLoading(true, o.ver === undefined ? 'Расчёт региона...' : 'Уточняю детали...');
+  try {
+    const res = await fetch('/api/region?' + regionParams(req).toString());
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    if (o.ver !== undefined && o.ver !== lodVersion) return false;
+    const ok = await renderSvgOverlay(data.overlay_svg_url, {
+      ver: o.ver,
+      view: o.view ? () => o.view(data) : null,
+    });
+    if (!ok) return false;
+    state.region = data;
+    state.regionReq = req;
+    state.mode = 'region';
+    $('btn-view-world').classList.remove('active-tab');
+    $('inspect-pin').style.display = 'none';
+    updateDownloads();
+    return true;
+  } catch (err) {
+    if (o.ver === undefined) alert('Ошибка расчёта региона: ' + err.message);
+    else console.warn('LOD region:', err);
+    return false;
+  } finally {
+    setLoading(false);
+  }
+}
+
+// Приблизиться к точке (например, к столице): сразу строим регион нужного охвата
+function focusOn(lat, lon, spanLon) {
+  const cellDeg = 360 / state.world.grid_w;
+  return loadRegion({
+    lat: lodClamp(lat, -(88 - 0.34 * spanLon), 88 - 0.34 * spanLon),
+    lon: lodWrapLon(lon),
+    span: spanLon,
+    scale: lodRegionScale(spanLon, cellDeg),
+  });
+}
+
+// Перерисовать текущий слой (смена стиля)
+function reloadCurrent() {
+  return state.mode === 'region' && state.regionReq ? loadRegion(state.regionReq) : loadWorld();
+}
+
+// Что сейчас видно в окне: центр, охват по долготе, выходит ли видимая область за границы региона
+async function currentGeoView() {
+  const vp = $('viewport').getBoundingClientRect();
+  const sxc = (vp.width / 2 - state.tx) / state.scale;
+  const syc = (vp.height / 2 - state.ty) / state.scale;
+  if (state.mode === 'region' && state.region && state.region.frame) {
+    const reg = state.region;
+    const [lat, lon] = lodSvgToRegion(reg, sxc, syc);
+    const visLon = vp.width / state.scale / (reg.frame[2] / reg.span_lon_deg);
+    const [fx, fy, fw, fh] = reg.frame;
+    const l = (0 - state.tx) / state.scale, r = (vp.width - state.tx) / state.scale;
+    const t = (0 - state.ty) / state.scale, b = (vp.height - state.ty) / state.scale;
+    return { vp, lat, lon, visLon, outside: l < fx || r > fx + fw || t < fy || b > fy + fh };
+  }
+  if (state.mode === 'world' && state.world) {
+    const p = worldParams();
+    p.set('px', sxc.toFixed(2));
+    p.set('py', syc.toFixed(2));
+    const res = await fetch('/api/world/unproject?' + p.toString());
+    if (!res.ok) return null;
+    const j = await res.json();
+    if (!j.in_bounds) return null;
+    return { vp, lat: j.lat, lon: j.lon, visLon: vp.width / state.scale / state.world.px_per_deg_lon, outside: false };
+  }
+  return null;
+}
+
+// Автодетализация: после паузы в жестах подменяем картинку на ту, что считается под видимую область
+function noteViewChanged() {
+  lodVersion++;
+  clearTimeout(lodTimer);
+  lodTimer = setTimeout(runLod, 450);
+}
+
+async function runLod() {
+  if (lodBusy || state.loading) {
+    lodTimer = setTimeout(runLod, 300);
+    return;
+  }
+  const ver = lodVersion;
+  lodBusy = true;
+  try {
+    const g = await currentGeoView();
+    if (!g || ver !== lodVersion) return;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const d = lodDecide({
+      layer: state.mode,
+      visLon: g.visLon, cLat: g.lat, cLon: g.lon,
+      vpW: g.vp.width, vpH: g.vp.height, dpr, cssScale: state.scale,
+      cellDeg: 360 / state.world.grid_w, outside: g.outside,
+      cur: state.mode === 'region'
+        ? { lat: state.region.center_lat_deg, lon: state.region.center_lon_deg, span: state.region.span_lon_deg }
+        : null,
+    });
+    if (d.kind === 'keep') return;
+    if (d.kind === 'world') {
+      const p = worldParams();
+      p.set('lat', g.lat.toFixed(4));
+      p.set('lon', g.lon.toFixed(4));
+      const res = await fetch('/api/world/project?' + p.toString());
+      if (!res.ok || ver !== lodVersion) return;
+      const pt = await res.json();
+      await loadWorld({
+        ver,
+        view: (w) => lodViewAt(w.px_per_deg_lon, g.vp.width, g.vp.height, pt.x, pt.y, g.visLon),
+      });
+    } else {
+      await loadRegion(d, {
+        ver,
+        view: (reg) => {
+          const [x, y] = lodRegionToSvg(reg, g.lat, g.lon);
+          return lodViewAt(reg.frame[2] / reg.span_lon_deg, g.vp.width, g.vp.height, x, y, g.visLon);
+        },
+      });
+    }
+  } catch (err) {
+    console.warn('LOD:', err);
+  } finally {
+    lodBusy = false;
+  }
+}
+
+async function inspectPixel(px, py) {
+  const p = worldParams();
+  p.set('mode', state.mode);
+  p.set('px', px.toFixed(2));
+  p.set('py', py.toFixed(2));
+  addRegionWindow(p);
+  const res = await fetch('/api/inspect?' + p.toString());
+  if (!res.ok) return;
+  const info = await res.json();
+  if (!info.in_bounds) return;
+
+  state.inspectLat = info.lat;
+  state.inspectLon = info.lon;
+  $('inspect-pin').style.left = px + 'px';
+  $('inspect-pin').style.top = py + 'px';
+  $('inspect-pin').style.display = 'block';
+  $('hud-coords').textContent = `${info.lat.toFixed(2)}°, ${info.lon.toFixed(2)}° • ${info.biome}`;
+
+  $('inspect-empty').style.display = 'none';
+  $('inspect-body').style.display = 'block';
+  $('res-card').style.display = 'block';
+
+  let hydroNote = info.discharge_m3s > 1 ? `${Math.round(info.discharge_m3s)} м³/с (пор. ${info.river_order})` : 'нет';
+  if (info.is_delta) hydroNote += ' • дельта';
+  else if (info.is_oasis) hydroNote = hydroNote === 'нет' ? 'пустынный оазис' : `${hydroNote} • оазис`;
+  else if (info.is_wadi) hydroNote = 'вади (сезонное русло)';
+  if (info.nearest_waterfall_drop_m > 0 && info.nearest_waterfall_dist_km <= 140) {
+    hydroNote += ` • водопад ${Math.round(info.nearest_waterfall_drop_m)} м`;
+  }
+
+  const rows = [
+    ['Координаты', `${info.lat.toFixed(2)}°, ${info.lon.toFixed(2)}°`],
+    ['Среда', info.is_ocean ? info.marine_zone : 'Суша'],
+    ['Высота', `${info.elevation_m > 0 ? '+' : ''}${Math.round(info.elevation_m)} м`],
+    ['Биом', info.biome],
+    ['Порода', info.bedrock],
+    ['Климат (ср.)', `${info.temp_c.toFixed(1)} °C (янв ${info.temp_jan_c.toFixed(0)}° / июл ${info.temp_jul_c.toFixed(0)}°)`],
+    ['Осадки / арид.', `${Math.round(info.precip_mm)} мм/год (ИУ ${info.aridity_index.toFixed(2)})`],
+    ...(info.permafrost > 0.02 ? [['Вечная мерзлота', `${Math.round(info.permafrost * 100)}%`]] : []),
+    ['Сток реки', hydroNote],
+    ['Плодородие', `${Math.round(info.soil_fertility * 100)}%`],
+    ['Материк / край', info.landmass_name || '—'],
+    ['Держава', info.realm_name || 'Вне границ'],
+    ['Культура', info.culture_name || '—'],
+    ['Хоз. уклад', info.livelihood],
+    ['Ближ. город', info.nearest_settlement ? `${info.nearest_settlement} (${Math.round(info.nearest_dist_km)} км)` : '—'],
+    ['Ближ. месторожд.', info.nearest_deposit ? `${info.nearest_deposit} ${Math.round(info.nearest_deposit_richness * 100)}% (${Math.round(info.nearest_deposit_dist_km)} км)` : '—'],
+  ];
+  $('inspect-kv').innerHTML = rows.map(([k, v]) => `<div class="k">${k}</div><div class="v">${v}</div>`).join('');
+
+  const rList = [
+    ['Железо', info.resources.iron],
+    ['Медь/золото', info.resources.copper_gold],
+    ['Самоцветы', info.resources.gems_rare],
+    ['Уголь', info.resources.coal],
+    ['Углеводороды', info.resources.hydrocarbons],
+    ['Соль', info.resources.salt],
+    ['Строевой лес', info.resources.timber],
+    ['Рыба', info.resources.fishery],
+  ];
+  $('inspect-resources').innerHTML = rList.map(([label, val]) => {
+    const pct = Math.round(Math.min(1, Math.max(0, val)) * 100);
+    return `<div class="res-bar"><span style="color:var(--muted)">${label}</span><div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div><span style="text-align:right">${pct}%</span></div>`;
+  }).join('');
+}
+
+async function placeCityAndRoad(px, py) {
+  const p = worldParams();
+  p.set('mode', state.mode);
+  p.set('from_px', px.toFixed(2));
+  p.set('from_py', py.toFixed(2));
+  addRegionWindow(p);
+  setLoading(true, 'Прокладка дороги по рельефу...');
+  try {
+    const res = await fetch('/api/route_road?' + p.toString());
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.ok) {
+      $('custom-road-info').textContent = data.error || 'Не удалось разместить поселение в этой точке.';
+      return;
+    }
+    const svg = $('map-stage').querySelector('svg');
+    if (!svg) return;
+    const ns = 'http://www.w3.org/2000/svg';
+    let g = svg.getElementById('layer-custom-roads');
+    if (!g) {
+      g = document.createElementNS(ns, 'g');
+      g.setAttribute('id', 'layer-custom-roads');
+      g.setAttribute('clip-path', 'url(#fmsFrameClip)');
+      svg.appendChild(g);
+    }
+    const vb = svg.viewBox.baseVal;
+    const us = (vb && vb.width ? vb.width : 1680) / 1680;
+    if (data.pts && data.pts.length >= 2) {
+      const segments = [];
+      let cur = [data.pts[0]];
+      const jumpThr = (vb && vb.width ? vb.width : 2200) * 0.45;
+      for (let i = 1; i < data.pts.length; i++) {
+        const a = data.pts[i - 1];
+        const b = data.pts[i];
+        if (Math.abs(a[0] - b[0]) > jumpThr) {
+          if (cur.length >= 2) segments.push(cur);
+          cur = [b];
+        } else {
+          cur.push(b);
+        }
+      }
+      if (cur.length >= 2) segments.push(cur);
+      for (const seg of segments) {
+        const d = 'M' + seg.map((pt) => `${pt[0].toFixed(1)},${pt[1].toFixed(1)}`).join(' L');
+        const under = document.createElementNS(ns, 'path');
+        under.setAttribute('d', d);
+        under.setAttribute('fill', 'none');
+        under.setAttribute('stroke', '#332414');
+        under.setAttribute('stroke-width', (5.0 * us).toFixed(2));
+        under.setAttribute('stroke-linecap', 'round');
+        under.setAttribute('stroke-linejoin', 'round');
+        under.setAttribute('opacity', '0.82');
+        g.appendChild(under);
+
+        const road = document.createElementNS(ns, 'path');
+        road.setAttribute('d', d);
+        road.setAttribute('fill', 'none');
+        road.setAttribute('stroke', '#f0cf82');
+        road.setAttribute('stroke-width', (2.6 * us).toFixed(2));
+        road.setAttribute('stroke-linecap', 'round');
+        road.setAttribute('stroke-linejoin', 'round');
+        g.appendChild(road);
+      }
+    }
+    state.customCount += 1;
+    const [cx, cy] = data.placed;
+    const mark = document.createElementNS(ns, 'circle');
+    mark.setAttribute('cx', cx.toFixed(1));
+    mark.setAttribute('cy', cy.toFixed(1));
+    mark.setAttribute('r', (6.5 * us).toFixed(2));
+    mark.setAttribute('fill', '#e0a94c');
+    mark.setAttribute('stroke', '#22180e');
+    mark.setAttribute('stroke-width', (2.0 * us).toFixed(2));
+    g.appendChild(mark);
+
+    const lbl = document.createElementNS(ns, 'text');
+    lbl.setAttribute('x', (cx + 9 * us).toFixed(1));
+    lbl.setAttribute('y', (cy - 7 * us).toFixed(1));
+    lbl.setAttribute('fill', '#fff3d6');
+    lbl.setAttribute('stroke', '#1d140c');
+    lbl.setAttribute('stroke-width', (3.2 * us).toFixed(2));
+    lbl.setAttribute('paint-order', 'stroke');
+    lbl.setAttribute('font-family', 'Palatino, Georgia, serif');
+    lbl.setAttribute('font-size', (13 * us).toFixed(1));
+    lbl.setAttribute('font-weight', '700');
+    lbl.textContent = `Форпост #${state.customCount}`;
+    g.appendChild(lbl);
+
+    if (data.pts && data.pts.length >= 2) {
+      $('custom-road-info').innerHTML = `Поставлен <strong>Форпост #${state.customCount}</strong> → тракт до <strong>${data.target_name}</strong>: <strong>${Math.round(data.length_km)} км</strong> (макс. высота <strong>${data.max_elev_m} м</strong>).`;
+    } else {
+      $('custom-road-info').innerHTML = `Поставлен <strong>Форпост #${state.customCount}</strong> (островная точка без сухопутного соседа).`;
+    }
+  } finally {
+    setLoading(false);
+  }
+}
+
+function wireEvents() {
+  const ranges = [
+    ['inp-activity', 'val-activity', (v) => Number(v).toFixed(2)],
+    ['inp-water', 'val-water', (v) => Number(v).toFixed(2)],
+    ['inp-tilt', 'val-tilt', (v) => Number(v).toFixed(1) + '°'],
+    ['inp-solar', 'val-solar', (v) => Number(v).toFixed(1) + '°C'],
+    ['inp-rot', 'val-rot', (v) => Number(v).toFixed(2) + '×'],
+  ];
+  ranges.forEach(([inp, out, fmt]) => {
+    $(inp).addEventListener('input', () => { $(out).textContent = fmt($(inp).value); });
+  });
+
+  $('btn-rand-seed').onclick = () => {
+    const words = ['aethel', 'valinor', 'hyperborea', 'roshar', 'talos', 'krynn', 'solaris', 'nordheim', 'vesper', 'thalassa'];
+    $('inp-seed').value = words[Math.floor(Math.random() * words.length)] + '-' + (100 + Math.floor(Math.random() * 900));
+    loadWorld();
+  };
+
+  $('btn-generate').onclick = () => loadWorld();
+  $('btn-view-world').onclick = () => loadWorld();
+  $('btn-fit').onclick = () => fitToViewport();
+
+  ['expedition', 'painted', 'ink'].forEach((st) => {
+    $('btn-style-' + st).onclick = () => {
+      if (state.style === st) return;
+      state.style = st;
+      ['expedition', 'painted', 'ink'].forEach((o) => $('btn-style-' + o).classList.toggle('active-tab', o === st));
+      reloadCurrent();
+    };
+  });
+
   document.querySelectorAll('input[data-layer]').forEach((cb) => {
     const el = svg.getElementById(cb.dataset.layer);
     if (el) el.style.display = cb.checked ? '' : 'none';

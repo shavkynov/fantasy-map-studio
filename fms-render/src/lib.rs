@@ -3,6 +3,7 @@
 //! с экспортом в PNG и многослойный SVG.
 
 pub mod assets;
+pub(crate) mod ink;
 pub mod png;
 pub mod proj;
 pub mod svg;
@@ -125,6 +126,13 @@ fn append_delta_branches(rivers_out: &mut Vec<Vec<[f64; 3]>>, seg: &[[f64; 3]], 
 
 /// Рендерит карту мира в изотропной цилиндрической проекции Паттерсона с указанным паком ассетов.
 pub fn render_world_with_options(planet: &Planet, seed: &str, pack: &AssetPack, opt: &RenderOptions) -> RenderOutput {
+    let ink_pack;
+    let pack: &AssetPack = if opt.style == Style::Ink {
+        ink_pack = pack.ink_variant();
+        &ink_pack
+    } else {
+        pack
+    };
     let mut rng_n = Rng::sub(seed, "art-render");
     let noise = Noise::new(&mut rng_n);
     let proj = WorldProj::fit(planet, opt.target_width.clamp(320, 4096));
@@ -355,6 +363,9 @@ pub fn render_world_with_options(planet: &Planet, seed: &str, pack: &AssetPack, 
         &w_oases,
         &w_land_roads,
     );
+    if opt.style == Style::Ink {
+        ink::ink_terrain_pass(&mut base_rgb, &wg, &pack.paper_tex, &r_dist, &rd_dist);
+    }
     stamp_all_assets(
         &mut base_rgb,
         &wg,
@@ -421,7 +432,11 @@ pub fn render_world_with_options(planet: &Planet, seed: &str, pack: &AssetPack, 
         seam_lon_deg: proj.seam_lon_deg,
         center_lon_deg: proj.center_lon_deg,
     };
-    let flat_rgb = rasterize_overlay_finish(&base_rgb, &overlay, pack);
+    let mut flat_rgb = rasterize_overlay_finish(&base_rgb, &overlay, pack);
+    if opt.style == Style::Ink {
+        ink::desaturate(&mut base_rgb);
+        ink::desaturate(&mut flat_rgb);
+    }
     RenderOutput {
         width: wg.w,
         height: wg.h,
@@ -458,6 +473,13 @@ pub fn render_region_with_options(
     pack: &AssetPack,
     opt: &RenderOptions,
 ) -> RenderOutput {
+    let ink_pack;
+    let pack: &AssetPack = if opt.style == Style::Ink {
+        ink_pack = pack.ink_variant();
+        &ink_pack
+    } else {
+        pack
+    };
     let mut rng_n = Rng::sub(seed, "art-render");
     let noise = Noise::new(&mut rng_n);
     let proj = RegionProj::new(reg, reg_opt, opt.target_width.clamp(320, 4096));
@@ -665,6 +687,9 @@ pub fn render_region_with_options(
         &r_oases,
         &r_land_roads,
     );
+    if opt.style == Style::Ink {
+        ink::ink_terrain_pass(&mut base_rgb, &rg, &pack.paper_tex, &r_dist, &rd_dist);
+    }
     stamp_all_assets(
         &mut base_rgb,
         &rg,
@@ -734,7 +759,11 @@ pub fn render_region_with_options(
         seam_lon_deg: 0.0,
         center_lon_deg: reg.center_lon_deg,
     };
-    let flat_rgb = rasterize_overlay_finish(&base_rgb, &overlay, pack);
+    let mut flat_rgb = rasterize_overlay_finish(&base_rgb, &overlay, pack);
+    if opt.style == Style::Ink {
+        ink::desaturate(&mut base_rgb);
+        ink::desaturate(&mut flat_rgb);
+    }
     RenderOutput {
         width: rg.w,
         height: rg.h,

@@ -106,3 +106,37 @@ fn six_continents_projection_frame_invertible() {
     assert_eq!(&out.to_png_bytes()[..8], &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]);
     assert!(out.to_svg_standalone(&pack).contains("<svg "));
 }
+
+#[test]
+fn ink_style_is_strictly_monochrome() {
+    let pack = AssetPack::load_default().expect("assets must load");
+    let mut opt = Options::new("smoke");
+    opt.w = 180;
+    let planet = planet::generate(&opt).expect("planet");
+    let out = render_world_with_options(
+        &planet,
+        "smoke",
+        &pack,
+        &RenderOptions {
+            style: Style::Ink,
+            target_width: 640,
+            title: None,
+        },
+    );
+    for (name, buf) in [("base", &out.base_rgb), ("flat", &out.flat_rgb)] {
+        assert!(buf.chunks_exact(3).all(|p| p[0] == p[1] && p[1] == p[2]), "{name} has color");
+    }
+    let dark = out.base_rgb.chunks_exact(3).filter(|p| p[0] < 90).count();
+    let light = out.base_rgb.chunks_exact(3).filter(|p| p[0] > 230).count();
+    assert!(dark > 200 && light > out.base_rgb.len() / 6, "ink should be dark lines on light paper");
+
+    let svg = out.to_svg_standalone(&pack);
+    let body: String = svg.split("base64,").enumerate().map(|(i, p)| if i == 0 { p.to_string() } else { p.splitn(2, '"').nth(1).unwrap_or("").to_string() }).collect();
+    let b = body.as_bytes();
+    for i in 0..b.len().saturating_sub(7) {
+        if b[i] == b'#' && b[i + 1..i + 7].iter().all(|c| c.is_ascii_hexdigit()) {
+            let h = &body[i + 1..i + 7];
+            assert!(h[0..2] == h[2..4] && h[2..4] == h[4..6], "colored hex #{h}");
+        }
+    }
+}

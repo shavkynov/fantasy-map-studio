@@ -18,15 +18,28 @@ pub enum Style {
     Expedition,
     /// Живописный фэнтези-атлас: сочные луга, лазурный океан и свитки городов.
     Painted,
+    /// Рисунок пером: чёрно-белая штриховая графика без цветов и сепии.
+    Ink,
 }
 
 impl Style {
-    pub const ALL: [Style; 2] = [Style::Expedition, Style::Painted];
+    pub const ALL: [Style; 3] = [Style::Expedition, Style::Painted, Style::Ink];
+
+    /// Стиль, в палитре которого собирается исходный растр (рисунок пером перерисовывается поверх экспедиционного).
+    pub fn raster_base(self) -> Style {
+        if self == Style::Ink { Style::Expedition } else { self }
+    }
+
+    /// Архивная светлая бумага с тёмной графикой (оформление рамки, шапки и легенды).
+    pub fn is_archival(self) -> bool {
+        matches!(self, Style::Expedition | Style::Ink)
+    }
 
     pub fn slug(self) -> &'static str {
         match self {
             Style::Expedition => "expedition",
             Style::Painted => "painted",
+            Style::Ink => "ink",
         }
     }
 
@@ -34,6 +47,7 @@ impl Style {
         match self {
             Style::Expedition => "Экспедиционный атлас",
             Style::Painted => "Живописный атлас",
+            Style::Ink => "Рисунок пером",
         }
     }
 
@@ -41,6 +55,7 @@ impl Style {
         match s {
             "expedition" | "atlas" => Some(Style::Expedition),
             "painted" | "vivid" => Some(Style::Painted),
+            "ink" | "pen" | "sketch" => Some(Style::Ink),
             _ => None,
         }
     }
@@ -799,7 +814,7 @@ pub(crate) fn paint_terrain_rivers_roads(
 
             if grid.inside[i] == 0 {
                 let bg = match style {
-                    Style::Expedition => [216.0 - 9.0 * vig, 210.0 - 9.0 * vig, 194.0 - 8.0 * vig],
+                    Style::Expedition | Style::Ink => [216.0 - 9.0 * vig, 210.0 - 9.0 * vig, 194.0 - 8.0 * vig],
                     Style::Painted => [44.0, 35.0, 26.0],
                 };
                 let modulated = [
@@ -859,7 +874,7 @@ pub(crate) fn paint_terrain_rivers_roads(
                 }
 
                 match style {
-                    Style::Expedition => {
+                    Style::Expedition | Style::Ink => {
                         if !is_lk && grid.polar_ice[i] != 0 {
                             let mut s = lerp_rgb([220.0, 230.0, 236.0], [194.0, 210.0, 220.0], (0.5 + 0.5 * cloud) * 0.52);
                             s = [s[0] - 5.0 * vig, s[1] - 5.0 * vig, s[2] - 4.0 * vig];
@@ -939,7 +954,7 @@ pub(crate) fn paint_terrain_rivers_roads(
                     && (((x.wrapping_mul(3) + y.wrapping_mul(7)) % 13) < 6);
 
                 match style {
-                    Style::Expedition => {
+                    Style::Expedition | Style::Ink => {
                         let paper = [220.0 + 8.0 * cloud - 8.0 * vig, 212.0 + 7.5 * cloud - 8.0 * vig, 188.0 + 6.5 * cloud - 7.0 * vig];
                         let mut c = lerp_rgb(paper, grid.ink_bio[i], 0.52);
                         let arid = grid.aridity[i] as f64;
@@ -1049,7 +1064,7 @@ pub(crate) fn paint_terrain_rivers_roads(
 
     // Сезонные пересыхающие русла (вади) и пустынные оазисы
     let wadi_col = match style {
-        Style::Expedition => [124.0, 98.0, 74.0],
+        Style::Expedition | Style::Ink => [124.0, 98.0, 74.0],
         Style::Painted => [138.0, 112.0, 76.0],
     };
     let wadi_r = (if grid.is_world { 0.65 } else { 0.95 }) * us.max(0.7);
@@ -1111,13 +1126,13 @@ pub(crate) fn paint_terrain_rivers_roads(
                 let cur = [rgb[3 * idx] as f64, rgb[3 * idx + 1] as f64, rgb[3 * idx + 2] as f64];
                 if d <= oasis_pool {
                     let pool_c = match style {
-                        Style::Expedition => [78.0, 142.0, 158.0],
+                        Style::Expedition | Style::Ink => [78.0, 142.0, 158.0],
                         Style::Painted => [56.0, 172.0, 188.0],
                     };
                     rgb[3 * idx..3 * idx + 3].copy_from_slice(&rgb_to_u8(lerp_rgb(cur, pool_c, 0.88)));
                 } else if d <= oasis_outer {
                     let lush_c = match style {
-                        Style::Expedition => [86.0, 128.0, 72.0],
+                        Style::Expedition | Style::Ink => [86.0, 128.0, 72.0],
                         Style::Painted => [72.0, 146.0, 56.0],
                     };
                     let a = (1.0 - (d - oasis_pool) / (oasis_outer - oasis_pool).max(0.5)).clamp(0.0, 1.0) * 0.78;
@@ -1203,7 +1218,7 @@ pub(crate) fn paint_terrain_rivers_roads(
         }
     }
     let bank_col = match style {
-        Style::Expedition => [54.0, 44.0, 32.0],
+        Style::Expedition | Style::Ink => [54.0, 44.0, 32.0],
         Style::Painted => [52.0, 40.0, 26.0],
     };
     for i in 0..n {
@@ -1214,7 +1229,7 @@ pub(crate) fn paint_terrain_rivers_roads(
         let wa = riv_water_a[i] as f64;
         let ct = riv_core_t[i] as f64;
         let water_col = match style {
-            Style::Expedition => lerp_rgb([142.0, 182.0, 194.0], [84.0, 130.0, 150.0], ct),
+            Style::Expedition | Style::Ink => lerp_rgb([142.0, 182.0, 194.0], [84.0, 130.0, 150.0], ct),
             Style::Painted => lerp_rgb([142.0, 210.0, 222.0], [64.0, 146.0, 176.0], ct),
         };
         let cur = [rgb[3 * i] as f64, rgb[3 * i + 1] as f64, rgb[3 * i + 2] as f64];
@@ -1271,7 +1286,7 @@ pub(crate) fn paint_terrain_rivers_roads(
                         let p_delta = (paper_tex[(yy as usize & 511) * 512 + (xx as usize & 511)] as f64 - 128.0) / 14.0;
                         if d <= road_half {
                             let road_c = match style {
-                                Style::Expedition => [214.0 + 4.0 * p_delta, 206.0 + 3.5 * p_delta, 180.0 + 3.0 * p_delta],
+                                Style::Expedition | Style::Ink => [214.0 + 4.0 * p_delta, 206.0 + 3.5 * p_delta, 180.0 + 3.0 * p_delta],
                                 Style::Painted => [200.0 + 4.5 * p_delta, 192.0 + 4.0 * p_delta, 162.0 + 3.5 * p_delta],
                             };
                             let cur = [rgb[3 * idx] as f64, rgb[3 * idx + 1] as f64, rgb[3 * idx + 2] as f64];
@@ -1337,7 +1352,7 @@ pub(crate) fn stamp_all_assets(
     ];
 
     let (tint, tint_amt): ([f64; 3], f64) = match style {
-        Style::Expedition => ([212.0, 200.0, 176.0], 0.14),
+        Style::Expedition | Style::Ink => ([212.0, 200.0, 176.0], 0.14),
         Style::Painted => ([246.0, 238.0, 214.0], 0.06),
     };
 
@@ -2264,7 +2279,7 @@ pub(crate) fn rasterize_overlay_finish(base_rgb: &[u8], ov: &OverlayModel, pack:
         }
     }
 
-    let route_col = if ov.style == Style::Expedition {
+    let route_col = if ov.style.is_archival() {
         [51.0, 66.0, 74.0]
     } else {
         [220.0, 234.0, 230.0]
@@ -2328,8 +2343,8 @@ pub(crate) fn rasterize_overlay_finish(base_rgb: &[u8], ov: &OverlayModel, pack:
     }
 
     // Двойная рамка на растре
-    let frame_col = if ov.style == Style::Expedition { [51.0, 41.0, 31.0] } else { [31.0, 20.0, 13.0] };
-    let accent_col = if ov.style == Style::Expedition { [143.0, 112.0, 71.0] } else { [199.0, 153.0, 66.0] };
+    let frame_col = if ov.style.is_archival() { [51.0, 41.0, 31.0] } else { [31.0, 20.0, 13.0] };
+    let accent_col = if ov.style.is_archival() { [143.0, 112.0, 71.0] } else { [199.0, 153.0, 66.0] };
     let stroke_rect = |rgb: &mut [u8], x0: isize, y0: isize, x1: isize, y1: isize, col: [f64; 3]| {
         let u8c = rgb_to_u8(col);
         for x in x0.max(0)..=x1.min(w as isize - 1) {

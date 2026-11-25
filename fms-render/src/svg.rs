@@ -97,6 +97,27 @@ fn theme_of(style: Style) -> SvgTheme {
             banner_ink: "#2b1c0f",
             rose_accent: "#a83629",
         },
+        Style::Ink => SvgTheme {
+            font_serif: "Palatino, 'Palatino Linotype', 'Book Antiqua', Georgia, serif",
+            frame_outer: "#181818",
+            frame_gold: "#4a4a4a",
+            grat_col: "rgba(24,24,24,0.12)",
+            sea_lane: "rgba(24,24,24,0.62)",
+            header_col: "#141414",
+            sub_col: "#3c3c3c",
+            text_continent: "#141414",
+            text_realm: "#2a2a2a",
+            text_land: "#141414",
+            text_water: "#2a2a2a",
+            text_muted: "#303030",
+            halo_land: "rgba(250,250,250,0.92)",
+            halo_water: "rgba(250,250,250,0.88)",
+            banner_lit: "#f6f6f6",
+            banner_edge: "#9a9a9a",
+            banner_tail: "#6a6a6a",
+            banner_ink: "#141414",
+            rose_accent: "#2a2a2a",
+        },
         Style::Painted => SvgTheme {
             font_serif: "Palatino, 'Palatino Linotype', 'Book Antiqua', Georgia, serif",
             frame_outer: "#1f140d",
@@ -211,6 +232,21 @@ fn append_scroll_banner(s: &mut String, rect: Rect, th: &SvgTheme) {
 
 /// Генерирует многослойный SVG-документ поверх базового растра.
 pub fn render_svg(
+    base_rgb: &[u8],
+    ov: &OverlayModel,
+    pack: &AssetPack,
+    embed_png_inline: bool,
+    image_href: Option<&str>,
+) -> String {
+    if ov.style == Style::Ink {
+        let ink_pack = pack.ink_variant();
+        let raw = render_svg_impl(base_rgb, ov, &ink_pack, embed_png_inline, image_href);
+        return crate::ink::grayscale_svg(&raw);
+    }
+    render_svg_impl(base_rgb, ov, pack, embed_png_inline, image_href)
+}
+
+fn render_svg_impl(
     base_rgb: &[u8],
     ov: &OverlayModel,
     pack: &AssetPack,
@@ -341,13 +377,13 @@ pub fn render_svg(
                 true,
                 false,
                 false,
-                if ov.style == Style::Expedition { "#294d6b" } else { th.text_water },
+                if ov.style.is_archival() { "#294d6b" } else { th.text_water },
                 th.halo_water,
                 3.0 * us,
             ),
             "continent" => (
                 (if ov.is_world { 17.5 } else { 18.0 }) * us,
-                (if ov.style == Style::Expedition { 5.2 } else { 3.4 }) * us,
+                (if ov.style.is_archival() { 5.2 } else { 3.4 }) * us,
                 false,
                 true,
                 false,
@@ -543,9 +579,9 @@ pub fn render_svg(
     {
         let lw = (if ov.is_world { 1.0 } else { 1.25 }) * us.max(0.6);
         let t_scale = if ov.is_world { 0.30 } else { 0.14 };
-        let g_opacity = if ov.style == Style::Expedition { 0.96 } else { 0.58 };
+        let g_opacity = if ov.style.is_archival() { 0.96 } else { 0.58 };
         let _ = writeln!(s, r#"<g id="layer-currents" clip-path="url(#fmsFrameClip)" stroke-linecap="round" stroke-linejoin="round" opacity="{g_opacity:.2}">"#);
-        for st in &ov.currents {
+        for st in ov.currents.iter().filter(|_| ov.style != Style::Ink) {
             if st.len() < 2 {
                 continue;
             }
@@ -618,7 +654,7 @@ pub fn render_svg(
 
     // 5. Рамка и шапка карты
     let _ = writeln!(s, r#"<g id="layer-frame">"#);
-    if ov.style == Style::Expedition {
+    if ov.style.is_archival() {
         let out_pad = 5.5 * us;
         let mid_pad = 2.2 * us;
         let _ = writeln!(
@@ -666,13 +702,13 @@ pub fn render_svg(
     }
 
     let head_y = fr.y - 23.0 * us;
-    let title_x = if ov.style == Style::Expedition {
+    let title_x = if ov.style.is_archival() {
         fr.x + 2.0
     } else {
         fr.x + 4.0 * us + (approx_text_size(&ov.title, 18.0 * us, 1.8 * us).0 + 36.0 * us) * 0.5
     };
-    let anchor_title = if ov.style == Style::Expedition { "start" } else { "middle" };
-    let title_col = if ov.style == Style::Expedition { th.header_col } else { th.banner_ink };
+    let anchor_title = if ov.style.is_archival() { "start" } else { "middle" };
+    let title_col = if ov.style.is_archival() { th.header_col } else { th.banner_ink };
     let _ = writeln!(
         s,
         r#"  <text x="{title_x:.1}" y="{head_y:.1}" text-anchor="{anchor_title}" font-family="{}" font-weight="700" font-size="{:.1}" letter-spacing="{:.1}" fill="{title_col}">{}</text>
@@ -711,7 +747,7 @@ pub fn render_svg(
     // 7. Легенда атласа (в обоих стилях с адаптивной палитрой карточки)
     {
         let card = leg_r;
-        let (card_bg, card_inner, hdr_c, txt_c, sep_c) = if ov.style == Style::Expedition {
+        let (card_bg, card_inner, hdr_c, txt_c, sep_c) = if ov.style.is_archival() {
             ("rgba(237,230,209,0.95)", th.frame_outer, "#302417", "#574533", "rgba(92,71,51,0.55)")
         } else {
             ("rgba(28,22,16,0.92)", th.frame_gold, "#f5e6b8", "#dfd0ad", "rgba(199,153,66,0.45)")
@@ -773,7 +809,7 @@ pub fn render_svg(
         let _ = writeln!(s, r##"  <text x="{x_pad:.1}" y="{cy:.1}" font-family="{}" font-weight="700" font-size="{:.1}" fill="{hdr_c}">Обозначения</text>"##, th.font_serif, 8.6 * us);
         cy += 11.5 * us;
         let ly = |y: f64| y - 3.0 * us;
-        let bdr_c = if ov.style == Style::Expedition { "#472e26" } else { "#c24438" };
+        let bdr_c = if ov.style.is_archival() { "#472e26" } else { "#c24438" };
         let _ = writeln!(
             s,
             r##"  <line x1="{:.1}" y1="{:.1}" x2="{:.1}" y2="{:.1}" stroke="{bdr_c}" stroke-width="{:.2}" stroke-dasharray="{:.1} {:.1} {:.1} {:.1}"/>
@@ -799,7 +835,7 @@ pub fn render_svg(
             x_pad + 1.0 * us, ly(cy), x_pad + 15.0 * us, ly(cy), 1.25 * us, th.font_serif, 8.4 * us
         );
         cy += 11.2 * us;
-        let sea_c = if ov.style == Style::Expedition { "#3d4d52" } else { "#cfe3de" };
+        let sea_c = if ov.style.is_archival() { "#3d4d52" } else { "#cfe3de" };
         let _ = writeln!(
             s,
             r##"  <line x1="{:.1}" y1="{:.1}" x2="{:.1}" y2="{:.1}" stroke="{sea_c}" stroke-width="{:.2}" stroke-dasharray="{:.1} {:.1}"/>
