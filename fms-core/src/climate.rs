@@ -75,6 +75,8 @@ pub struct Climate {
     pub snow_frac: Vec<f32>,
     /// Интенсивность постоянного ледника/покрова льда, `0..1`.
     pub glacier: Vec<f32>,
+    /// Доля многолетней (вечной) мерзлоты грунта, `0..1`.
+    pub permafrost: Vec<f32>,
     /// Оценка высоты снеговой линии над уровнем моря, км.
     pub snow_line_km: Vec<f32>,
 }
@@ -101,6 +103,7 @@ impl Climate {
             5
         };
         let snow_f = ((2.0 - temp_c as f64) / 4.0).clamp(0.0, 1.0) as f32;
+        let perma = ((-0.5 - temp_c as f64) / 7.0).clamp(0.0, 1.0) as f32;
         let snow_line = ((temp_c as f64 - 1.0) / 6.2).max(0.0) as f32;
 
         Self {
@@ -127,6 +130,7 @@ impl Climate {
             aridity_index: vec![aridity; n],
             snow_frac: vec![snow_f; n],
             glacier: vec![0.0; n],
+            permafrost: vec![perma; n],
             snow_line_km: vec![snow_line; n],
         }
     }
@@ -404,12 +408,17 @@ fn advect_moisture_season(
             let p_step;
             if is_land[i] {
                 let lift = (h_pos[i] - h_in_arr[i]).max(0.0);
-                let excess = (q_in - qs).max(0.0);
-                p_step = (q_in * (cr * 0.35 + (lift * 0.85).min(0.60)) * curr_mod_arr[i]
+                let descent = (h_in_arr[i] - h_pos[i]).max(0.0);
+                let foehn_supp = (-descent * 3.2).exp();
+                let qs_eff = qs * (1.0 + 0.35 * descent);
+                let excess = (q_in - qs_eff).max(0.0);
+                p_step = (q_in
+                    * (cr * 0.35 * foehn_supp + (lift * 0.85).min(0.60))
+                    * curr_mod_arr[i]
                     + 0.65 * excess)
                     .min(q_in);
                 let q_rem = (q_in - p_step).max(0.0);
-                let recycle = (0.34 * p_step * recycle_temp[i]).min((qs - q_rem).max(0.0));
+                let recycle = (0.34 * p_step * recycle_temp[i]).min((qs_eff - q_rem).max(0.0));
                 q_next[i] = q_rem + recycle;
             } else {
                 let q_new = q_in + (qs - q_in).max(0.0) * 0.28;
@@ -559,6 +568,7 @@ pub fn compute_with_params(
     let mut aridity_index = vec![0f32; n];
     let mut snow_frac = vec![0f32; n];
     let mut glacier = vec![0f32; n];
+    let mut permafrost = vec![0f32; n];
     let mut snow_line_km = vec![0f32; n];
 
     let sub_lat = (27.0 / rot_k).clamp(15.0, 58.0);
@@ -649,6 +659,14 @@ pub fn compute_with_params(
                 0.0
             };
             let t_warm = t_jan.max(t_jul);
+            let t_cold = t_jan.min(t_jul);
+            permafrost[i] = if rel_height_km[i] > 0.0 && t_mean < -0.5 {
+                let cold_f = ((-0.5 - t_mean) / 7.0).clamp(0.0, 1.0);
+                let winter_f = ((-8.0 - t_cold) / 14.0).clamp(0.35, 1.0);
+                (cold_f * winter_f * (1.0 - 0.65 * glacier[i] as f64)).clamp(0.0, 1.0) as f32
+            } else {
+                0.0
+            };
             snow_line_km[i] =
                 ((rel_height_km[i].max(0.0) as f64) + (t_warm - 1.0) / 6.2).max(0.0) as f32;
         }
@@ -678,6 +696,7 @@ pub fn compute_with_params(
         aridity_index,
         snow_frac,
         glacier,
+        permafrost,
         snow_line_km,
     }
 }

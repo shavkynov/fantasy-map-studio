@@ -184,6 +184,7 @@ fn land_step_cost(
     is_pass_zone: &[u8],
     hydrology: &Hydrology,
     biomes: &Biomes,
+    permafrost: &[f32],
     habitability: &[f32],
     existing_road_mask: Option<&[u8]>,
 ) -> f64 {
@@ -231,6 +232,7 @@ fn land_step_cost(
         Biome::TemperateGrassland | Biome::TropicalSavanna | Biome::Mediterranean => 0.0,
         _ => 0.65,
     };
+    let perma_pen = 2.4 * (permafrost[v] as f64).clamp(0.0, 1.0);
     let river_cross_pen = if hydrology.river_mask[v] != 0
         && hydrology.discharge_m3s[v] > 3000.0
         && hydrology.receiver[u] != v as i32
@@ -249,7 +251,10 @@ fn land_step_cost(
         Some(m) if m[v] != 0 => 0.68,
         _ => 1.0,
     };
-    dist_km * (1.0 + slope_pen + alt_pen + biome_pen + river_cross_pen) * valley_mult * reuse_mult
+    dist_km
+        * (1.0 + slope_pen + alt_pen + biome_pen + perma_pen + river_cross_pen)
+        * valley_mult
+        * reuse_mult
 }
 
 /// Прокладывает сухопутный торговый маршрут между двумя клетками суши с учётом уклона, высот и перевалов.
@@ -340,6 +345,7 @@ pub fn route_land_road(
                 &is_pass_zone,
                 &planet.hydrology,
                 &planet.biomes,
+                &planet.climate.permafrost,
                 &planet.civilization.habitability,
                 existing_road_mask,
             );
@@ -432,6 +438,14 @@ pub fn simulate(
         let (nbs, cnt) = grid.neighbors8(d.cell);
         for &nb in &nbs[..cnt] {
             deposit_bonus[nb] = deposit_bonus[nb].max(d.richness * 0.7);
+        }
+    }
+    let mut is_portage = vec![0u8; n];
+    for wf in &hydrology.waterfalls {
+        is_portage[wf.cell] = 1;
+        let r = hydrology.receiver[wf.cell];
+        if r >= 0 && hydrology.is_ocean[r as usize] == 0 && hydrology.is_lake[r as usize] == 0 {
+            is_portage[r as usize] = 1;
         }
     }
 
@@ -629,6 +643,12 @@ pub fn simulate(
         if hydrology.is_oasis[i] != 0 {
             score += 0.26;
         }
+        if hydrology.is_delta[i] != 0 && climate.permafrost[i] < 0.25 {
+            score += 0.26;
+        }
+        if is_portage[i] != 0 {
+            score += 0.16;
+        }
         if deposit_bonus[i] >= 0.50 {
             score += 0.24 * deposit_bonus[i];
         }
@@ -731,6 +751,7 @@ pub fn simulate(
                 &is_pass_zone,
                 hydrology,
                 biomes,
+                &climate.permafrost,
                 &habitability,
                 road_used,
             )

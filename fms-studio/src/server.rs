@@ -955,13 +955,14 @@ fn build_world_json(wkey: &WorldKey, planet: &Planet, cached: &CachedRender, qs:
     push_json_str(&mut out, &wkey.seed);
     let _ = write!(
         out,
-        ",\"width\":{},\"height\":{},\"grid_w\":{},\"grid_h\":{},\"continents_count\":{},\"rivers_count\":{},\"settlements_count\":{},\"realms_count\":{},\"deposits_count\":{},\"suggested_region\":{{\"lat\":{:.4},\"lon\":{:.4},\"span\":{:.1}}},\"map_png_url\":",
+        ",\"width\":{},\"height\":{},\"grid_w\":{},\"grid_h\":{},\"continents_count\":{},\"rivers_count\":{},\"waterfalls_count\":{},\"settlements_count\":{},\"realms_count\":{},\"deposits_count\":{},\"suggested_region\":{{\"lat\":{:.4},\"lon\":{:.4},\"span\":{:.1}}},\"map_png_url\":",
         cached.width,
         cached.height,
         planet.grid.w,
         planet.grid.h,
         cont_cnt,
         cached.rivers_count,
+        planet.hydrology.waterfalls.len(),
         cached.settlements_count,
         planet.civilization.realms.len(),
         planet.resources.deposits.len(),
@@ -1156,27 +1157,47 @@ fn build_inspect_json(planet: &Planet, lat_deg: f64, lon_deg: f64) -> String {
         nearest_dep_dist = 0.0;
     }
 
+    let mut nearest_wf_dist = f64::INFINITY;
+    let mut nearest_wf_drop = 0.0f32;
+    for wf in &planet.hydrology.waterfalls {
+        let (wx, wy) = planet.grid.xy(wf.cell);
+        let d = planet.grid.spherical_dist_km(u_pt, planet.grid.unit_vec(wx, wy));
+        if d < nearest_wf_dist {
+            nearest_wf_dist = d;
+            nearest_wf_drop = wf.drop_m;
+        }
+    }
+    if !nearest_wf_dist.is_finite() {
+        nearest_wf_dist = 0.0;
+    }
+
     let r = &planet.resources;
-    let mut out = String::with_capacity(1024);
+    let mut out = String::with_capacity(1152);
     let _ = write!(
         out,
-        "{{\"in_bounds\":true,\"lat\":{:.4},\"lon\":{:.4},\"is_ocean\":{},\"elevation_m\":{:.1},\"temp_c\":{:.2},\"temp_jan_c\":{:.2},\"temp_jul_c\":{:.2},\"precip_mm\":{:.1},\"aridity_index\":{:.3},\"soil_fertility\":{:.3},\"discharge_m3s\":{:.1},\"river_order\":{},\"habitability\":{:.3},\"nearest_dist_km\":{:.1},\"nearest_deposit_dist_km\":{:.1},\"nearest_deposit_richness\":{:.3}",
+        "{{\"in_bounds\":true,\"lat\":{:.4},\"lon\":{:.4},\"is_ocean\":{},\"is_wadi\":{},\"is_oasis\":{},\"is_delta\":{},\"elevation_m\":{:.1},\"temp_c\":{:.2},\"temp_jan_c\":{:.2},\"temp_jul_c\":{:.2},\"precip_mm\":{:.1},\"aridity_index\":{:.3},\"permafrost\":{:.3},\"soil_fertility\":{:.3},\"discharge_m3s\":{:.1},\"river_order\":{},\"habitability\":{:.3},\"nearest_dist_km\":{:.1},\"nearest_deposit_dist_km\":{:.1},\"nearest_deposit_richness\":{:.3},\"nearest_waterfall_dist_km\":{:.1},\"nearest_waterfall_drop_m\":{:.0}",
         lat_deg,
         lon_deg,
         is_ocean,
+        planet.hydrology.is_wadi[cell] != 0,
+        planet.hydrology.is_oasis[cell] != 0,
+        planet.hydrology.is_delta[cell] != 0,
         elev_m,
         planet.climate.temp_c[cell],
         planet.climate.temp_jan_c[cell],
         planet.climate.temp_jul_c[cell],
         planet.climate.precip_mm[cell],
         planet.climate.aridity_index[cell],
+        planet.climate.permafrost[cell],
         planet.biomes.soil_fertility[cell],
         planet.hydrology.discharge_m3s[cell],
         planet.hydrology.river_order[cell],
         planet.civilization.habitability[cell],
         nearest_dist,
         nearest_dep_dist,
-        nearest_dep_rich
+        nearest_dep_rich,
+        nearest_wf_dist,
+        nearest_wf_drop
     );
     out.push_str(",\"biome\":");
     push_json_str(&mut out, biome);

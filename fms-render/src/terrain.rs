@@ -92,6 +92,14 @@ pub struct DepositPin {
 }
 
 #[derive(Clone, Debug)]
+pub struct WaterfallPin {
+    pub x: f64,
+    pub y: f64,
+    pub drop_m: f32,
+    pub discharge_m3s: f32,
+}
+
+#[derive(Clone, Debug)]
 pub struct MapLabel {
     pub text: String,
     pub kind: &'static str,
@@ -113,6 +121,7 @@ pub struct OverlayModel {
     pub routes: Vec<OverlayRoute>,
     pub settlements: Vec<SettlementPin>,
     pub deposits: Vec<DepositPin>,
+    pub waterfalls: Vec<WaterfallPin>,
     pub labels: Vec<MapLabel>,
     pub currents: Vec<Vec<[f64; 3]>>,
     pub legend_realms: Vec<(String, [f64; 3])>,
@@ -220,6 +229,7 @@ pub(crate) struct SampledGrid {
     pub glacier: Vec<f32>,
     pub aridity: Vec<f32>,
     pub forest_cov: Vec<f32>,
+    pub wetland_cov: Vec<f32>,
     pub ink_bio: Vec<[f64; 3]>,
     pub cloud_mottle: Vec<f32>,
     pub realm_id: Vec<i32>,
@@ -418,6 +428,7 @@ pub(crate) fn build_world_grid(planet: &Planet, proj: &WorldProj, noise: &Noise)
     let mut ig = vec![0.0f32; gw * gh];
     let mut ib = vec![0.0f32; gw * gh];
     let mut fc = vec![0.0f32; gw * gh];
+    let mut wc = vec![0.0f32; gw * gh];
     let mut is_land_g = vec![0.0f32; gw * gh];
     let mut is_lake_g = vec![0.0f32; gw * gh];
     let mut is_salt_g = vec![0.0f32; gw * gh];
@@ -428,11 +439,41 @@ pub(crate) fn build_world_grid(planet: &Planet, proj: &WorldProj, noise: &Noise)
         ig[i] = c_i[1] as f32;
         ib[i] = c_i[2] as f32;
         fc[i] = if is_forest_biome(planet.biomes.biome[i]) { 1.0 } else { 0.0 };
+        wc[i] = if planet.biomes.biome[i] == Biome::Wetland || planet.hydrology.is_delta[i] != 0 {
+            1.0
+        } else {
+            0.0
+        };
         is_land_g[i] = if planet.hydrology.is_ocean[i] == 0 { 1.0 } else { 0.0 };
         is_lake_g[i] = if planet.hydrology.is_lake[i] != 0 { 1.0 } else { 0.0 };
         is_salt_g[i] = if planet.hydrology.is_salt_flat[i] != 0 { 1.0 } else { 0.0 };
     }
     blur_land_rgb_and_forest(gw, gh, true, &planet.hydrology.is_ocean, &mut ir, &mut ig, &mut ib, &mut fc);
+    let mut bathy_g = planet.erosion.elevation_km.clone();
+    for _ in 0..4 {
+        let prev = bathy_g.clone();
+        for cy in 0..gh {
+            let y0 = cy.saturating_sub(1);
+            let y1 = (cy + 1).min(gh - 1);
+            for cx in 0..gw {
+                let c = cy * gw + cx;
+                if planet.hydrology.is_ocean[c] == 0 {
+                    continue;
+                }
+                let (mut s, mut wt_sum) = (0.0f32, 0.0f32);
+                for yy in [y0, cy, y1] {
+                    for dx in -1isize..=1 {
+                        let xx = (cx as isize + dx).rem_euclid(gw as isize) as usize;
+                        let nb = yy * gw + xx;
+                        let wt = if dx == 0 && yy == cy { 4.0 } else if dx == 0 || yy == cy { 2.0 } else { 1.0 };
+                        s += prev[nb].min(0.0) * wt;
+                        wt_sum += wt;
+                    }
+                }
+                bathy_g[c] = s / wt_sum;
+            }
+        }
+    }
 
     let mut inside = vec![0u8; n];
     let mut elev = vec![0.0f32; n];
@@ -443,6 +484,7 @@ pub(crate) fn build_world_grid(planet: &Planet, proj: &WorldProj, noise: &Noise)
     let mut glacier = vec![0.0f32; n];
     let mut aridity = vec![0.0f32; n];
     let mut forest_cov = vec![0.0f32; n];
+    let mut wetland_cov = vec![0.0f32; n];
     let mut ink_bio = vec![[0.0f64; 3]; n];
     let mut cloud_mottle = vec![0.0f32; n];
     let mut realm_id = vec![-1i32; n];
@@ -463,8 +505,14 @@ pub(crate) fn build_world_grid(planet: &Planet, proj: &WorldProj, noise: &Noise)
             let lon_r = lon_deg.to_radians();
             let u = [lat_r.cos() * lon_r.cos(), lat_r.cos() * lon_r.sin(), lat_r.sin()];
 
-            let e = sample_catmull(&planet.erosion.elevation_km, gw, gh, true, gx, gy)
-                + 0.018 * noise.fbm(u[0] * 120.0, u[1] * 120.0, u[2] * 120.0, 2);
+            let e_raw = sample_catmull(&planet.erosion.elevation_km, gw, gh, true, gx, gy);
+            let e = if e_raw < -0.02 {
+                let e_sm = sample_bilinear_norm(&bathy_g, gw, gh, true, gx, gy);
+                let t_sea = ((-0.02 - e_raw) / 0.14).clamp(0.0, 1.0);
+                e_raw * (1.0 - t_sea) + e_sm * t_sea
+            } else {
+                e_raw + 0.018 * noise.fbm(u[0] * 120.0, u[1] * 120.0, u[2] * 120.0, 2)
+            };
             elev[i] = e as f32;
 
             let land_f = sample_bilinear_norm(&is_land_g, gw, gh, true, gx, gy);
@@ -480,16 +528,19 @@ pub(crate) fn build_world_grid(planet: &Planet, proj: &WorldProj, noise: &Noise)
             let ai = sample_bilinear_norm(&planet.climate.aridity_index, gw, gh, true, gx, gy);
             aridity[i] = ((0.68 - ai) / 0.58).clamp(0.0, 1.0) as f32;
             let tc = sample_bilinear_norm(&planet.climate.temp_c, gw, gh, true, gx, gy);
+            let t_jan = sample_bilinear_norm(&planet.climate.temp_jan_c, gw, gh, true, gx, gy);
+            let t_jul = sample_bilinear_norm(&planet.climate.temp_jul_c, gw, gh, true, gx, gy);
+            let t_cold = t_jan.min(t_jul);
             if !lnd {
-                let ice_lat = lat_deg.abs()
-                    + 4.8 * noise.fbm(u[0] * 6.5, u[1] * 6.5, u[2] * 6.5, 3)
-                    + 1.6 * noise.fbm(u[0] * 22.0, u[1] * 22.0, u[2] * 22.0, 2);
-                if ice_lat > 77.5 || (tc < -12.0 && ice_lat > 73.5) {
+                let ice_noise = 2.6 * noise.fbm(u[0] * 7.5, u[1] * 7.5, u[2] * 7.5, 3)
+                    + 1.1 * noise.fbm(u[0] * 24.0, u[1] * 24.0, u[2] * 24.0, 2);
+                if tc + ice_noise < -10.5 && t_cold < -15.0 {
                     polar_ice[i] = 1;
                 }
             }
             glacier[i] = sample_bilinear_norm(&planet.climate.glacier, gw, gh, true, gx, gy).clamp(0.0, 1.0) as f32;
             forest_cov[i] = sample_bilinear_norm(&fc, gw, gh, true, gx, gy).clamp(0.0, 1.0) as f32;
+            wetland_cov[i] = sample_bilinear_norm(&wc, gw, gh, true, gx, gy).clamp(0.0, 1.0) as f32;
             ink_bio[i] = [
                 sample_bilinear_norm(&ir, gw, gh, true, gx, gy),
                 sample_bilinear_norm(&ig, gw, gh, true, gx, gy),
@@ -517,6 +568,7 @@ pub(crate) fn build_world_grid(planet: &Planet, proj: &WorldProj, noise: &Noise)
         glacier,
         aridity,
         forest_cov,
+        wetland_cov,
         ink_bio,
         cloud_mottle,
         realm_id,
@@ -540,6 +592,7 @@ pub(crate) fn build_region_grid(planet: &Planet, reg: &Region, proj: &RegionProj
     let mut ig = vec![0.0f32; rw * rh];
     let mut ib = vec![0.0f32; rw * rh];
     let mut fc = vec![0.0f32; rw * rh];
+    let mut wc = vec![0.0f32; rw * rh];
     let mut is_land_r = vec![0.0f32; rw * rh];
     let mut is_lake_r = vec![0.0f32; rw * rh];
     let mut is_salt_r = vec![0.0f32; rw * rh];
@@ -550,21 +603,54 @@ pub(crate) fn build_region_grid(planet: &Planet, reg: &Region, proj: &RegionProj
         ig[i] = c_i[1] as f32;
         ib[i] = c_i[2] as f32;
         fc[i] = if is_forest_biome(reg.biome[i]) { 1.0 } else { 0.0 };
+        wc[i] = if reg.biome[i] == Biome::Wetland || reg.is_delta[i] != 0 {
+            1.0
+        } else {
+            0.0
+        };
         is_land_r[i] = if reg.is_ocean[i] == 0 { 1.0 } else { 0.0 };
         is_lake_r[i] = if reg.is_lake[i] != 0 { 1.0 } else { 0.0 };
         is_salt_r[i] = if reg.is_salt_flat[i] != 0 { 1.0 } else { 0.0 };
     }
     blur_land_rgb_and_forest(rw, rh, false, &reg.is_ocean, &mut ir, &mut ig, &mut ib, &mut fc);
+    let mut bathy_r = reg.elevation_km.clone();
+    for _ in 0..3 {
+        let prev_b = bathy_r.clone();
+        let prev_lk = is_lake_r.clone();
+        for cy in 0..rh {
+            let y0 = cy.saturating_sub(1);
+            let y1 = (cy + 1).min(rh - 1);
+            for cx in 0..rw {
+                let c = cy * rw + cx;
+                let (mut sb, mut slk, mut wt_sum) = (0.0f32, 0.0f32, 0.0f32);
+                for yy in [y0, cy, y1] {
+                    for dx in -1isize..=1 {
+                        let xx = (cx as isize + dx).clamp(0, rw as isize - 1) as usize;
+                        let nb = yy * rw + xx;
+                        let wt = if dx == 0 && yy == cy { 4.0 } else if dx == 0 || yy == cy { 2.0 } else { 1.0 };
+                        sb += prev_b[nb].min(0.0) * wt;
+                        slk += prev_lk[nb] * wt;
+                        wt_sum += wt;
+                    }
+                }
+                if reg.is_ocean[c] != 0 {
+                    bathy_r[c] = sb / wt_sum;
+                }
+                is_lake_r[c] = slk / wt_sum;
+            }
+        }
+    }
 
     let mut inside = vec![0u8; n];
     let mut elev = vec![0.0f32; n];
     let mut is_land = vec![0u8; n];
     let mut is_lake = vec![0u8; n];
     let mut is_salt_flat = vec![0u8; n];
-    let polar_ice = vec![0u8; n];
+    let mut polar_ice = vec![0u8; n];
     let mut glacier = vec![0.0f32; n];
     let mut aridity = vec![0.0f32; n];
     let mut forest_cov = vec![0.0f32; n];
+    let mut wetland_cov = vec![0.0f32; n];
     let mut ink_bio = vec![[0.0f64; 3]; n];
     let mut cloud_mottle = vec![0.0f32; n];
     let mut realm_id = vec![-1i32; n];
@@ -593,14 +679,21 @@ pub(crate) fn build_region_grid(planet: &Planet, reg: &Region, proj: &RegionProj
 
             let rx = (fx * rw as f64 - 0.5).clamp(0.0, (rw - 1) as f64);
             let ry = (fy * rh as f64 - 0.5).clamp(0.0, (rh - 1) as f64);
-            let e = sample_catmull(&reg.elevation_km, rw, rh, false, rx, ry)
-                + 0.012 * noise.fbm(u[0] * 240.0, u[1] * 240.0, u[2] * 240.0, 2);
+            let e_raw = sample_catmull(&reg.elevation_km, rw, rh, false, rx, ry);
+            let e = if e_raw < -0.02 {
+                let e_sm = sample_bilinear_norm(&bathy_r, rw, rh, false, rx, ry);
+                let t_sea = ((-0.02 - e_raw) / 0.12).clamp(0.0, 1.0);
+                e_raw * (1.0 - t_sea) + e_sm * t_sea
+            } else {
+                e_raw + 0.012 * noise.fbm(u[0] * 240.0, u[1] * 240.0, u[2] * 240.0, 2)
+            };
             elev[i] = e as f32;
 
             let land_f = sample_bilinear_norm(&is_land_r, rw, rh, false, rx, ry);
             let lake_f = sample_bilinear_norm(&is_lake_r, rw, rh, false, rx, ry);
             let salt_f = sample_bilinear_norm(&is_salt_r, rw, rh, false, rx, ry);
-            let lk = lake_f > 0.45 && e > -0.25;
+            let lk_jit = 0.12 * noise.fbm(u[0] * 170.0 + 2.3, u[1] * 170.0 - 4.1, u[2] * 170.0 + 1.7, 2);
+            let lk = lake_f > 0.22 && (lake_f + lk_jit) > 0.48 && e > -0.25;
             let sf = salt_f > 0.50;
             let lnd = e > 0.0 || (land_f > 0.55 && e > -0.04) || lk;
             is_land[i] = if lnd { 1 } else { 0 };
@@ -611,11 +704,22 @@ pub(crate) fn build_region_grid(planet: &Planet, reg: &Region, proj: &RegionProj
             let gy_f = (((90.0 - lat_deg) / 180.0) * gh as f64 - 0.5).clamp(0.0, (gh - 1) as f64);
             let ai = sample_bilinear_norm(&planet.climate.aridity_index, gw, gh, true, gx_f, gy_f);
             aridity[i] = ((0.68 - ai) / 0.58).clamp(0.0, 1.0) as f32;
+            if !lnd {
+                let tc = sample_bilinear_norm(&reg.temp_c, rw, rh, false, rx, ry);
+                let t_cold = sample_bilinear_norm(&reg.temp_jan_c, rw, rh, false, rx, ry)
+                    .min(sample_bilinear_norm(&reg.temp_jul_c, rw, rh, false, rx, ry));
+                let ice_noise = 2.6 * noise.fbm(u[0] * 7.5, u[1] * 7.5, u[2] * 7.5, 3)
+                    + 1.1 * noise.fbm(u[0] * 24.0, u[1] * 24.0, u[2] * 24.0, 2);
+                if tc + ice_noise < -10.5 && t_cold < -15.0 {
+                    polar_ice[i] = 1;
+                }
+            }
             glacier[i] = sample_bilinear_norm(&reg.glacier, rw, rh, false, rx, ry).clamp(0.0, 1.0) as f32;
 
             let bx = (rx + 0.55 * noise.fbm(u[0] * 140.0, u[1] * 140.0, u[2] * 140.0, 2)).clamp(0.0, (rw - 1) as f64);
             let by = (ry + 0.55 * noise.fbm(u[0] * 140.0 + 7.1, u[1] * 140.0 - 3.4, u[2] * 140.0 + 5.2, 2)).clamp(0.0, (rh - 1) as f64);
             forest_cov[i] = sample_bilinear_norm(&fc, rw, rh, false, bx, by).clamp(0.0, 1.0) as f32;
+            wetland_cov[i] = sample_bilinear_norm(&wc, rw, rh, false, bx, by).clamp(0.0, 1.0) as f32;
             ink_bio[i] = [
                 sample_bilinear_norm(&ir, rw, rh, false, bx, by),
                 sample_bilinear_norm(&ig, rw, rh, false, bx, by),
@@ -643,6 +747,7 @@ pub(crate) fn build_region_grid(planet: &Planet, reg: &Region, proj: &RegionProj
         glacier,
         aridity,
         forest_cov,
+        wetland_cov,
         ink_bio,
         cloud_mottle,
         realm_id,
@@ -652,11 +757,14 @@ pub(crate) fn build_region_grid(planet: &Planet, reg: &Region, proj: &RegionProj
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn paint_terrain_rivers_roads(
     grid: &SampledGrid,
     style: Style,
     paper_tex: &[u8],
     rivers: &[Vec<[f64; 3]>],
+    wadis: &[Vec<[f64; 2]>],
+    oases: &[[f64; 2]],
     land_roads: &[Vec<[f64; 2]>],
 ) -> (Vec<u8>, Vec<f32>, Vec<f32>, Vec<[f64; 2]>) {
     let w = grid.w;
@@ -664,6 +772,8 @@ pub(crate) fn paint_terrain_rivers_roads(
     let n = w * h;
     let mut rgb = vec![0u8; n * 3];
     let us = grid.ui_scale;
+    let hs_step = (2.0 * us).round().max(1.0) as usize;
+    let z_exag = if grid.is_world { 11.5 } else { 15.5 };
 
     let wd_ripples = |d: f64| -> f64 {
         let ds = d / us.max(0.4);
@@ -707,6 +817,19 @@ pub(crate) fn paint_terrain_rivers_roads(
             let bd = grid.border_dist[i] as f64;
             let rid = grid.realm_id[i];
 
+            // Направленная светотеневая отмывка рельефа (солнце с СЗ, 315°)
+            let x0 = x.saturating_sub(hs_step);
+            let x1 = (x + hs_step).min(w - 1);
+            let y0 = y.saturating_sub(hs_step);
+            let y1 = (y + hs_step).min(h - 1);
+            let e_l = if grid.inside[y * w + x0] != 0 { grid.elev[y * w + x0] as f64 } else { e };
+            let e_r = if grid.inside[y * w + x1] != 0 { grid.elev[y * w + x1] as f64 } else { e };
+            let e_u = if grid.inside[y0 * w + x] != 0 { grid.elev[y0 * w + x] as f64 } else { e };
+            let e_d = if grid.inside[y1 * w + x] != 0 { grid.elev[y1 * w + x] as f64 } else { e };
+            let dz_dx = (e_r - e_l) / (((x1 - x0).max(1) as f64) / us.max(0.5));
+            let dz_dy = (e_d - e_u) / (((y1 - y0).max(1) as f64) / us.max(0.5));
+            let illum = ((0.7071 * dz_dx + 0.7071 * dz_dy) * z_exag).tanh();
+
             let mut lake_edge = false;
             if grid.is_lake[i] != 0 && x > 0 && x + 1 < w && y > 0 && y + 1 < h {
                 if grid.is_lake[i - 1] == 0 || grid.is_lake[i + 1] == 0 || grid.is_lake[i - w] == 0 || grid.is_lake[i + w] == 0 {
@@ -725,23 +848,23 @@ pub(crate) fn paint_terrain_rivers_roads(
                 } else {
                     0.0
                 };
+                let mut ice_edge = false;
+                if !is_lk && grid.polar_ice[i] != 0 && x > 0 && x + 1 < w && y > 0 && y + 1 < h {
+                    for nb in [i - 1, i + 1, i - w, i + w] {
+                        if grid.inside[nb] != 0 && grid.is_land[nb] == 0 && grid.polar_ice[nb] == 0 {
+                            ice_edge = true;
+                            break;
+                        }
+                    }
+                }
 
                 match style {
                     Style::Expedition => {
                         if !is_lk && grid.polar_ice[i] != 0 {
-                            let mut ice_edge = false;
-                            if x > 0 && x + 1 < w && y > 0 && y + 1 < h {
-                                for nb in [i - 1, i + 1, i - w, i + w] {
-                                    if grid.inside[nb] != 0 && grid.is_land[nb] == 0 && grid.polar_ice[nb] == 0 {
-                                        ice_edge = true;
-                                        break;
-                                    }
-                                }
-                            }
-                            let mut s = lerp_rgb([228.0, 230.0, 228.0], [206.0, 212.0, 216.0], (0.5 + 0.5 * cloud) * 0.45);
+                            let mut s = lerp_rgb([220.0, 230.0, 236.0], [194.0, 210.0, 220.0], (0.5 + 0.5 * cloud) * 0.52);
                             s = [s[0] - 5.0 * vig, s[1] - 5.0 * vig, s[2] - 4.0 * vig];
                             if ice_edge {
-                                s = lerp_rgb(s, [62.0, 54.0, 44.0], 0.84);
+                                s = lerp_rgb(s, [62.0, 58.0, 52.0], 0.80);
                             }
                             if bank_aa > 0.0 {
                                 s = lerp_rgb(s, [44.0, 36.0, 26.0], bank_aa * 0.92);
@@ -752,11 +875,13 @@ pub(crate) fn paint_terrain_rivers_roads(
                             lerp_rgb(s, [52.0, 42.0, 32.0], bank_aa * 0.90)
                         } else {
                             let rip = wd_ripples(cd);
+                            let bathy_sh = (illum * 0.08).clamp(-0.07, 0.07);
                             let mut sea = lerp_rgb(
                                 [176.0 + 4.5 * cloud, 170.0 + 4.0 * cloud, 154.0 + 3.5 * cloud],
                                 [124.0, 122.0, 112.0],
                                 depth_t * 0.80,
                             );
+                            sea = [sea[0] + 10.0 * bathy_sh, sea[1] + 10.0 * bathy_sh, sea[2] + 9.0 * bathy_sh];
                             let glow_w = 9.0 * us;
                             if cd < glow_w {
                                 sea = lerp_rgb(sea, [198.0, 194.0, 180.0], (glow_w - cd) / glow_w * 0.28);
@@ -767,31 +892,51 @@ pub(crate) fn paint_terrain_rivers_roads(
                         }
                     }
                     Style::Painted => {
-                        let mut s = if is_lk {
-                            lerp_rgb([102.0, 174.0, 190.0], [60.0, 132.0, 158.0], cloud * 0.35 + 0.5)
+                        if !is_lk && grid.polar_ice[i] != 0 {
+                            let mut s = lerp_rgb([220.0, 238.0, 246.0], [182.0, 214.0, 230.0], (0.5 + 0.5 * cloud) * 0.55);
+                            if ice_edge {
+                                s = lerp_rgb(s, [96.0, 148.0, 174.0], 0.72);
+                            }
+                            s = [s[0] - 6.0 * vig, s[1] - 6.0 * vig, s[2] - 5.0 * vig];
+                            lerp_rgb(s, [44.0, 35.0, 24.0], bank_aa * 0.92)
                         } else {
-                            let base = lerp_rgb(
-                                [84.0, 156.0, 176.0],
-                                [38.0, 88.0, 120.0],
-                                (depth_t * 0.85 + 0.14 * cloud).clamp(0.0, 1.0),
-                            );
-                            let glow_w = 10.0 * us;
-                            let shallow_glow = if cd < glow_w { ((glow_w - cd) / glow_w).powf(1.4) * 0.54 } else { 0.0 };
-                            lerp_rgb(base, [158.0, 216.0, 222.0], shallow_glow)
-                        };
-                        if !is_lk && cd > 1.3 * us && cd < 3.8 * us {
-                            let rim = (1.0 - (cd - 2.3 * us).abs() / (1.5 * us)).clamp(0.0, 1.0);
-                            s = lerp_rgb(s, [196.0, 234.0, 236.0], rim * 0.42);
+                            let bathy_sh = (illum * 0.09).clamp(-0.08, 0.08);
+                            let mut s = if is_lk {
+                                lerp_rgb([102.0, 174.0, 190.0], [60.0, 132.0, 158.0], cloud * 0.35 + 0.5)
+                            } else {
+                                let base = lerp_rgb(
+                                    [84.0, 156.0, 176.0],
+                                    [38.0, 88.0, 120.0],
+                                    (depth_t * 0.85 + 0.14 * cloud).clamp(0.0, 1.0),
+                                );
+                                let sh_base = [
+                                    base[0] + 12.0 * bathy_sh,
+                                    base[1] + 15.0 * bathy_sh,
+                                    base[2] + 16.0 * bathy_sh,
+                                ];
+                                let glow_w = 10.0 * us;
+                                let shallow_glow = if cd < glow_w { ((glow_w - cd) / glow_w).powf(1.4) * 0.54 } else { 0.0 };
+                                lerp_rgb(sh_base, [158.0, 216.0, 222.0], shallow_glow)
+                            };
+                            if !is_lk && cd > 1.3 * us && cd < 3.8 * us {
+                                let rim = (1.0 - (cd - 2.3 * us).abs() / (1.5 * us)).clamp(0.0, 1.0);
+                                s = lerp_rgb(s, [196.0, 234.0, 236.0], rim * 0.42);
+                            }
+                            s = [s[0] - 7.0 * vig, s[1] - 7.0 * vig, s[2] - 6.0 * vig];
+                            lerp_rgb(s, [44.0, 35.0, 24.0], bank_aa * 0.92)
                         }
-                        s = [s[0] - 7.0 * vig, s[1] - 7.0 * vig, s[2] - 6.0 * vig];
-                        lerp_rgb(s, [44.0, 35.0, 24.0], bank_aa * 0.92)
                     }
                 }
             } else {
                 let mtn_soil = ((e - 1.15) / 0.85).clamp(0.0, 1.0);
                 let f_cov = grid.forest_cov[i] as f64;
+                let w_cov = grid.wetland_cov[i] as f64;
                 let glac = grid.glacier[i] as f64;
                 let salt = grid.is_salt_flat[i] != 0;
+                let marsh_tex = w_cov > 0.30
+                    && glac < 0.2
+                    && (y % 3 == 0)
+                    && (((x.wrapping_mul(3) + y.wrapping_mul(7)) % 13) < 6);
 
                 match style {
                     Style::Expedition => {
@@ -805,8 +950,20 @@ pub(crate) fn paint_terrain_rivers_roads(
                         if f_cov > 0.05 {
                             c = lerp_rgb(c, [84.0, 92.0, 56.0], f_cov * 0.28);
                         }
+                        if w_cov > 0.18 {
+                            c = lerp_rgb(c, [106.0, 134.0, 114.0], w_cov * 0.32);
+                            if marsh_tex {
+                                c = lerp_rgb(c, [78.0, 116.0, 124.0], 0.42);
+                            }
+                        }
                         if mtn_soil > 0.02 {
                             c = lerp_rgb(c, [136.0, 128.0, 112.0], mtn_soil * 0.54);
+                        }
+                        if illum >= 0.0 {
+                            c = [c[0] + 15.0 * illum, c[1] + 13.0 * illum, c[2] + 9.0 * illum];
+                        } else {
+                            let sh = -illum;
+                            c = [c[0] - 19.0 * sh, c[1] - 18.0 * sh, c[2] - 14.0 * sh];
                         }
                         if salt {
                             c = lerp_rgb(c, [228.0, 220.0, 198.0], 0.85);
@@ -837,8 +994,20 @@ pub(crate) fn paint_terrain_rivers_roads(
                         if f_cov > 0.05 {
                             c = lerp_rgb(c, [62.0, 78.0, 30.0], f_cov * 0.30);
                         }
+                        if w_cov > 0.18 {
+                            c = lerp_rgb(c, [74.0, 128.0, 96.0], w_cov * 0.36);
+                            if marsh_tex {
+                                c = lerp_rgb(c, [68.0, 146.0, 152.0], 0.45);
+                            }
+                        }
                         if mtn_soil > 0.02 {
                             c = lerp_rgb(c, [110.0, 102.0, 86.0], mtn_soil * 0.65);
+                        }
+                        if illum >= 0.0 {
+                            c = [c[0] + 19.0 * illum, c[1] + 16.0 * illum, c[2] + 10.0 * illum];
+                        } else {
+                            let sh = -illum;
+                            c = [c[0] - 24.0 * sh, c[1] - 21.0 * sh, c[2] - 16.0 * sh];
                         }
                         if salt {
                             c = lerp_rgb(c, [224.0, 214.0, 186.0], 0.85);
@@ -878,6 +1047,90 @@ pub(crate) fn paint_terrain_rivers_roads(
         ((fy + fh).ceil() as usize).min(h),
     ];
 
+    // Сезонные пересыхающие русла (вади) и пустынные оазисы
+    let wadi_col = match style {
+        Style::Expedition => [124.0, 98.0, 74.0],
+        Style::Painted => [138.0, 112.0, 76.0],
+    };
+    let wadi_r = (if grid.is_world { 0.65 } else { 0.95 }) * us.max(0.7);
+    for wd in wadis {
+        if wd.len() < 2 {
+            continue;
+        }
+        let mut acc = 0.0f64;
+        for k in 0..(wd.len() - 1) {
+            let p0 = wd[k];
+            let p1 = wd[k + 1];
+            let seg = ((p1[0] - p0[0]).powi(2) + (p1[1] - p0[1]).powi(2)).sqrt();
+            let steps = (seg * 1.2).ceil().max(1.0) as usize;
+            for st in 0..steps {
+                let d_along = acc + seg * (st as f64 / steps as f64);
+                if ((d_along / (4.2 * us.max(0.6))) as usize) % 2 == 1 {
+                    continue;
+                }
+                let t = st as f64 / steps as f64;
+                let mx = p0[0] + (p1[0] - p0[0]) * t;
+                let my = p0[1] + (p1[1] - p0[1]) * t;
+                let rx0 = ((mx - wadi_r - 1.0).floor() as isize).max(clip[0] as isize) as usize;
+                let rx1 = ((mx + wadi_r + 1.0).ceil() as isize).min(clip[2] as isize) as usize;
+                let ry0 = ((my - wadi_r - 1.0).floor() as isize).max(clip[1] as isize) as usize;
+                let ry1 = ((my + wadi_r + 1.0).ceil() as isize).min(clip[3] as isize) as usize;
+                for yy in ry0..ry1 {
+                    for xx in rx0..rx1 {
+                        let idx = yy * w + xx;
+                        if grid.inside[idx] == 0 || grid.is_land[idx] == 0 || grid.is_lake[idx] != 0 {
+                            continue;
+                        }
+                        let d = ((xx as f64 + 0.5 - mx).powi(2) + (yy as f64 + 0.5 - my).powi(2)).sqrt();
+                        if d <= wadi_r + 0.45 {
+                            let a = ((1.0 - (d - wadi_r).max(0.0) / 0.45).clamp(0.0, 1.0)) * 0.58;
+                            let cur = [rgb[3 * idx] as f64, rgb[3 * idx + 1] as f64, rgb[3 * idx + 2] as f64];
+                            rgb[3 * idx..3 * idx + 3].copy_from_slice(&rgb_to_u8(lerp_rgb(cur, wadi_col, a)));
+                        }
+                    }
+                }
+            }
+            acc += seg;
+        }
+    }
+
+    let oasis_outer = (if grid.is_world { 3.4 } else { 5.4 }) * us.max(0.75);
+    let oasis_pool = oasis_outer * 0.44;
+    for &[ox, oy] in oases {
+        let rx0 = ((ox - oasis_outer - 1.0).floor() as isize).max(clip[0] as isize) as usize;
+        let rx1 = ((ox + oasis_outer + 1.0).ceil() as isize).min(clip[2] as isize) as usize;
+        let ry0 = ((oy - oasis_outer - 1.0).floor() as isize).max(clip[1] as isize) as usize;
+        let ry1 = ((oy + oasis_outer + 1.0).ceil() as isize).min(clip[3] as isize) as usize;
+        for yy in ry0..ry1 {
+            for xx in rx0..rx1 {
+                let idx = yy * w + xx;
+                if grid.inside[idx] == 0 || grid.is_land[idx] == 0 || grid.is_lake[idx] != 0 {
+                    continue;
+                }
+                let d = ((xx as f64 + 0.5 - ox).powi(2) + (yy as f64 + 0.5 - oy).powi(2)).sqrt();
+                let cur = [rgb[3 * idx] as f64, rgb[3 * idx + 1] as f64, rgb[3 * idx + 2] as f64];
+                if d <= oasis_pool {
+                    let pool_c = match style {
+                        Style::Expedition => [78.0, 142.0, 158.0],
+                        Style::Painted => [56.0, 172.0, 188.0],
+                    };
+                    rgb[3 * idx..3 * idx + 3].copy_from_slice(&rgb_to_u8(lerp_rgb(cur, pool_c, 0.88)));
+                } else if d <= oasis_outer {
+                    let lush_c = match style {
+                        Style::Expedition => [86.0, 128.0, 72.0],
+                        Style::Painted => [72.0, 146.0, 56.0],
+                    };
+                    let a = (1.0 - (d - oasis_pool) / (oasis_outer - oasis_pool).max(0.5)).clamp(0.0, 1.0) * 0.78;
+                    rgb[3 * idx..3 * idx + 3].copy_from_slice(&rgb_to_u8(lerp_rgb(cur, lush_c, a)));
+                }
+            }
+        }
+    }
+
+    // Двухпроходный композитинг рек без кольцевых перетяжек на стыках сегментов
+    let mut riv_water_a = vec![0.0f32; n];
+    let mut riv_core_t = vec![0.0f32; n];
+    let mut riv_bank_a = vec![0.0f32; n];
     for riv in rivers {
         if riv.len() < 2 {
             continue;
@@ -885,14 +1138,16 @@ pub(crate) fn paint_terrain_rivers_roads(
         for k in 0..(riv.len() - 1) {
             let p0 = [riv[k][0], riv[k][1]];
             let p1 = [riv[k + 1][0], riv[k + 1][1]];
-            let core_r = (riv[k][2] * if grid.is_world { 0.72 } else { 1.20 } * us)
-                .max(if grid.is_world { 0.72 * us.max(0.75) } else { 0.95 * us.max(0.75) });
-            let bank_w = (core_r * 0.28 + 0.30 * us).min(0.82);
-            let outer_r = core_r + bank_w + 0.42;
-            let min_x = ((p0[0].min(p1[0]) - outer_r - 1.0).floor() as isize).max(clip[0] as isize) as usize;
-            let max_x = ((p0[0].max(p1[0]) + outer_r + 1.0).ceil() as isize).min(clip[2] as isize) as usize;
-            let min_y = ((p0[1].min(p1[1]) - outer_r - 1.0).floor() as isize).max(clip[1] as isize) as usize;
-            let max_y = ((p0[1].max(p1[1]) + outer_r + 1.0).ceil() as isize).min(clip[3] as isize) as usize;
+            let w0 = riv[k][2];
+            let w1 = riv[k + 1][2];
+            let max_w = w0.max(w1);
+            let max_core = (max_w * if grid.is_world { 0.72 } else { 1.15 } * us)
+                .max(if grid.is_world { 0.70 * us.max(0.75) } else { 0.82 * us.max(0.75) });
+            let max_outer = max_core + (max_core * 0.28 + 0.30 * us).min(0.82) + 0.55;
+            let min_x = ((p0[0].min(p1[0]) - max_outer - 1.0).floor() as isize).max(clip[0] as isize) as usize;
+            let max_x = ((p0[0].max(p1[0]) + max_outer + 1.0).ceil() as isize).min(clip[2] as isize) as usize;
+            let min_y = ((p0[1].min(p1[1]) - max_outer - 1.0).floor() as isize).max(clip[1] as isize) as usize;
+            let max_y = ((p0[1].max(p1[1]) + max_outer + 1.0).ceil() as isize).min(clip[3] as isize) as usize;
 
             let vx = p1[0] - p0[0];
             let vy = p1[1] - p0[1];
@@ -907,34 +1162,65 @@ pub(crate) fn paint_terrain_rivers_roads(
                     let px = x as f64 + 0.5;
                     let py = y as f64 + 0.5;
                     let t = (((px - p0[0]) * vx + (py - p0[1]) * vy) / len2).clamp(0.0, 1.0);
+                    let w_interp = w0 + (w1 - w0) * t;
+                    let core_r = (w_interp * if grid.is_world { 0.72 } else { 1.15 } * us)
+                        .max(if grid.is_world { 0.70 * us.max(0.75) } else { 0.82 * us.max(0.75) });
+                    let bank_w = (core_r * 0.28 + 0.30 * us).min(0.82);
+                    let bank_edge = core_r + bank_w;
+                    let outer_r = bank_edge + 0.45;
+
                     let qx = p0[0] + vx * t;
                     let qy = p0[1] + vy * t;
                     let d = ((px - qx).powi(2) + (py - qy).powi(2)).sqrt();
                     river_dist[i] = river_dist[i].min(d as f32);
 
                     if d <= outer_r && grid.is_lake[i] == 0 {
-                        let bank_col = match style {
-                            Style::Expedition => [54.0, 44.0, 32.0],
-                            Style::Painted => [52.0, 40.0, 26.0],
-                        };
-                        let water_col = match style {
-                            Style::Expedition => lerp_rgb([142.0, 182.0, 194.0], [84.0, 130.0, 150.0], (1.0 - d / core_r).clamp(0.0, 1.0)),
-                            Style::Painted => lerp_rgb([142.0, 210.0, 222.0], [64.0, 146.0, 176.0], (1.0 - d / core_r).clamp(0.0, 1.0)),
-                        };
-                        let cur = [rgb[3 * i] as f64, rgb[3 * i + 1] as f64, rgb[3 * i + 2] as f64];
-                        let bank_edge = core_r + bank_w;
-                        let painted = if d <= core_r {
-                            water_col
-                        } else if d <= bank_edge {
-                            lerp_rgb(bank_col, water_col, 1.0 - ((d - core_r) / bank_w).clamp(0.0, 1.0))
+                        let ba = if d <= bank_edge {
+                            1.0
                         } else {
-                            lerp_rgb(cur, bank_col, (1.0 - (d - bank_edge) / 0.42).clamp(0.0, 1.0) * 0.76)
-                        };
-                        rgb[3 * i..3 * i + 3].copy_from_slice(&rgb_to_u8(painted));
+                            ((outer_r - d) / 0.45).clamp(0.0, 1.0)
+                        } as f32;
+                        let wa = if d <= core_r {
+                            1.0
+                        } else if d <= bank_edge {
+                            (1.0 - (d - core_r) / bank_w.max(0.25)).clamp(0.0, 1.0)
+                        } else {
+                            0.0
+                        } as f32;
+                        let ct = (1.0 - d / core_r.max(0.35)).clamp(0.0, 1.0) as f32;
+                        if ba > riv_bank_a[i] {
+                            riv_bank_a[i] = ba;
+                        }
+                        if wa > riv_water_a[i] {
+                            riv_water_a[i] = wa;
+                        }
+                        if ct > riv_core_t[i] {
+                            riv_core_t[i] = ct;
+                        }
                     }
                 }
             }
         }
+    }
+    let bank_col = match style {
+        Style::Expedition => [54.0, 44.0, 32.0],
+        Style::Painted => [52.0, 40.0, 26.0],
+    };
+    for i in 0..n {
+        let ba = riv_bank_a[i] as f64;
+        if ba <= 0.0 {
+            continue;
+        }
+        let wa = riv_water_a[i] as f64;
+        let ct = riv_core_t[i] as f64;
+        let water_col = match style {
+            Style::Expedition => lerp_rgb([142.0, 182.0, 194.0], [84.0, 130.0, 150.0], ct),
+            Style::Painted => lerp_rgb([142.0, 210.0, 222.0], [64.0, 146.0, 176.0], ct),
+        };
+        let cur = [rgb[3 * i] as f64, rgb[3 * i + 1] as f64, rgb[3 * i + 2] as f64];
+        let with_bank = lerp_rgb(cur, bank_col, (ba * 0.80).clamp(0.0, 1.0));
+        let painted = lerp_rgb(with_bank, water_col, wa);
+        rgb[3 * i..3 * i + 3].copy_from_slice(&rgb_to_u8(painted));
     }
 
     let mut bridges: Vec<[f64; 2]> = Vec::new();
@@ -1238,6 +1524,9 @@ pub(crate) fn extract_world_anchors(
                 continue;
             }
             let pr = proj.project(lat, planet.grid.lon_deg(cx));
+            if pr[1] < sg.frame[1] + 14.0 * sg.ui_scale || pr[1] > sg.frame[1] + sg.frame[3] - 10.0 * sg.ui_scale {
+                continue;
+            }
             let px = pr[0].round() as isize;
             let py = pr[1].round() as isize;
             if px < 0 || px >= sg.w as isize || py < 0 || py >= sg.h as isize {
@@ -1490,8 +1779,8 @@ pub(crate) fn trace_ocean_currents(
 pub(crate) fn choose_legend_rect(grid: &SampledGrid, is_world: bool) -> [f64; 4] {
     let [fx, fy, fw, fh] = grid.frame;
     let us = grid.ui_scale;
-    let bw = (if is_world { 206.0 } else { 188.0 }) * us;
-    let bh = (if is_world { 276.0 } else { 156.0 }) * us;
+    let bw = (if is_world { 208.0 } else { 192.0 }) * us;
+    let bh = (if is_world { 300.0 } else { 180.0 }) * us;
     let m = 16.0 * us;
     let top_off = (if is_world { 46.0 } else { 16.0 }) * us;
     let candidates = [
@@ -1626,26 +1915,30 @@ pub fn choose_region_window(planet: &Planet) -> RegionOptions {
         for x in 0..planet.grid.w {
             let idx = y * planet.grid.w + x;
             let lon = planet.grid.lon_deg(x);
-            let (mut n_land, mut n_sea, mut n_riv, mut n_hi, mut n_for, mut n_set) = (0, 0, 0, 0, 0, 0);
+            let (mut n_land, mut n_sea, mut n_riv, mut n_hi, mut n_for, mut n_lk, mut n_set) =
+                (0, 0, 0, 0, 0, 0, 0);
             for &(slat, slon) in &seed_pts {
                 if (slat - lat).abs() <= 14.0 && wrap_lon_deg(slon - lon).abs() <= 21.0 {
                     n_set += 1;
                 }
             }
+            let step_g = ((planet.grid.w as isize) / 90).max(2);
             for dy in (-3isize..=3).step_by(2) {
-                let yy = (y as isize + dy * 4).clamp(0, planet.grid.h as isize - 1) as usize;
+                let yy = (y as isize + dy * step_g).clamp(0, planet.grid.h as isize - 1) as usize;
                 for dx in (-4isize..=4).step_by(2) {
-                    let xx = (x as isize + dx * 4).rem_euclid(planet.grid.w as isize) as usize;
+                    let xx = (x as isize + dx * step_g).rem_euclid(planet.grid.w as isize) as usize;
                     let ii = yy * planet.grid.w + xx;
                     if planet.hydrology.is_ocean[ii] != 0 {
                         n_sea += 1;
+                    } else if planet.hydrology.is_lake[ii] != 0 {
+                        n_lk += 1;
                     } else {
                         n_land += 1;
                     }
                     if planet.hydrology.river_mask[ii] != 0 {
                         n_riv += 1;
                     }
-                    if planet.erosion.elevation_km[ii] > 1.3 {
+                    if planet.erosion.elevation_km[ii] > 1.35 {
                         n_hi += 1;
                     }
                     if is_forest_biome(planet.biomes.biome[ii]) {
@@ -1653,11 +1946,15 @@ pub fn choose_region_window(planet: &Planet) -> RegionOptions {
                     }
                 }
             }
-            let sc = (n_land.min(18) * n_sea.min(10)) as f64
-                + n_riv as f64 * 4.0
-                + n_hi.min(8) as f64 * 5.0
-                + n_for.min(14) as f64 * 5.0
-                + n_set as f64 * 12.0;
+            let mtn_bonus = if n_hi >= 2 { 32.0 } else { 0.0 };
+            let lake_pen = (n_lk - 2).max(0) as f64 * 8.0;
+            let sc = (n_land.min(14) * n_sea.min(8)) as f64
+                + n_riv as f64 * 4.5
+                + n_hi.min(8) as f64 * 8.5
+                + mtn_bonus
+                + n_for.min(12) as f64 * 5.0
+                + n_set.min(6) as f64 * 12.0
+                - lake_pen;
             if sc > best_score {
                 best_score = sc;
                 best_cell = idx;
@@ -1941,6 +2238,53 @@ pub(crate) fn rasterize_overlay_finish(base_rgb: &[u8], ov: &OverlayModel, pack:
                 draw_line(&mut rgb, rt.pts[k], rt.pts[k + 1], route_col, 0.45, 0.55 * us.max(0.6));
             }
         }
+    }
+
+    // Дискретные маркеры месторождений и водопадов на автономном растре
+    let lr = ov.legend_rect;
+    let dep_r = (if ov.is_world { 3.8 } else { 5.0 }) * us.max(0.6);
+    for d in &ov.deposits {
+        if (d.x >= lr[0] - 6.0 && d.x <= lr[0] + lr[2] + 6.0 && d.y >= lr[1] - 6.0 && d.y <= lr[1] + lr[3] + 6.0)
+            || ((d.x - rose_cx).powi(2) + (d.y - rose_cy).powi(2)).sqrt() < rose_r + 12.0 * us
+        {
+            continue;
+        }
+        let fill = match d.kind {
+            "iron" => [116.0, 134.0, 150.0],
+            "copper" => [224.0, 168.0, 62.0],
+            "gems" => [64.0, 184.0, 158.0],
+            "coal" => [53.0, 50.0, 48.0],
+            "oil" => [148.0, 82.0, 30.0],
+            "salt" => [244.0, 239.0, 228.0],
+            _ => [200.0, 155.0, 82.0],
+        };
+        let stroke = if d.kind == "coal" { [216.0, 207.0, 188.0] } else { [31.0, 24.0, 17.0] };
+        let x0 = ((d.x - dep_r - 1.5).floor() as isize).max(clip[0] as isize) as usize;
+        let x1 = ((d.x + dep_r + 1.5).ceil() as isize).min(clip[2] as isize) as usize;
+        let y0 = ((d.y - dep_r - 1.5).floor() as isize).max(clip[1] as isize) as usize;
+        let y1 = ((d.y + dep_r + 1.5).ceil() as isize).min(clip[3] as isize) as usize;
+        for yy in y0..y1 {
+            for xx in x0..x1 {
+                let dist = ((xx as f64 + 0.5 - d.x).powi(2) + (yy as f64 + 0.5 - d.y).powi(2)).sqrt();
+                if dist <= dep_r + 1.1 {
+                    let i = (yy * w + xx) * 3;
+                    let cur = [rgb[i] as f64, rgb[i + 1] as f64, rgb[i + 2] as f64];
+                    let c = if dist <= dep_r - 0.8 { fill } else { stroke };
+                    let a = ((dep_r + 1.1 - dist) / 0.8).clamp(0.0, 1.0) * 0.90;
+                    rgb[i..i + 3].copy_from_slice(&rgb_to_u8(lerp_rgb(cur, c, a)));
+                }
+            }
+        }
+    }
+    for wf in &ov.waterfalls {
+        if (wf.x >= lr[0] - 6.0 && wf.x <= lr[0] + lr[2] + 6.0 && wf.y >= lr[1] - 6.0 && wf.y <= lr[1] + lr[3] + 6.0)
+            || ((wf.x - rose_cx).powi(2) + (wf.y - rose_cy).powi(2)).sqrt() < rose_r + 12.0 * us
+        {
+            continue;
+        }
+        let s = (if ov.is_world { 3.6 } else { 4.8 }) * us.max(0.6);
+        draw_line(&mut rgb, [wf.x - s, wf.y - s * 0.5], [wf.x + s, wf.y - s * 0.5], [242.0, 250.0, 252.0], 0.92, 1.1 * us.max(0.6));
+        draw_line(&mut rgb, [wf.x - s * 0.65, wf.y + s * 0.45], [wf.x + s * 0.65, wf.y + s * 0.45], [52.0, 134.0, 168.0], 0.88, 0.95 * us.max(0.6));
     }
 
     // Двойная рамка на растре

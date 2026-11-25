@@ -22,6 +22,96 @@ fn run_water(seed: &str, w: usize) -> (tectonic::World, Grid, currents::Currents
 }
 
 #[test]
+fn rain_shadow_permafrost_deltas_and_waterfalls() {
+    // 1. Орографическая дождевая тень (фёновое иссушение за меридиональным хребтом в поясе западных ветров)
+    let grid = Grid::new(180, 90, 6371.0);
+    let mut elev = vec![-2.5f32; grid.len()];
+    for y in 12..=34 {
+        for x in 24..=76 {
+            let e = if (34..=37).contains(&x) {
+                3.1
+            } else {
+                0.22
+            };
+            elev[grid.idx(x, y)] = e;
+        }
+    }
+    let cur = currents::solve(&grid, &elev);
+    let clim = climate::compute_with_params(&grid, &elev, &cur, "rain_shadow_synth", &ClimateParams::default());
+
+    let mut windward_sum = 0.0f64;
+    let mut leeward_sum = 0.0f64;
+    let mut cnt = 0usize;
+    // Около 43..49° с.ш. (y = 20..=23) дуют устойчивые западные ветры (с запада на восток)
+    for y in 20..=23 {
+        for dx in 0..5 {
+            windward_sum += clim.precip_mm[grid.idx(29 + dx, y)] as f64;
+            leeward_sum += clim.precip_mm[grid.idx(40 + dx, y)] as f64;
+            cnt += 1;
+        }
+    }
+    let windward_mean = windward_sum / cnt as f64;
+    let leeward_mean = leeward_sum / cnt as f64;
+    assert!(
+        windward_mean > leeward_mean * 1.45,
+        "expected strong orographic rain shadow: windward={windward_mean:.1} mm vs leeward={leeward_mean:.1} mm"
+    );
+
+    // 2. Инварианты вечной мерзлоты на реальной тектонической планете
+    let (tec, p_grid, _, p_clim, _) = run_water("a", 180);
+    let mut cold_perma_cnt = 0usize;
+    for i in 0..p_grid.len() {
+        let pf = p_clim.permafrost[i];
+        assert!(pf.is_finite() && (0.0..=1.0).contains(&pf));
+        if tec.elevation_km[i] <= 0.0 || p_clim.temp_c[i] >= 0.0 {
+            assert_eq!(pf, 0.0, "unexpected permafrost at warm/ocean cell {i}");
+        }
+        if tec.elevation_km[i] > 0.0 && p_clim.temp_c[i] < -8.0 && p_clim.glacier[i] < 0.35 {
+            assert!(pf > 0.25, "expected permafrost in cold unglaciated cell {i}, got {pf}");
+            cold_perma_cnt += 1;
+        }
+    }
+    assert!(cold_perma_cnt > 0, "expected cold permafrost zone on terrestrial planet");
+
+    // 3. Дельта и водопад на синтетическом профиле реки с уступом и шельфовым устьем
+    let hgrid = Grid::new(120, 60, 6371.0);
+    let mut helev = vec![-1.5f32; hgrid.len()];
+    for y in 20..=40 {
+        for x in 20..=55 {
+            helev[hgrid.idx(x, y)] = 1.6 + 0.02 * (x - 20) as f32;
+        }
+    }
+    // Нижнее пологое течение (x = 20..=27, y = 30): малый уклон для дельты
+    for x in 20..=27 {
+        helev[hgrid.idx(x, 30)] = 0.01 + 0.008 * (x - 20) as f32;
+    }
+    // Крутой тектонический уступ (водопад ~450 м между x=28 и x=27) и верхнее плато (x = 28..=46)
+    for x in 28..=46 {
+        helev[hgrid.idx(x, 30)] = 0.52 + 0.02 * (x - 28) as f32;
+    }
+    let mut hclim = climate::Climate::uniform(&hgrid, 18.0, 200.0, 0.35);
+    for x in 28..=46 {
+        let c = hgrid.idx(x, 30);
+        hclim.precip_mm[c] = 2400.0;
+        hclim.moisture[c] = 0.95;
+        hclim.aridity_index[c] = 2.8;
+    }
+    let force_lake = vec![0u8; hgrid.len()];
+    let margin = vec![2u8; hgrid.len()]; // пассивная окраина
+    let h_res = hydrology::compute(&hgrid, &helev, &force_lake, &margin, &hclim, "wf_delta");
+    assert_eq!(
+        h_res.is_delta[hgrid.idx(20, 30)],
+        1,
+        "expected alluvial river delta at low-slope passive mouth"
+    );
+    assert!(
+        h_res.waterfalls.iter().any(|wf| wf.drop_m >= 350.0),
+        "expected major waterfall across tectonic scarp, got {:?}",
+        h_res.waterfalls
+    );
+}
+
+#[test]
 fn water_determinism() {
     let (_, _, cur1, clim1, hyd1) = run_water("det1", 180);
     let (_, _, cur2, clim2, hyd2) = run_water("det1", 180);

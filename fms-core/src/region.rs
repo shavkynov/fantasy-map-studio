@@ -5,7 +5,7 @@
 use crate::biomes::{classify_land_biome, Biome};
 use crate::civilization::SettlementRole;
 use crate::grid::slope_field;
-use crate::hydrology::{evap_rate_m_yr, meander_smooth_river, FlowRegime, MouthKind, River};
+use crate::hydrology::{evap_rate_m_yr, meander_smooth_river, FlowRegime, MouthKind, River, Waterfall};
 use crate::planet::Planet;
 use crate::resources::ResourceKind;
 use crate::rng::{Noise, Rng};
@@ -152,6 +152,7 @@ pub struct Region {
     pub temp_jul_c: Vec<f32>,
     pub precip_mm: Vec<f32>,
     pub glacier: Vec<f32>,
+    pub permafrost: Vec<f32>,
     pub biome: Vec<Biome>,
     pub is_ocean: Vec<u8>,
     pub is_lake: Vec<u8>,
@@ -159,6 +160,7 @@ pub struct Region {
     pub is_salt_flat: Vec<u8>,
     pub is_wadi: Vec<u8>,
     pub is_oasis: Vec<u8>,
+    pub is_delta: Vec<u8>,
     pub lake_surface_km: Vec<f32>,
     pub filled_km: Vec<f32>,
     pub receiver: Vec<i32>,
@@ -170,6 +172,7 @@ pub struct Region {
     pub river_order: Vec<u8>,
     pub coast_type: Vec<u8>,
     pub rivers: Vec<River>,
+    pub waterfalls: Vec<Waterfall>,
     pub passes: Vec<RegionPass>,
     pub settlements: Vec<RegionSettlement>,
     pub roads: Vec<RegionRoad>,
@@ -212,6 +215,7 @@ fn route_region_road_fields(
     is_ocean: &[u8],
     is_lake: &[u8],
     biome: &[Biome],
+    permafrost: &[f32],
     river_mask: &[u8],
     passes: &[RegionPass],
     from_cell: usize,
@@ -325,8 +329,9 @@ fn route_region_road_fields(
                 0.0
             };
 
+            let perma_pen = 2.4 * (permafrost[nb] as f64).clamp(0.0, 1.0);
             let step_cost =
-                dist_km * (1.0 + slope_pen + alt_pen + river_cross_pen + biome_pen + border_pen) * reuse_mult;
+                dist_km * (1.0 + slope_pen + alt_pen + river_cross_pen + biome_pen + perma_pen + border_pen) * reuse_mult;
             let nc = cost + step_cost;
             if nc + 1e-6 < dist[nb] {
                 dist[nb] = nc;
@@ -419,6 +424,7 @@ pub fn route_region_road(
         &reg.is_ocean,
         &reg.is_lake,
         &reg.biome,
+        &reg.permafrost,
         &reg.river_mask,
         &reg.passes,
         from_cell,
@@ -1337,9 +1343,17 @@ pub fn generate_region(planet: &Planet, opt: &RegionOptions) -> Result<Region, S
                 continue;
             }
             let arid_f = (aridity_index[i] as f64 / 0.45).clamp(0.25, 1.0);
+            let perma_est = if elevation_km[i] > 0.0 && temp_c[i] < -0.5 {
+                (((-0.5 - temp_c[i] as f64) / 7.0).clamp(0.0, 1.0)
+                    * (1.0 - 0.65 * glacier[i] as f64))
+                    .clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
             let melt_boost = 1.0 + 0.25 * (snow_frac[i] as f64).max(glacier[i] as f64);
-            let coeff =
-                ((0.25 + 0.45 * (moisture[i] as f64)) * arid_f * melt_boost).clamp(0.05, 0.85);
+            let perma_boost = 1.0 + 0.22 * perma_est;
+            let coeff = ((0.25 + 0.45 * (moisture[i] as f64)) * arid_f * melt_boost * perma_boost)
+                .clamp(0.05, 0.88);
             let r_ann = ((am2 * (precip_mm[i] as f64) * 1e-3 * coeff) / SECONDS_PER_YEAR) as f32;
             local_runoff[i] = r_ann;
 
@@ -1896,6 +1910,103 @@ pub fn generate_region(planet: &Planet, opt: &RegionOptions) -> Result<Region, S
         }
     }
 
+    let mut permafrost = vec![0.0f32; n];
+    for i in 0..n {
+        if is_ocean[i] == 0 && is_lake[i] == 0 && temp_c[i] < -0.5 {
+            let t_cold = temp_jan_c[i].min(temp_jul_c[i]) as f64;
+            let cold_f = ((-0.5 - temp_c[i] as f64) / 7.0).clamp(0.0, 1.0);
+            let winter_f = ((-8.0 - t_cold) / 14.0).clamp(0.35, 1.0);
+            permafrost[i] =
+                (cold_f * winter_f * (1.0 - 0.65 * glacier[i] as f64)).clamp(0.0, 1.0) as f32;
+        }
+    }
+
+    let mut is_delta = vec![0u8; n];
+    for riv in &rivers {
+        if !matches!(riv.mouth, MouthKind::Ocean | MouthKind::Lake) || riv.cells.len() < 2 {
+            continue;
+        }
+        if riv.max_discharge_m3s < 1.8 * river_thresh {
+            continue;
+        }
+        let m_cell = riv.cells[riv.cells.len() - 2];
+        if is_ocean[m_cell] != 0 || is_lake[m_cell] != 0 {
+            continue;
+        }
+        if slope[m_cell] < 0.0075 && elevation_km[m_cell] < 0.12 {
+            is_delta[m_cell] = 1;
+            let (nbs8, cnt8) = reg_neighbors8(m_cell, w, h);
+            for &nb in &nbs8[..cnt8] {
+                if is_ocean[nb] == 0
+                    && is_lake[nb] == 0
+                    && elevation_km[nb] < 0.08
+                    && slope[nb] < 0.0080
+                {
+                    let (nbs4, cnt4) = reg_neighbors4(nb, w, h);
+                    if nbs4[..cnt4].iter().any(|&q| is_ocean[q] != 0 || is_lake[q] != 0) {
+                        is_delta[nb] = 1;
+                    }
+                }
+            }
+        }
+    }
+
+    let mut wf_cands: Vec<(usize, f32, f32, f32)> = Vec::new();
+    for c in 0..n {
+        if river_mask[c] == 0
+            || is_ocean[c] != 0
+            || is_lake[c] != 0
+            || discharge_m3s[c] < 0.60 * river_thresh
+        {
+            continue;
+        }
+        let r = receiver[c];
+        if r < 0 {
+            continue;
+        }
+        let ru = r as usize;
+        if is_ocean[ru] != 0 {
+            continue;
+        }
+        let base_down = if is_lake[ru] != 0 {
+            lake_surface_km[ru]
+        } else {
+            elevation_km[ru].max(0.0)
+        };
+        let drop_km = elevation_km[c] - base_down;
+        let step_km = (step_m[c] * 1e-3).max(0.5) as f32;
+        if filled_km[c] <= elevation_km[c] + 0.005
+            && drop_km >= 0.075
+            && (drop_km / step_km) >= 0.012
+        {
+            let drop_m = drop_km * 1000.0;
+            let q = discharge_m3s[c];
+            wf_cands.push((c, drop_m, q, drop_m * q.sqrt()));
+        }
+    }
+    wf_cands.sort_by(|a, b| b.3.total_cmp(&a.3).then_with(|| a.0.cmp(&b.0)));
+    let min_wf_sep_km = (dx_avg_km * 3.5).clamp(18.0, 95.0);
+    let mut waterfalls: Vec<Waterfall> = Vec::new();
+    for (c, drop_m, q, _) in wf_cands {
+        let (cx, cy) = (c % w, c / w);
+        let too_close = waterfalls.iter().any(|w0| {
+            let (wx, wy) = (w0.cell % w, w0.cell / w);
+            ((cx as f64 - wx as f64) * dx_km_row[cy])
+                .hypot((cy as f64 - wy as f64) * dy_km)
+                < min_wf_sep_km
+        });
+        if !too_close {
+            waterfalls.push(Waterfall {
+                cell: c,
+                drop_m,
+                discharge_m3s: q,
+            });
+            if waterfalls.len() >= 20 {
+                break;
+            }
+        }
+    }
+
     let mut biome = vec![Biome::Ocean; n];
     let mut coast_type = vec![0u8; n];
     for y in 0..h {
@@ -1920,23 +2031,6 @@ pub fn generate_region(planet: &Planet, opt: &RegionOptions) -> Result<Region, S
                 biome[i] = Biome::SaltFlat;
                 continue;
             }
-            biome[i] = classify_land_biome(
-                lat_deg,
-                elevation_km[i],
-                slope[i],
-                discharge_m3s[i],
-                alluvium_km[i],
-                temp_c[i],
-                temp_jan_c[i],
-                temp_jul_c[i],
-                precip_mm[i],
-                precip_jan_mm[i],
-                precip_jul_mm[i],
-                aridity_index[i] as f64,
-                monsoon_index[i],
-                glacier[i],
-            );
-
             let (nbs4, cnt4) = reg_neighbors4(i, w, h);
             if nbs4[..cnt4].iter().any(|&nb| is_ocean[nb] != 0) {
                 let g_idx = sample_nearest_idx(
@@ -1963,7 +2057,29 @@ pub fn generate_region(planet: &Planet, opt: &RegionOptions) -> Result<Region, S
                 } else {
                     2
                 };
+                if matches!(coast_type[i], 1 | 3) {
+                    is_delta[i] = 0;
+                }
             }
+
+            biome[i] = classify_land_biome(
+                lat_deg,
+                elevation_km[i],
+                slope[i],
+                discharge_m3s[i],
+                alluvium_km[i],
+                temp_c[i],
+                temp_jan_c[i],
+                temp_jul_c[i],
+                precip_mm[i],
+                precip_jan_mm[i],
+                precip_jul_mm[i],
+                aridity_index[i] as f64,
+                monsoon_index[i],
+                glacier[i],
+                permafrost[i],
+                is_delta[i] != 0,
+            );
         }
     }
 
@@ -2132,6 +2248,7 @@ pub fn generate_region(planet: &Planet, opt: &RegionOptions) -> Result<Region, S
             &is_ocean,
             &is_lake,
             &biome,
+            &permafrost,
             &river_mask,
             &passes,
             settlements[a].cell,
@@ -2225,6 +2342,7 @@ pub fn generate_region(planet: &Planet, opt: &RegionOptions) -> Result<Region, S
         temp_jul_c,
         precip_mm,
         glacier,
+        permafrost,
         biome,
         is_ocean,
         is_lake,
@@ -2232,6 +2350,7 @@ pub fn generate_region(planet: &Planet, opt: &RegionOptions) -> Result<Region, S
         is_salt_flat,
         is_wadi,
         is_oasis,
+        is_delta,
         lake_surface_km,
         filled_km,
         receiver,
@@ -2243,6 +2362,7 @@ pub fn generate_region(planet: &Planet, opt: &RegionOptions) -> Result<Region, S
         river_order,
         coast_type,
         rivers,
+        waterfalls,
         passes,
         settlements,
         roads,

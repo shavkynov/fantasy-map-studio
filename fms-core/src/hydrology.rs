@@ -47,6 +47,14 @@ pub struct River {
     pub widths: Vec<f32>,
 }
 
+/// Крупный водопад или порожистый каскад на эрозионном уступе реки.
+#[derive(Clone, Copy, Debug)]
+pub struct Waterfall {
+    pub cell: usize,
+    pub drop_m: f32,
+    pub discharge_m3s: f32,
+}
+
 /// Результаты гидрологического расчёта на сфере.
 #[derive(Clone, Debug)]
 pub struct Hydrology {
@@ -59,6 +67,8 @@ pub struct Hydrology {
     pub is_wadi: Vec<u8>,
     /// Предгорные и инфильтрационные пустынные оазисы (`0` или `1`).
     pub is_oasis: Vec<u8>,
+    /// Аллювиальные речные дельты у пологих морских и озёрных устьев (`0` или `1`).
+    pub is_delta: Vec<u8>,
     pub lake_surface_km: Vec<f32>,
     pub filled_km: Vec<f32>,
     /// Индекс принимающей клетки ниже по стоку (`-1` для океана / стока).
@@ -75,6 +85,7 @@ pub struct Hydrology {
     /// Потери воды на испарение с озёр и русел (м³/с).
     pub water_loss_m3s: Vec<f32>,
     pub rivers: Vec<River>,
+    pub waterfalls: Vec<Waterfall>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -506,10 +517,13 @@ pub fn compute(
                 let arid_f = (climate.aridity_index[i] as f64 / 0.45).clamp(0.25, 1.0);
                 let melt_boost =
                     1.0 + 0.25 * (climate.snow_frac[i] as f64).max(climate.glacier[i] as f64);
+                let perma_boost =
+                    1.0 + 0.22 * (climate.permafrost[i] as f64).clamp(0.0, 1.0);
                 let coeff = ((0.25 + 0.45 * (climate.moisture[i] as f64).clamp(0.0, 1.0))
                     * arid_f
-                    * melt_boost)
-                    .clamp(0.05, 0.85);
+                    * melt_boost
+                    * perma_boost)
+                    .clamp(0.05, 0.88);
                 let precip_m = (climate.precip_mm[i] as f64).max(0.0) * 1e-3;
                 runoff_m3s[i] = ((am2 * precip_m * coeff) / SECONDS_PER_YEAR) as f32;
             }
@@ -1233,6 +1247,87 @@ pub fn compute(
         }
     }
 
+    // 7. Аллювиальные дельты рек и крупные водопады на тектонических/эрозионных уступах.
+    let mut is_delta = vec![0u8; n];
+    for riv in &rivers {
+        if !matches!(riv.mouth, MouthKind::Ocean | MouthKind::Lake) || riv.cells.len() < 2 {
+            continue;
+        }
+        if riv.max_discharge_m3s < 1.8 * river_threshold_m3s {
+            continue;
+        }
+        let m_cell = riv.cells[riv.cells.len() - 2];
+        if is_ocean[m_cell] != 0 || is_lake[m_cell] != 0 {
+            continue;
+        }
+        if slope[m_cell] < 0.0070 && !matches!(coast_type[m_cell], 1 | 3) {
+            is_delta[m_cell] = 1;
+            let (nbs8, cnt8) = grid.neighbors8(m_cell);
+            for &nb in &nbs8[..cnt8] {
+                if is_ocean[nb] == 0
+                    && is_lake[nb] == 0
+                    && rel_height_km[nb] < 0.09
+                    && slope[nb] < 0.0075
+                {
+                    let (nbs4, cnt4) = grid.neighbors4(nb);
+                    if nbs4[..cnt4].iter().any(|&q| is_ocean[q] != 0 || is_lake[q] != 0) {
+                        is_delta[nb] = 1;
+                    }
+                }
+            }
+        }
+    }
+
+    let mut wf_cands: Vec<(usize, f32, f32, f32)> = Vec::new();
+    for c in 0..n {
+        if river_mask[c] == 0
+            || is_ocean[c] != 0
+            || is_lake[c] != 0
+            || discharge_m3s[c] < 0.55 * river_threshold_m3s
+        {
+            continue;
+        }
+        let r = receiver[c];
+        if r < 0 {
+            continue;
+        }
+        let ru = r as usize;
+        if is_ocean[ru] != 0 {
+            continue;
+        }
+        let base_down = if is_lake[ru] != 0 {
+            lake_surface_km[ru]
+        } else {
+            rel_height_km[ru].max(0.0)
+        };
+        let drop_km = rel_height_km[c] - base_down;
+        if filled_km[c] <= rel_height_km[c] + 0.006 && drop_km >= 0.15 {
+            let drop_m = drop_km * 1000.0;
+            let q = discharge_m3s[c];
+            wf_cands.push((c, drop_m, q, drop_m * q.sqrt()));
+        }
+    }
+    wf_cands.sort_by(|a, b| b.3.total_cmp(&a.3).then_with(|| a.0.cmp(&b.0)));
+    let mut waterfalls: Vec<Waterfall> = Vec::new();
+    for (c, drop_m, q, _) in wf_cands {
+        let (cx, cy) = grid.xy(c);
+        let uc = grid.unit_vec(cx, cy);
+        let too_close = waterfalls.iter().any(|w0| {
+            let (wx, wy) = grid.xy(w0.cell);
+            grid.spherical_dist_km(uc, grid.unit_vec(wx, wy)) < 240.0
+        });
+        if !too_close {
+            waterfalls.push(Waterfall {
+                cell: c,
+                drop_m,
+                discharge_m3s: q,
+            });
+            if waterfalls.len() >= 28 {
+                break;
+            }
+        }
+    }
+
     Hydrology {
         is_ocean,
         is_lake,
@@ -1240,6 +1335,7 @@ pub fn compute(
         is_salt_flat,
         is_wadi,
         is_oasis,
+        is_delta,
         lake_surface_km,
         filled_km,
         receiver,
@@ -1252,5 +1348,6 @@ pub fn compute(
         coast_type,
         water_loss_m3s,
         rivers,
+        waterfalls,
     }
 }

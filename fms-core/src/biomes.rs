@@ -122,6 +122,8 @@ pub(crate) fn classify_land_biome(
     aridity_index: f64,
     monsoon_index: f32,
     glacier: f32,
+    permafrost: f32,
+    is_delta: bool,
 ) -> Biome {
     let lat_abs = lat.abs();
     let t_warm = temp_jan_c.max(temp_jul_c);
@@ -136,6 +138,15 @@ pub(crate) fn classify_land_biome(
         Biome::IceSheet
     } else if t_warm < 0.0 {
         Biome::PolarDesert
+    } else if is_delta && t_warm > 5.0 {
+        Biome::Wetland
+    } else if slope < 0.0055
+        && t_warm > 4.5
+        && permafrost > 0.35
+        && aridity_index > 0.62
+        && discharge_m3s > 3_500.0
+    {
+        Biome::Wetland
     } else if t_warm < 10.0 {
         if elev > 1.8 && lat_abs < 60.0 {
             Biome::Alpine
@@ -277,9 +288,14 @@ pub fn classify(
             let temp_f = ((t + 6.0) / 10.0).clamp(0.05, 1.0);
             let slope_f = (1.0 - 0.85 * (slope[i] as f64 / 0.08).clamp(0.0, 1.0)).max(0.1);
             let glac_f = (1.0 - climate.glacier[i] as f64).clamp(0.0, 1.0);
-            let mut sf = (base_min * moist_f * temp_f * slope_f * glac_f).clamp(0.0, 1.0) as f32;
+            let perma_f = (1.0 - 0.72 * climate.permafrost[i] as f64).clamp(0.08, 1.0);
+            let mut sf =
+                (base_min * moist_f * temp_f * slope_f * glac_f * perma_f).clamp(0.0, 1.0) as f32;
             if hydrology.is_oasis[i] != 0 {
                 sf = sf.max(0.55);
+            }
+            if hydrology.is_delta[i] != 0 && climate.permafrost[i] < 0.30 {
+                sf = (sf + 0.22).min(0.96);
             }
             soil_fertility[i] = sf;
 
@@ -299,6 +315,8 @@ pub fn classify(
                 ai,
                 climate.monsoon_index[i],
                 climate.glacier[i],
+                climate.permafrost[i],
+                hydrology.is_delta[i] != 0,
             );
         }
     }

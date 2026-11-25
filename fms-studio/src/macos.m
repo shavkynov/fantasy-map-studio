@@ -191,8 +191,31 @@ extern void fms_free_buf(FmsBuf buf);
         return;
     }
     NSDictionary *dict = (NSDictionary *)message.body;
+    NSString *b64 = [dict[@"dataBase64"] isKindOfClass:[NSString class]] ? dict[@"dataBase64"] : @"";
     NSString *urlStr = [dict[@"url"] isKindOfClass:[NSString class]] ? dict[@"url"] : @"";
     NSString *filename = [dict[@"filename"] isKindOfClass:[NSString class]] ? dict[@"filename"] : @"map.png";
+
+    if (b64.length > 0) {
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+            NSData *body = [[NSData alloc] initWithBase64EncodedString:b64
+                                                               options:NSDataBase64DecodingIgnoreUnknownCharacters];
+            if (!body || body.length == 0) {
+                return;
+            }
+            dispatch_async(dispatch_get_main_queue(), ^{
+                NSSavePanel *panel = [NSSavePanel savePanel];
+                panel.nameFieldStringValue = filename;
+                panel.canCreateDirectories = YES;
+                [panel beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse result) {
+                    if (result == NSModalResponseOK && panel.URL) {
+                        [body writeToURL:panel.URL atomically:YES];
+                    }
+                }];
+            });
+        });
+        return;
+    }
+
     if (urlStr.length == 0) {
         return;
     }

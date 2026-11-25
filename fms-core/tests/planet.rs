@@ -59,6 +59,7 @@ fn planet_end_to_end_and_determinism() {
         assert!(p1.climate.aridity_index[i].is_finite() && p1.climate.aridity_index[i] >= 0.0);
         assert!(p1.climate.temp_amp_c[i].is_finite() && p1.climate.temp_amp_c[i] >= 0.0);
         assert!(p1.climate.glacier[i].is_finite() && (0.0..=1.0).contains(&p1.climate.glacier[i]));
+        assert!(p1.climate.permafrost[i].is_finite() && (0.0..=1.0).contains(&p1.climate.permafrost[i]));
 
         let b = p1.biomes.biome[i];
         match b {
@@ -336,6 +337,8 @@ fn regional_zoom_continuity_and_antimeridian() {
         assert!(r1.temp_c[i].is_finite());
         assert!(r1.precip_mm[i].is_finite());
         assert!(r1.discharge_m3s[i].is_finite());
+        assert!(r1.permafrost[i].is_finite() && (0.0..=1.0).contains(&r1.permafrost[i]));
+        assert!(r1.is_delta[i] <= 1);
         let recv = r1.receiver[i];
         if recv >= 0 {
             assert!(

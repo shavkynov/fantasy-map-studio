@@ -281,9 +281,7 @@ pub fn render_svg(
         w: ov.legend_rect[2],
         h: ov.legend_rect[3],
     };
-    if ov.style == Style::Expedition {
-        occupied.push(leg_r.inset(-8.0 * us, -8.0 * us));
-    }
+    occupied.push(leg_r.inset(-8.0 * us, -8.0 * us));
     occupied.push(Rect {
         x: rose_cx - rose_r - 8.0 * us,
         y: rose_cy - rose_r - 16.0 * us,
@@ -333,9 +331,6 @@ pub fn render_svg(
 
     let mut placed_labels: Vec<PlacedLabel<'_>> = Vec::new();
     for lb in &labels {
-        if lb.kind == "ocean" && ov.style != Style::Expedition {
-            continue;
-        }
         if !fr.inset(14.0 * us, 14.0 * us).contains_pt(lb.x, lb.y) {
             continue;
         }
@@ -346,7 +341,7 @@ pub fn render_svg(
                 true,
                 false,
                 false,
-                "#294d6b",
+                if ov.style == Style::Expedition { "#294d6b" } else { th.text_water },
                 th.halo_water,
                 3.0 * us,
             ),
@@ -713,37 +708,42 @@ pub fn render_svg(
         2.6 * us,
     );
 
-    // 7. Легенда (для Экспедиционного атласа)
-    if ov.style == Style::Expedition {
+    // 7. Легенда атласа (в обоих стилях с адаптивной палитрой карточки)
+    {
         let card = leg_r;
+        let (card_bg, card_inner, hdr_c, txt_c, sep_c) = if ov.style == Style::Expedition {
+            ("rgba(237,230,209,0.95)", th.frame_outer, "#302417", "#574533", "rgba(92,71,51,0.55)")
+        } else {
+            ("rgba(28,22,16,0.92)", th.frame_gold, "#f5e6b8", "#dfd0ad", "rgba(199,153,66,0.45)")
+        };
         let _ = writeln!(s, r#"<g id="layer-legend">"#);
         let _ = writeln!(
             s,
-            r#"  <rect x="{:.1}" y="{:.1}" width="{:.1}" height="{:.1}" fill="rgba(237,230,209,0.95)" stroke="{}" stroke-width="{:.2}" filter="url(#fmsShadow)"/>
-  <rect x="{:.1}" y="{:.1}" width="{:.1}" height="{:.1}" fill="none" stroke="{}" stroke-width="{:.2}"/>"#,
+            r#"  <rect x="{:.1}" y="{:.1}" width="{:.1}" height="{:.1}" fill="{card_bg}" stroke="{}" stroke-width="{:.2}" filter="url(#fmsShadow)"/>
+  <rect x="{:.1}" y="{:.1}" width="{:.1}" height="{:.1}" fill="none" stroke="{card_inner}" stroke-width="{:.2}"/>"#,
             card.x, card.y, card.w, card.h, th.frame_outer, 1.3 * us,
-            card.x + 2.5 * us, card.y + 2.5 * us, card.w - 5.0 * us, card.h - 5.0 * us, th.frame_outer, 0.6 * us,
+            card.x + 2.5 * us, card.y + 2.5 * us, card.w - 5.0 * us, card.h - 5.0 * us, 0.65 * us,
         );
         let x_pad = card.x + 9.0 * us;
         let text_x = x_pad + 21.0 * us;
         let mut cy = card.y + 15.0 * us;
         let _ = writeln!(
             s,
-            r##"  <text x="{x_pad:.1}" y="{cy:.1}" font-family="{}" font-weight="700" font-size="{:.1}" fill="#302417">УСЛОВНЫЕ ОБОЗНАЧЕНИЯ</text>
-  <line x1="{x_pad:.1}" y1="{:.1}" x2="{:.1}" y2="{:.1}" stroke="rgba(92,71,51,0.55)" stroke-width="{:.2}"/>"##,
+            r##"  <text x="{x_pad:.1}" y="{cy:.1}" font-family="{}" font-weight="700" font-size="{:.1}" fill="{hdr_c}">УСЛОВНЫЕ ОБОЗНАЧЕНИЯ</text>
+  <line x1="{x_pad:.1}" y1="{:.1}" x2="{:.1}" y2="{:.1}" stroke="{sep_c}" stroke-width="{:.2}"/>"##,
             th.font_serif, 9.6 * us, cy + 4.0 * us, card.x + card.w - 9.0 * us, cy + 4.0 * us, 0.6 * us,
         );
         cy += 16.0 * us;
 
         if !ov.legend_realms.is_empty() {
-            let _ = writeln!(s, r##"  <text x="{x_pad:.1}" y="{cy:.1}" font-family="{}" font-weight="700" font-size="{:.1}" fill="#302417">Государства</text>"##, th.font_serif, 8.6 * us);
+            let _ = writeln!(s, r##"  <text x="{x_pad:.1}" y="{cy:.1}" font-family="{}" font-weight="700" font-size="{:.1}" fill="{hdr_c}">Государства</text>"##, th.font_serif, 8.6 * us);
             cy += 11.5 * us;
             for (name, rgb) in &ov.legend_realms {
                 let sw_y = cy - 6.8 * us;
                 let _ = writeln!(
                     s,
                     r##"  <rect x="{:.1}" y="{sw_y:.1}" width="{:.1}" height="{:.1}" fill="rgba({},{},{},0.86)" stroke="#473b2e" stroke-width="{:.2}"/>
-  <text x="{text_x:.1}" y="{cy:.1}" font-family="{}" font-size="{:.1}" fill="#574533">{}</text>"##,
+  <text x="{text_x:.1}" y="{cy:.1}" font-family="{}" font-size="{:.1}" fill="{txt_c}">{}</text>"##,
                     x_pad + 1.0 * us, 13.0 * us, 7.2 * us,
                     (rgb[0] * 255.0).round() as u8, (rgb[1] * 255.0).round() as u8, (rgb[2] * 255.0).round() as u8,
                     0.55 * us, th.font_serif, 8.4 * us, xml_escape(name),
@@ -753,7 +753,7 @@ pub fn render_svg(
             cy += 2.0 * us;
         }
         if ov.is_world {
-            let _ = writeln!(s, r##"  <text x="{x_pad:.1}" y="{cy:.1}" font-family="{}" font-weight="700" font-size="{:.1}" fill="#302417">Поселения</text>"##, th.font_serif, 8.6 * us);
+            let _ = writeln!(s, r##"  <text x="{x_pad:.1}" y="{cy:.1}" font-family="{}" font-weight="700" font-size="{:.1}" fill="{hdr_c}">Поселения</text>"##, th.font_serif, 8.6 * us);
             cy += 11.5 * us;
             for (label, icon) in [("Столица", 0), ("Город", 1), ("Порт", 2), ("Крепость", 3)] {
                 let icx = x_pad + 7.5 * us;
@@ -761,22 +761,23 @@ pub fn render_svg(
                 match icon {
                     0 => { let _ = writeln!(s, r##"  <circle cx="{icx:.1}" cy="{icy:.1}" r="{:.1}" fill="#b83829" stroke="#302417" stroke-width="{:.2}"/>"##, 3.1 * us, 0.7 * us); }
                     1 => { let _ = writeln!(s, r##"  <rect x="{:.1}" y="{:.1}" width="{:.1}" height="{:.1}" fill="#dbccb0" stroke="#302417" stroke-width="{:.2}"/><polygon points="{:.1},{:.1} {icx:.1},{:.1} {:.1},{:.1}" fill="#ad4d3d"/>"##, icx - 2.8 * us, icy - 1.5 * us, 5.6 * us, 4.0 * us, 0.6 * us, icx - 3.4 * us, icy - 1.5 * us, icy - 4.2 * us, icx + 3.4 * us, icy - 1.5 * us); }
-                    2 => { let _ = writeln!(s, r##"  <circle cx="{icx:.1}" cy="{icy:.1}" r="{:.1}" fill="none" stroke="#295c80" stroke-width="{:.2}"/>"##, 2.5 * us, 1.1 * us); }
-                    _ => { let _ = writeln!(s, r##"  <rect x="{:.1}" y="{:.1}" width="{:.1}" height="{:.1}" fill="#7a7061" stroke="#302417" stroke-width="{:.2}"/>"##, icx - 2.6 * us, icy - 2.6 * us, 5.2 * us, 5.2 * us, 0.65 * us); }
+                    2 => { let _ = writeln!(s, r##"  <circle cx="{icx:.1}" cy="{icy:.1}" r="{:.1}" fill="none" stroke="#4590ba" stroke-width="{:.2}"/>"##, 2.5 * us, 1.1 * us); }
+                    _ => { let _ = writeln!(s, r##"  <rect x="{:.1}" y="{:.1}" width="{:.1}" height="{:.1}" fill="#8c806f" stroke="#302417" stroke-width="{:.2}"/>"##, icx - 2.6 * us, icy - 2.6 * us, 5.2 * us, 5.2 * us, 0.65 * us); }
                 }
-                let _ = writeln!(s, r##"  <text x="{text_x:.1}" y="{cy:.1}" font-family="{}" font-size="{:.1}" fill="#574533">{label}</text>"##, th.font_serif, 8.4 * us);
+                let _ = writeln!(s, r##"  <text x="{text_x:.1}" y="{cy:.1}" font-family="{}" font-size="{:.1}" fill="{txt_c}">{label}</text>"##, th.font_serif, 8.4 * us);
                 cy += 11.2 * us;
             }
             cy += 2.0 * us;
         }
 
-        let _ = writeln!(s, r##"  <text x="{x_pad:.1}" y="{cy:.1}" font-family="{}" font-weight="700" font-size="{:.1}" fill="#302417">Обозначения</text>"##, th.font_serif, 8.6 * us);
+        let _ = writeln!(s, r##"  <text x="{x_pad:.1}" y="{cy:.1}" font-family="{}" font-weight="700" font-size="{:.1}" fill="{hdr_c}">Обозначения</text>"##, th.font_serif, 8.6 * us);
         cy += 11.5 * us;
         let ly = |y: f64| y - 3.0 * us;
+        let bdr_c = if ov.style == Style::Expedition { "#472e26" } else { "#c24438" };
         let _ = writeln!(
             s,
-            r##"  <line x1="{:.1}" y1="{:.1}" x2="{:.1}" y2="{:.1}" stroke="#472e26" stroke-width="{:.2}" stroke-dasharray="{:.1} {:.1} {:.1} {:.1}"/>
-  <text x="{text_x:.1}" y="{cy:.1}" font-family="{}" font-size="{:.1}" fill="#574533">Граница государства</text>"##,
+            r##"  <line x1="{:.1}" y1="{:.1}" x2="{:.1}" y2="{:.1}" stroke="{bdr_c}" stroke-width="{:.2}" stroke-dasharray="{:.1} {:.1} {:.1} {:.1}"/>
+  <text x="{text_x:.1}" y="{cy:.1}" font-family="{}" font-size="{:.1}" fill="{txt_c}">Граница государства</text>"##,
             x_pad + 1.0 * us, ly(cy), x_pad + 15.0 * us, ly(cy), 1.1 * us, 4.5 * us, 2.0 * us, 1.2 * us, 2.0 * us, th.font_serif, 8.4 * us
         );
         cy += 11.2 * us;
@@ -784,7 +785,7 @@ pub fn render_svg(
             s,
             r##"  <line x1="{:.1}" y1="{:.1}" x2="{:.1}" y2="{:.1}" stroke="#4d4030" stroke-width="{:.2}"/>
   <line x1="{:.1}" y1="{:.1}" x2="{:.1}" y2="{:.1}" stroke="#d9d1b8" stroke-width="{:.2}"/>
-  <text x="{text_x:.1}" y="{cy:.1}" font-family="{}" font-size="{:.1}" fill="#574533">Дорога / тракт</text>"##,
+  <text x="{text_x:.1}" y="{cy:.1}" font-family="{}" font-size="{:.1}" fill="{txt_c}">Дорога / тракт</text>"##,
             x_pad + 1.0 * us, ly(cy), x_pad + 15.0 * us, ly(cy), 2.5 * us,
             x_pad + 1.0 * us, ly(cy), x_pad + 15.0 * us, ly(cy), 1.3 * us, th.font_serif, 8.4 * us
         );
@@ -793,45 +794,75 @@ pub fn render_svg(
             s,
             r##"  <line x1="{:.1}" y1="{:.1}" x2="{:.1}" y2="{:.1}" stroke="#382e24" stroke-width="{:.2}"/>
   <line x1="{:.1}" y1="{:.1}" x2="{:.1}" y2="{:.1}" stroke="#70a6bd" stroke-width="{:.2}"/>
-  <text x="{text_x:.1}" y="{cy:.1}" font-family="{}" font-size="{:.1}" fill="#574533">Река</text>"##,
+  <text x="{text_x:.1}" y="{cy:.1}" font-family="{}" font-size="{:.1}" fill="{txt_c}">Река / порог</text>"##,
             x_pad + 1.0 * us, ly(cy), x_pad + 15.0 * us, ly(cy), 2.4 * us,
             x_pad + 1.0 * us, ly(cy), x_pad + 15.0 * us, ly(cy), 1.25 * us, th.font_serif, 8.4 * us
         );
         cy += 11.2 * us;
+        let sea_c = if ov.style == Style::Expedition { "#3d4d52" } else { "#cfe3de" };
         let _ = writeln!(
             s,
-            r##"  <line x1="{:.1}" y1="{:.1}" x2="{:.1}" y2="{:.1}" stroke="#3d4d52" stroke-width="{:.2}" stroke-dasharray="{:.1} {:.1}"/>
-  <text x="{text_x:.1}" y="{cy:.1}" font-family="{}" font-size="{:.1}" fill="#574533">Морской путь</text>"##,
+            r##"  <line x1="{:.1}" y1="{:.1}" x2="{:.1}" y2="{:.1}" stroke="{sea_c}" stroke-width="{:.2}" stroke-dasharray="{:.1} {:.1}"/>
+  <text x="{text_x:.1}" y="{cy:.1}" font-family="{}" font-size="{:.1}" fill="{txt_c}">Морской путь</text>"##,
             x_pad + 1.0 * us, ly(cy), x_pad + 15.0 * us, ly(cy), 1.05 * us, 1.8 * us, 2.8 * us, th.font_serif, 8.4 * us
         );
         cy += 11.2 * us;
-        for (lbl, col) in [("Тёплое течение", "#a83b2e"), ("Холодное течение", "#2b618f")] {
+        for (lbl, col) in [("Тёплое течение", "#c44b3b"), ("Холодное течение", "#3d82b8")] {
             let y0 = ly(cy);
             let _ = writeln!(
                 s,
                 r##"  <line x1="{:.1}" y1="{y0:.1}" x2="{:.1}" y2="{y0:.1}" stroke="{col}" stroke-width="{:.2}"/>
   <polygon points="{:.1},{y0:.1} {:.1},{:.1} {:.1},{:.1}" fill="{col}"/>
-  <text x="{text_x:.1}" y="{cy:.1}" font-family="{}" font-size="{:.1}" fill="#574533">{lbl}</text>"##,
+  <text x="{text_x:.1}" y="{cy:.1}" font-family="{}" font-size="{:.1}" fill="{txt_c}">{lbl}</text>"##,
                 x_pad + 1.0 * us, x_pad + 13.5 * us, 1.1 * us,
                 x_pad + 15.5 * us, x_pad + 11.2 * us, y0 - 2.1 * us, x_pad + 11.2 * us, y0 + 2.1 * us,
                 th.font_serif, 8.4 * us
             );
             cy += 11.2 * us;
         }
+        {
+            let icx1 = x_pad + 4.8 * us;
+            let icx2 = x_pad + 12.2 * us;
+            let icy = ly(cy);
+            let _ = writeln!(
+                s,
+                r##"  <circle cx="{icx1:.1}" cy="{icy:.1}" r="{:.1}" fill="#e0a83e" stroke="#1f1811" stroke-width="{:.2}"/>
+  <polygon points="{icx2:.1},{:.1} {:.1},{icy:.1} {icx2:.1},{:.1} {:.1},{icy:.1}" fill="#40b89e" stroke="#1f1811" stroke-width="{:.2}"/>
+  <text x="{text_x:.1}" y="{cy:.1}" font-family="{}" font-size="{:.1}" fill="{txt_c}">Месторождение</text>"##,
+                2.5 * us, 0.7 * us, icy - 2.9 * us, icx2 + 2.6 * us, icy + 2.9 * us, icx2 - 2.6 * us, 0.7 * us, th.font_serif, 8.4 * us
+            );
+            cy += 11.2 * us;
+        }
         if ov.is_world {
             let _ = writeln!(
                 s,
-                r##"  <rect x="{:.1}" y="{:.1}" width="{:.1}" height="{:.1}" fill="#e3e6e3" stroke="#42382e" stroke-width="{:.2}"/>
-  <text x="{text_x:.1}" y="{cy:.1}" font-family="{}" font-size="{:.1}" fill="#574533">Полярный лёд</text>"##,
+                r##"  <rect x="{:.1}" y="{:.1}" width="{:.1}" height="{:.1}" fill="#d4e2ea" stroke="#42382e" stroke-width="{:.2}"/>
+  <text x="{text_x:.1}" y="{cy:.1}" font-family="{}" font-size="{:.1}" fill="{txt_c}">Полярный морской лёд</text>"##,
                 x_pad + 1.0 * us, cy - 6.8 * us, 13.0 * us, 7.2 * us, 0.65 * us, th.font_serif, 8.4 * us
             );
         }
         let _ = writeln!(s, "</g>");
     }
 
-    // 7b. Месторождения полезных ископаемых
+    // 7b. Месторождения полезных ископаемых и крупные водопады
     let _ = writeln!(s, r#"<g id="layer-deposits" clip-path="url(#fmsFrameClip)">"#);
     let dep_r = (if ov.is_world { 4.2 } else { 5.4 }) * us.max(0.55);
+    for wf in &ov.waterfalls {
+        if leg_r.inset(-6.0 * us, -6.0 * us).contains_pt(wf.x, wf.y)
+            || ((wf.x - rose_cx).powi(2) + (wf.y - rose_cy).powi(2)).sqrt() < rose_r + 12.0 * us
+        {
+            continue;
+        }
+        let s_wf = (if ov.is_world { 3.8 } else { 5.0 }) * us.max(0.6);
+        let _ = writeln!(
+            s,
+            r##"  <g><line x1="{:.1}" y1="{:.1}" x2="{:.1}" y2="{:.1}" stroke="#1f2c36" stroke-width="{:.2}" stroke-linecap="round"/><line x1="{:.1}" y1="{:.1}" x2="{:.1}" y2="{:.1}" stroke="#eef9fc" stroke-width="{:.2}" stroke-linecap="round"/><line x1="{:.1}" y1="{:.1}" x2="{:.1}" y2="{:.1}" stroke="#4da6cc" stroke-width="{:.2}" stroke-linecap="round"/><title>Водопад ({:.0} м, {:.0} м³/с)</title></g>"##,
+            wf.x - s_wf, wf.y - s_wf * 0.45, wf.x + s_wf, wf.y - s_wf * 0.45, 2.3 * us,
+            wf.x - s_wf, wf.y - s_wf * 0.45, wf.x + s_wf, wf.y - s_wf * 0.45, 1.2 * us,
+            wf.x - s_wf * 0.65, wf.y + s_wf * 0.48, wf.x + s_wf * 0.65, wf.y + s_wf * 0.48, 1.3 * us,
+            wf.drop_m, wf.discharge_m3s
+        );
+    }
     for d in &ov.deposits {
         if leg_r.inset(-6.0 * us, -6.0 * us).contains_pt(d.x, d.y)
             || ((d.x - rose_cx).powi(2) + (d.y - rose_cy).powi(2)).sqrt() < rose_r + 12.0 * us

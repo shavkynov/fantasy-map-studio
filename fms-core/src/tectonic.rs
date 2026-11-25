@@ -1263,8 +1263,41 @@ pub fn generate(opt: &Options) -> Result<World, String> {
             sed_grid[i] = sea_sed[b];
         }
     }
+    let blur_x_polar = |src: &[f32], base_r: usize| -> Vec<f32> {
+        let mut cur = src.to_vec();
+        let mut nxt = vec![0.0f32; nc];
+        for row in 0..h_ {
+            let bin_w = w_ / nlon[row].max(1);
+            let (passes, r) = if bin_w <= 2 * base_r + 1 {
+                (1usize, base_r.min(w_ / 4))
+            } else {
+                (2usize, (bin_w / 2).max(base_r).min(w_ / 4))
+            };
+            let base = row * w_;
+            if r == 0 {
+                continue;
+            }
+            let span = (2 * r + 1) as f64;
+            for _ in 0..passes {
+                let mut sum = 0.0f64;
+                for k in 0..=(2 * r) {
+                    let xk = (k + w_ - r) % w_;
+                    sum += cur[base + xk] as f64;
+                }
+                nxt[base] = (sum / span) as f32;
+                for xx in 1..w_ {
+                    let add_x = (xx + r) % w_;
+                    let sub_x = (xx + w_ - r - 1) % w_;
+                    sum += cur[base + add_x] as f64 - cur[base + sub_x] as f64;
+                    nxt[base + xx] = (sum / span) as f32;
+                }
+                cur[base..base + w_].copy_from_slice(&nxt[base..base + w_]);
+            }
+        }
+        cur
+    };
     {
-        let sm = blur_y(&blur_x(&t, w_, h_, 1), w_, h_, 1);
+        let sm = blur_y(&blur_x_polar(&t, 1), w_, h_, 1);
         t.copy_from_slice(&sm);
     }
     // эрозия
@@ -1393,7 +1426,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
         if near_active { trench_raw[i] = 1.0; }
     }
     let mut trench = if w_ >= 180 {
-        blur_y(&blur_x(&trench_raw, w_, h_, 1), w_, h_, 1)
+        blur_y(&blur_x_polar(&trench_raw, 1), w_, h_, 1)
     } else {
         trench_raw
     };
@@ -1422,8 +1455,8 @@ pub fn generate(opt: &Options) -> Result<World, String> {
     }
 
     // изостазия и уровень моря из объёма воды
-    let av = blur_y(&blur_x(&age_v, w_, h_, 2), w_, h_, 2);
-    let aw = blur_y(&blur_x(&age_w, w_, h_, 2), w_, h_, 2);
+    let av = blur_y(&blur_x_polar(&age_v, 2), w_, h_, 2);
+    let aw = blur_y(&blur_x_polar(&age_w, 2), w_, h_, 2);
     let age_s: Vec<f32> = (0..nc).map(|i| if aw[i] > 0.05 { ((AGE_MAX * 1.5).min((av[i] / aw[i]) as f64)) as f32 } else { AGE_MAX as f32 }).collect();
     let elev: Vec<f32> = (0..nc)
         .map(|i| {

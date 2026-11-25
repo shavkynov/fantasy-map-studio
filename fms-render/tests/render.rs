@@ -35,9 +35,8 @@ fn render_world_and_region_both_styles_png_and_svg() {
         assert!(w_svg.contains("id=\"layer-compass\""));
         assert!(w_svg.contains("id=\"layer-currents\""));
         assert!(w_svg.contains("id=\"layer-deposits\""));
-        if style == Style::Expedition {
-            assert!(w_svg.contains("id=\"layer-legend\""));
-        }
+        assert!(w_svg.contains("id=\"layer-legend\""));
+        assert!(w_svg.contains("oceanArc"));
 
         let r_out = render_region_with_options(
             &planet,

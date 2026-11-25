@@ -12,7 +12,7 @@ pub use assets::AssetPack;
 pub use proj::{RegionProj, WorldProj};
 pub use terrain::{
     choose_region_window, DepositPin, MapLabel, OverlayModel, OverlayRoute, RenderOptions,
-    SettlementPin, Style,
+    SettlementPin, Style, WaterfallPin,
 };
 
 use fms_core::civilization::SettlementRole;
@@ -96,6 +96,33 @@ pub fn render_world(planet: &Planet, seed: &str, style: Style) -> Result<RenderO
     Ok(render_world_with_options(planet, seed, &pack, &opt))
 }
 
+fn append_delta_branches(rivers_out: &mut Vec<Vec<[f64; 3]>>, seg: &[[f64; 3]], spread_px: f64) {
+    let n = seg.len();
+    if n < 4 {
+        return;
+    }
+    let split = n.saturating_sub(4);
+    let p_start = seg[split];
+    let p_end = seg[n - 1];
+    let dx = p_end[0] - p_start[0];
+    let dy = p_end[1] - p_start[1];
+    let len = dx.hypot(dy);
+    if len < 1.5 || len > spread_px * 18.0 {
+        return;
+    }
+    let nx = -dy / len;
+    let ny = dx / len;
+    for sign in [-1.0f64, 1.0] {
+        let mut branch = Vec::with_capacity(n - split);
+        for (k, pt) in seg[split..].iter().enumerate() {
+            let t = k as f64 / (n - 1 - split).max(1) as f64;
+            let off = sign * spread_px * t.powf(1.15);
+            branch.push([pt[0] + nx * off, pt[1] + ny * off, (pt[2] * 0.56).max(0.42)]);
+        }
+        rivers_out.push(branch);
+    }
+}
+
 /// Рендерит карту мира в изотропной цилиндрической проекции Паттерсона с указанным паком ассетов.
 pub fn render_world_with_options(planet: &Planet, seed: &str, pack: &AssetPack, opt: &RenderOptions) -> RenderOutput {
     let mut rng_n = Rng::sub(seed, "art-render");
@@ -110,6 +137,7 @@ pub fn render_world_with_options(planet: &Planet, seed: &str, pack: &AssetPack, 
         if riv.smoothed_pts.len() < 2 || riv.max_discharge_m3s < 650.0 {
             continue;
         }
+        let has_delta = riv.cells.len() >= 2 && planet.hydrology.is_delta[riv.cells[riv.cells.len() - 2]] != 0;
         let mut cur = Vec::new();
         let mut prev_dlon: Option<f64> = None;
         for (idx, pt) in riv.smoothed_pts.iter().enumerate() {
@@ -131,9 +159,81 @@ pub fn render_world_with_options(planet: &Planet, seed: &str, pack: &AssetPack, 
             prev_dlon = Some(dlon);
         }
         if cur.len() >= 2 {
+            if has_delta {
+                append_delta_branches(&mut w_rivers, &cur, 4.2 * wg.ui_scale);
+            }
             w_rivers.push(cur);
         }
     }
+
+    let mut w_wadis: Vec<Vec<[f64; 2]>> = Vec::new();
+    {
+        let n_cells = planet.grid.len();
+        let mut in_wadi = vec![0u8; n_cells];
+        for c in 0..n_cells {
+            if planet.hydrology.is_wadi[c] == 0 {
+                continue;
+            }
+            let r = planet.hydrology.receiver[c];
+            if r >= 0 && planet.hydrology.is_wadi[r as usize] != 0 {
+                in_wadi[r as usize] = 1;
+            }
+        }
+        let mut vis_w = vec![0u8; n_cells];
+        for start in 0..n_cells {
+            if planet.hydrology.is_wadi[start] == 0 || in_wadi[start] != 0 {
+                continue;
+            }
+            let mut chain = Vec::new();
+            let mut prev_dlon: Option<f64> = None;
+            let mut cur_c = start;
+            for _ in 0..64 {
+                let (cx, cy) = planet.grid.xy(cur_c);
+                let lat = planet.grid.lat_deg(cy);
+                let lon = planet.grid.lon_deg(cx);
+                let dlon = wrap_lon_deg(lon - proj.center_lon_deg);
+                if let Some(pd) = prev_dlon {
+                    if (dlon - pd).abs() > 120.0 {
+                        if chain.len() >= 2 {
+                            w_wadis.push(std::mem::take(&mut chain));
+                        } else {
+                            chain.clear();
+                        }
+                    }
+                }
+                chain.push(proj.project(lat, lon));
+                prev_dlon = Some(dlon);
+                if vis_w[cur_c] != 0 {
+                    break;
+                }
+                vis_w[cur_c] = 1;
+                let r = planet.hydrology.receiver[cur_c];
+                if r < 0 || planet.hydrology.is_ocean[r as usize] != 0 {
+                    break;
+                }
+                let ru = r as usize;
+                if planet.hydrology.is_wadi[ru] == 0 {
+                    let (rx, ry) = planet.grid.xy(ru);
+                    let rlon = planet.grid.lon_deg(rx);
+                    if (wrap_lon_deg(rlon - proj.center_lon_deg) - dlon).abs() <= 120.0 {
+                        chain.push(proj.project(planet.grid.lat_deg(ry), rlon));
+                    }
+                    break;
+                }
+                cur_c = ru;
+            }
+            if chain.len() >= 2 {
+                w_wadis.push(chain);
+            }
+        }
+    }
+    let w_oases: Vec<[f64; 2]> = (0..planet.grid.len())
+        .filter(|&i| planet.hydrology.is_oasis[i] != 0)
+        .map(|i| {
+            let (ox, oy) = planet.grid.xy(i);
+            proj.project(planet.grid.lat_deg(oy), planet.grid.lon_deg(ox))
+        })
+        .collect();
 
     let mut w_routes = Vec::new();
     let mut w_land_roads = Vec::new();
@@ -222,6 +322,21 @@ pub fn render_world_with_options(planet: &Planet, seed: &str, pack: &AssetPack, 
             }
         })
         .collect();
+    let waterfalls: Vec<WaterfallPin> = planet
+        .hydrology
+        .waterfalls
+        .iter()
+        .map(|wf| {
+            let (wx, wy) = planet.grid.xy(wf.cell);
+            let pr = proj.project(planet.grid.lat_deg(wy), planet.grid.lon_deg(wx));
+            WaterfallPin {
+                x: pr[0],
+                y: pr[1],
+                drop_m: wf.drop_m,
+                discharge_m3s: wf.discharge_m3s,
+            }
+        })
+        .collect();
     let sett_pos: Vec<(f64, f64, SettlementRole, f64)> = planet
         .civilization
         .settlements
@@ -231,8 +346,15 @@ pub fn render_world_with_options(planet: &Planet, seed: &str, pack: &AssetPack, 
         .collect();
     let (w_peaks, w_forests, w_hills) = extract_world_anchors(planet, &wg, &proj);
 
-    let (mut base_rgb, r_dist, rd_dist, bridges) =
-        paint_terrain_rivers_roads(&wg, opt.style, &pack.paper_tex, &w_rivers, &w_land_roads);
+    let (mut base_rgb, r_dist, rd_dist, bridges) = paint_terrain_rivers_roads(
+        &wg,
+        opt.style,
+        &pack.paper_tex,
+        &w_rivers,
+        &w_wadis,
+        &w_oases,
+        &w_land_roads,
+    );
     stamp_all_assets(
         &mut base_rgb,
         &wg,
@@ -288,6 +410,7 @@ pub fn render_world_with_options(planet: &Planet, seed: &str, pack: &AssetPack, 
         routes: w_routes,
         settlements,
         deposits,
+        waterfalls,
         labels,
         currents,
         legend_realms: legend_realms
@@ -340,22 +463,91 @@ pub fn render_region_with_options(
     let proj = RegionProj::new(reg, reg_opt, opt.target_width.clamp(320, 4096));
     let rg = build_region_grid(planet, reg, &proj, &noise);
 
-    let kept_rivers: Vec<&fms_core::hydrology::River> = reg
+    let mut kept_rivers: Vec<&fms_core::hydrology::River> = reg
         .rivers
         .iter()
-        .filter(|riv| riv.length_km >= 100.0 || riv.max_discharge_m3s >= 900.0 || riv.order >= 2)
+        .filter(|riv| {
+            riv.max_discharge_m3s >= 420.0
+                && (riv.length_km >= 55.0 || riv.max_discharge_m3s >= 1100.0 || riv.order >= 3)
+        })
         .collect();
-    let r_rivers: Vec<Vec<[f64; 3]>> = kept_rivers
-        .iter()
-        .map(|riv| {
-            riv.smoothed_pts
-                .iter()
-                .enumerate()
-                .map(|(pi, pt)| {
-                    let pr = proj.project_cell(pt[0] as f64, pt[1] as f64);
-                    [pr[0], pr[1], riv.widths.get(pi).copied().unwrap_or(0.6) as f64]
-                })
-                .collect()
+    if kept_rivers.len() < 12 {
+        let mut fallback: Vec<&fms_core::hydrology::River> = reg
+            .rivers
+            .iter()
+            .filter(|riv| riv.length_km >= 35.0 || riv.max_discharge_m3s >= 220.0 || riv.order >= 2)
+            .collect();
+        fallback.sort_by(|a, b| b.max_discharge_m3s.total_cmp(&a.max_discharge_m3s));
+        fallback.truncate(32);
+        kept_rivers = fallback;
+    }
+    let mut r_rivers: Vec<Vec<[f64; 3]>> = Vec::with_capacity(kept_rivers.len() + 4);
+    for riv in &kept_rivers {
+        let seg: Vec<[f64; 3]> = riv
+            .smoothed_pts
+            .iter()
+            .enumerate()
+            .map(|(pi, pt)| {
+                let pr = proj.project_cell(pt[0] as f64, pt[1] as f64);
+                [pr[0], pr[1], riv.widths.get(pi).copied().unwrap_or(0.6) as f64]
+            })
+            .collect();
+        let has_delta = riv.cells.len() >= 2 && reg.is_delta[riv.cells[riv.cells.len() - 2]] != 0;
+        if has_delta {
+            append_delta_branches(&mut r_rivers, &seg, 6.2 * rg.ui_scale);
+        }
+        r_rivers.push(seg);
+    }
+
+    let mut r_wadis: Vec<Vec<[f64; 2]>> = Vec::new();
+    {
+        let rn = reg.w * reg.h;
+        let mut in_wadi = vec![0u8; rn];
+        for c in 0..rn {
+            if reg.is_wadi[c] == 0 {
+                continue;
+            }
+            let r = reg.receiver[c];
+            if r >= 0 && reg.is_wadi[r as usize] != 0 {
+                in_wadi[r as usize] = 1;
+            }
+        }
+        let mut vis_w = vec![0u8; rn];
+        for start in 0..rn {
+            if reg.is_wadi[start] == 0 || in_wadi[start] != 0 {
+                continue;
+            }
+            let mut chain = Vec::new();
+            let mut cur_c = start;
+            for _ in 0..128 {
+                let (cx, cy) = reg.xy(cur_c);
+                chain.push(proj.project_cell(cx as f64 + 0.5, cy as f64 + 0.5));
+                if vis_w[cur_c] != 0 {
+                    break;
+                }
+                vis_w[cur_c] = 1;
+                let r = reg.receiver[cur_c];
+                if r < 0 || reg.is_ocean[r as usize] != 0 {
+                    break;
+                }
+                let ru = r as usize;
+                if reg.is_wadi[ru] == 0 {
+                    let (rx, ry) = reg.xy(ru);
+                    chain.push(proj.project_cell(rx as f64 + 0.5, ry as f64 + 0.5));
+                    break;
+                }
+                cur_c = ru;
+            }
+            if chain.len() >= 2 {
+                r_wadis.push(chain);
+            }
+        }
+    }
+    let r_oases: Vec<[f64; 2]> = (0..(reg.w * reg.h))
+        .filter(|&i| reg.is_oasis[i] != 0)
+        .map(|i| {
+            let (ox, oy) = reg.xy(i);
+            proj.project_cell(ox as f64 + 0.5, oy as f64 + 0.5)
         })
         .collect();
 
@@ -448,9 +640,31 @@ pub fn render_region_with_options(
         })
         .collect();
 
+    let waterfalls: Vec<WaterfallPin> = reg
+        .waterfalls
+        .iter()
+        .map(|wf| {
+            let (wx, wy) = reg.xy(wf.cell);
+            let pr = proj.project_cell(wx as f64 + 0.5, wy as f64 + 0.5);
+            WaterfallPin {
+                x: pr[0],
+                y: pr[1],
+                drop_m: wf.drop_m,
+                discharge_m3s: wf.discharge_m3s,
+            }
+        })
+        .collect();
+
     let (r_peaks, r_forests, r_hills) = extract_region_anchors(reg, &rg, &proj);
-    let (mut base_rgb, r_dist, rd_dist, bridges) =
-        paint_terrain_rivers_roads(&rg, opt.style, &pack.paper_tex, &r_rivers, &r_land_roads);
+    let (mut base_rgb, r_dist, rd_dist, bridges) = paint_terrain_rivers_roads(
+        &rg,
+        opt.style,
+        &pack.paper_tex,
+        &r_rivers,
+        &r_wadis,
+        &r_oases,
+        &r_land_roads,
+    );
     stamp_all_assets(
         &mut base_rgb,
         &rg,
@@ -509,6 +723,7 @@ pub fn render_region_with_options(
         routes: r_routes,
         settlements,
         deposits,
+        waterfalls,
         labels,
         currents,
         legend_realms: legend_realms
