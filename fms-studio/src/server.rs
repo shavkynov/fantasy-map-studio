@@ -383,12 +383,12 @@ impl StudioApp {
             .or_else(|| q.get("reg_span"))
             .and_then(|s| s.parse::<f64>().ok())
             .unwrap_or(default_win.span_lon_deg)
-            .clamp(6.0, 72.0);
+            .clamp(6.0, 100.0);
         let scale = q
             .get("scale")
             .and_then(|s| s.parse::<usize>().ok())
             .unwrap_or(4)
-            .clamp(2, 8);
+            .clamp(2, 16);
         let target_w = q
             .get("target_w")
             .and_then(|s| s.parse::<usize>().ok())
@@ -412,7 +412,7 @@ impl StudioApp {
                 return Ok((wkey, planet, Arc::clone(r), full_qs));
             }
         }
-        let span_lat = (span * 0.68).clamp(4.0, 56.0);
+        let span_lat = (span * 0.68).clamp(4.0, 70.0);
         let reg_opt = RegionOptions::new(lat, lon, span, span_lat, scale);
         let reg = Arc::new(region::generate_region(&planet, &reg_opt)?);
         let ropt = RenderOptions {
@@ -425,7 +425,7 @@ impl StudioApp {
         let cached = Arc::new(CachedRender::from_region(out, reg, &reg_opt, &self.pack, &png_href));
         let mut guard = self.cache.lock().map_err(|_| "cache poisoned".to_string())?;
         let cache = &mut *guard;
-        StudioCache::insert_bounded(&mut cache.region_renders, &mut cache.region_lru, rkey, Arc::clone(&cached), 4);
+        StudioCache::insert_bounded(&mut cache.region_renders, &mut cache.region_lru, rkey, Arc::clone(&cached), 8);
         Ok((wkey, planet, cached, full_qs))
     }
 
@@ -540,9 +540,53 @@ impl StudioApp {
                 }
                 Err(e) => StudioResponse::err(400, &e),
             },
+            "/api/world/project" => self.handle_world_project(q),
+            "/api/world/unproject" => self.handle_world_unproject(q),
             "/api/inspect" => self.handle_inspect(q),
             "/api/route_road" => self.handle_route_road(q),
             _ => StudioResponse::err(404, "Not found"),
+        }
+    }
+
+    /// Широта/долгота → пиксели мировой карты (проекция Паттерсона нелинейна по широте, поэтому считаем на сервере).
+    fn handle_world_project(&self, q: &HashMap<String, String>) -> StudioResponse {
+        let (Some(lat), Some(lon)) = (
+            q.get("lat").and_then(|s| s.parse::<f64>().ok()),
+            q.get("lon").and_then(|s| s.parse::<f64>().ok()),
+        ) else {
+            return StudioResponse::err(400, "Specify lat/lon");
+        };
+        match self.get_or_render_world(q) {
+            Ok((_, p, cached, _)) => {
+                let wp = WorldProj::fit(&p, cached.width);
+                let [x, y] = wp.project(lat.clamp(-89.9, 89.9), lon);
+                let [fx, fy, fw, fh] = wp.frame;
+                let inside = x >= fx && x <= fx + fw && y >= fy && y <= fy + fh;
+                StudioResponse::json(format!("{{\"x\":{x:.3},\"y\":{y:.3},\"in_bounds\":{inside}}}"))
+            }
+            Err(e) => StudioResponse::err(400, &e),
+        }
+    }
+
+    /// Пиксели мировой карты → широта/долгота.
+    fn handle_world_unproject(&self, q: &HashMap<String, String>) -> StudioResponse {
+        let (Some(px), Some(py)) = (
+            q.get("px").and_then(|s| s.parse::<f64>().ok()),
+            q.get("py").and_then(|s| s.parse::<f64>().ok()),
+        ) else {
+            return StudioResponse::err(400, "Specify px/py");
+        };
+        match self.get_or_render_world(q) {
+            Ok((_, p, cached, _)) => {
+                let wp = WorldProj::fit(&p, cached.width);
+                match wp.inverse(px, py) {
+                    Some((lat, lon)) => StudioResponse::json(format!(
+                        "{{\"in_bounds\":true,\"lat\":{lat:.5},\"lon\":{lon:.5}}}"
+                    )),
+                    None => StudioResponse::json("{\"in_bounds\":false}".into()),
+                }
+            }
+            Err(e) => StudioResponse::err(400, &e),
         }
     }
 
@@ -955,7 +999,7 @@ fn build_world_json(wkey: &WorldKey, planet: &Planet, cached: &CachedRender, qs:
     push_json_str(&mut out, &wkey.seed);
     let _ = write!(
         out,
-        ",\"width\":{},\"height\":{},\"grid_w\":{},\"grid_h\":{},\"continents_count\":{},\"rivers_count\":{},\"waterfalls_count\":{},\"settlements_count\":{},\"realms_count\":{},\"deposits_count\":{},\"suggested_region\":{{\"lat\":{:.4},\"lon\":{:.4},\"span\":{:.1}}},\"map_png_url\":",
+        ",\"width\":{},\"height\":{},\"grid_w\":{},\"grid_h\":{},\"continents_count\":{},\"rivers_count\":{},\"waterfalls_count\":{},\"settlements_count\":{},\"realms_count\":{},\"deposits_count\":{},\"px_per_deg_lon\":{:.6},\"suggested_region\":{{\"lat\":{:.4},\"lon\":{:.4},\"span\":{:.1}}},\"map_png_url\":",
         cached.width,
         cached.height,
         planet.grid.w,
@@ -966,6 +1010,7 @@ fn build_world_json(wkey: &WorldKey, planet: &Planet, cached: &CachedRender, qs:
         cached.settlements_count,
         planet.civilization.realms.len(),
         planet.resources.deposits.len(),
+        WorldProj::fit(planet, cached.width).px_per_unit * std::f64::consts::PI / 180.0,
         sug.center_lat_deg,
         sug.center_lon_deg,
         sug.span_lon_deg
@@ -1031,6 +1076,13 @@ fn build_region_json(cached: &CachedRender, qs: &str) -> String {
     push_json_str(&mut out, &format!("/api/region/download.png?{qs}"));
     out.push_str(",\"download_svg_url\":");
     push_json_str(&mut out, &format!("/api/region/download.svg?{qs}"));
+    if let Some(rp) = &cached.reg_proj {
+        let _ = write!(
+            out,
+            ",\"frame\":[{:.3},{:.3},{:.3},{:.3}],\"span_lon_deg\":{:.4}",
+            rp.frame[0], rp.frame[1], rp.frame[2], rp.frame[3], rp.span_lon_deg
+        );
+    }
     out.push('}');
     out
 }
