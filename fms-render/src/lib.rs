@@ -125,6 +125,13 @@ fn append_delta_branches(rivers_out: &mut Vec<Vec<[f64; 3]>>, seg: &[[f64; 3]], 
 
 /// Рендерит карту мира в изотропной цилиндрической проекции Паттерсона с указанным паком ассетов.
 pub fn render_world_with_options(planet: &Planet, seed: &str, pack: &AssetPack, opt: &RenderOptions) -> RenderOutput {
+    let sketch_pack;
+    let pack = if opt.style == Style::Sketch {
+        sketch_pack = pack.sketch_variant();
+        &sketch_pack
+    } else {
+        pack
+    };
     let mut rng_n = Rng::sub(seed, "art-render");
     let noise = Noise::new(&mut rng_n);
     let proj = WorldProj::fit(planet, opt.target_width.clamp(320, 4096));
@@ -383,9 +390,17 @@ pub fn render_world_with_options(planet: &Planet, seed: &str, pack: &AssetPack, 
         graticule.push((0..=36).map(|s| proj.project(-90.0 + (s as f64 / 36.0) * 180.0, lon)).collect());
     }
 
-    let currents = trace_ocean_currents(planet, &wg, |px, py| proj.inverse(px, py));
-    let legend_rect = choose_legend_rect(&wg, true);
-    let legend_realms = compute_legend_realms(planet, &wg, 6);
+    let currents = if opt.style == Style::Sketch {
+        Vec::new()
+    } else {
+        trace_ocean_currents(planet, &wg, |px, py| proj.inverse(px, py))
+    };
+    let legend_rect = choose_legend_rect(&wg, true, opt.style);
+    let legend_realms = if opt.style == Style::Sketch {
+        Vec::new()
+    } else {
+        compute_legend_realms(planet, &wg, 6)
+    };
     let hubs = pick_ocean_hub(&wg, true);
     let mut labels = collect_world_labels(planet, &wg, &proj);
     labels.extend(generate_world_ocean_labels(seed, &wg, legend_rect, &hubs));
@@ -458,6 +473,13 @@ pub fn render_region_with_options(
     pack: &AssetPack,
     opt: &RenderOptions,
 ) -> RenderOutput {
+    let sketch_pack;
+    let pack = if opt.style == Style::Sketch {
+        sketch_pack = pack.sketch_variant();
+        &sketch_pack
+    } else {
+        pack
+    };
     let mut rng_n = Rng::sub(seed, "art-render");
     let noise = Noise::new(&mut rng_n);
     let proj = RegionProj::new(reg, reg_opt, opt.target_width.clamp(320, 4096));
@@ -694,9 +716,17 @@ pub fn render_region_with_options(
         cur_lon += 5.0;
     }
 
-    let currents = trace_ocean_currents(planet, &rg, |px, py| proj.inverse(px, py));
-    let legend_rect = choose_legend_rect(&rg, false);
-    let legend_realms = compute_legend_realms(planet, &rg, 3);
+    let currents = if opt.style == Style::Sketch {
+        Vec::new()
+    } else {
+        trace_ocean_currents(planet, &rg, |px, py| proj.inverse(px, py))
+    };
+    let legend_rect = choose_legend_rect(&rg, false, opt.style);
+    let legend_realms = if opt.style == Style::Sketch {
+        Vec::new()
+    } else {
+        compute_legend_realms(planet, &rg, 3)
+    };
     let mut labels = collect_region_labels(planet, &rg, &proj);
     labels.sort_by(|a, b| b.prio.total_cmp(&a.prio));
 

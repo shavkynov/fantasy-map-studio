@@ -1,24 +1,35 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+TARGET="${TARGET:-aarch64-apple-darwin}"
+export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-12.0}"
+VERSION="${VERSION:-0.1.0}"
+if [ "$TARGET" = "aarch64-apple-darwin" ]; then
+  ARCH_TAG="arm64"
+else
+  ARCH_TAG="${TARGET%%-*}"
+fi
+
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 APP_NAME="Fantasy Map Studio.app"
 APP_DIR="$ROOT_DIR/$APP_NAME"
+DIST_DIR="$ROOT_DIR/dist"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RES_DIR="$CONTENTS_DIR/Resources"
 
 cd "$ROOT_DIR"
-cargo build --release -p fms-studio
+RUSTFLAGS="-D warnings" cargo build --release --target "$TARGET" -p fms-studio
 
 rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$RES_DIR"
 
-cp "$ROOT_DIR/target/release/fms-studio" "$MACOS_DIR/fms-studio"
+cp "$ROOT_DIR/target/$TARGET/release/fms-studio" "$MACOS_DIR/fms-studio"
 chmod +x "$MACOS_DIR/fms-studio"
+strip -x "$MACOS_DIR/fms-studio"
 cp -R "$ROOT_DIR/fms-render/assets" "$RES_DIR/assets"
 
-cat > "$CONTENTS_DIR/Info.plist" << 'PLIST'
+cat > "$CONTENTS_DIR/Info.plist" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -38,11 +49,11 @@ cat > "$CONTENTS_DIR/Info.plist" << 'PLIST'
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.1.0</string>
+  <string>${VERSION}</string>
   <key>CFBundleVersion</key>
   <string>1</string>
   <key>LSMinimumSystemVersion</key>
-  <string>12.0</string>
+  <string>${MACOSX_DEPLOYMENT_TARGET}</string>
   <key>NSHighResolutionCapable</key>
   <true/>
 </dict>
@@ -138,4 +149,25 @@ iconutil -c icns "$ICONSET_DIR" -o "$RES_DIR/AppIcon.icns"
 rm -rf "$ICONSET_TMP"
 
 codesign --force --deep --sign - "$APP_DIR"
-echo "Готово: $APP_DIR"
+codesign --verify --deep --strict --verbose=2 "$APP_DIR"
+
+mkdir -p "$DIST_DIR"
+ZIP_PATH="$DIST_DIR/FantasyMapStudio-${VERSION}-macos-${ARCH_TAG}.zip"
+DMG_PATH="$DIST_DIR/FantasyMapStudio-${VERSION}-macos-${ARCH_TAG}.dmg"
+rm -f "$ZIP_PATH" "$DMG_PATH"
+
+ditto -c -k --sequesterRsrc --keepParent "$APP_DIR" "$ZIP_PATH"
+
+DMG_STAGE="$(mktemp -d /tmp/fms_dmg.XXXXXX)"
+ditto "$APP_DIR" "$DMG_STAGE/$APP_NAME"
+ln -s /Applications "$DMG_STAGE/Applications"
+hdiutil create -volname "Fantasy Map Studio" -srcfolder "$DMG_STAGE" -ov -format UDZO "$DMG_PATH" >/dev/null
+rm -rf "$DMG_STAGE"
+
+(cd "$DIST_DIR" && shasum -a 256 "$(basename "$ZIP_PATH")" "$(basename "$DMG_PATH")" > SHA256SUMS.txt)
+
+echo "Готово:"
+echo "  App: $APP_DIR ($(du -sh "$APP_DIR" | awk '{print $1}'))"
+echo "  ZIP: $ZIP_PATH ($(du -sh "$ZIP_PATH" | awk '{print $1}'))"
+echo "  DMG: $DMG_PATH ($(du -sh "$DMG_PATH" | awk '{print $1}'))"
+echo "  SHA: $DIST_DIR/SHA256SUMS.txt"

@@ -128,6 +128,76 @@ impl AssetPack {
             paper_tex,
         })
     }
+
+    /// Создаёт копию набора спрайтов в графике графитового карандаша на тёплом пергаменте.
+    pub fn sketch_variant(&self) -> Self {
+        Self {
+            mountains: self.mountains.iter().map(sketch_sprite).collect(),
+            broadleaf: self.broadleaf.iter().map(sketch_sprite).collect(),
+            pines: self.pines.iter().map(sketch_sprite).collect(),
+            autumn: self.autumn.iter().map(sketch_sprite).collect(),
+            capital: sketch_sprite(&self.capital),
+            town: sketch_sprite(&self.town),
+            port: sketch_sprite(&self.port),
+            fortress: sketch_sprite(&self.fortress),
+            watchtower: sketch_sprite(&self.watchtower),
+            bridge: sketch_sprite(&self.bridge),
+            hill: sketch_sprite(&self.hill),
+            compass: sketch_sprite(&self.compass),
+            paper_tex: self.paper_tex.clone(),
+        }
+    }
+}
+
+/// Преобразует цветной RGBA-спрайт в мягкую карандашную штриховку на тёплом пергаменте
+/// с сохранением штрихового контура и полной чистотой альфа-канала.
+pub(crate) fn sketch_sprite(sp: &Sprite) -> Sprite {
+    let mut out = sp.rgba.clone();
+    let w = sp.w;
+    let h = sp.h;
+    let luma_at = |x: usize, y: usize, fallback: f64| -> f64 {
+        let i = (y * w + x) * 4;
+        if sp.rgba[i + 3] <= 20 {
+            return fallback;
+        }
+        (0.299 * sp.rgba[i] as f64 + 0.587 * sp.rgba[i + 1] as f64 + 0.114 * sp.rgba[i + 2] as f64) / 255.0
+    };
+    for y in 0..h {
+        let ym = y.saturating_sub(1);
+        let yp = (y + 1).min(h - 1);
+        for x in 0..w {
+            let i = (y * w + x) * 4;
+            if sp.rgba[i + 3] == 0 {
+                continue;
+            }
+            let g = (0.299 * sp.rgba[i] as f64 + 0.587 * sp.rgba[i + 1] as f64 + 0.114 * sp.rgba[i + 2] as f64) / 255.0;
+            let xm = x.saturating_sub(1);
+            let xp = (x + 1).min(w - 1);
+            let edge = ((luma_at(xp, y, g) - luma_at(xm, y, g)).abs()
+                + (luma_at(x, yp, g) - luma_at(x, ym, g)).abs())
+            .min(1.0);
+            let l_fill = 0.24 + 0.76 * g;
+            let t_dark = ((g - 0.08) / 0.26).clamp(0.0, 1.0);
+            let dark_t = t_dark * t_dark * (3.0 - 2.0 * t_dark);
+            let tone = (l_fill * (1.0 - 0.38 * edge)).min(0.14 + 0.86 * dark_t).clamp(0.0, 1.0);
+            let col = if tone < 0.55 {
+                lerp_rgb([52.0, 47.0, 40.0], [172.0, 164.0, 148.0], tone / 0.55)
+            } else {
+                lerp_rgb([172.0, 164.0, 148.0], [243.0, 237.0, 220.0], (tone - 0.55) / 0.45)
+            };
+            let u8c = rgb_to_u8(col);
+            out[i] = u8c[0];
+            out[i + 1] = u8c[1];
+            out[i + 2] = u8c[2];
+        }
+    }
+    Sprite {
+        w: sp.w,
+        h: sp.h,
+        anchor_x: sp.anchor_x,
+        anchor_y: sp.anchor_y,
+        rgba: out,
+    }
 }
 
 #[inline]

@@ -176,8 +176,12 @@
 
     .style-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: repeat(3, 1fr);
       gap: 6px;
+    }
+    .style-grid button {
+      padding: 6px 4px;
+      font-size: 11.5px;
     }
     .layer-list {
       display: grid;
@@ -442,6 +446,7 @@
       <div class="style-grid">
         <button id="btn-style-expedition" class="active-tab">Экспедиционный</button>
         <button id="btn-style-painted">Живописный</button>
+        <button id="btn-style-sketch">От руки</button>
       </div>
     </div>
 
@@ -920,9 +925,13 @@ function focusOn(lat, lon, spanLon) {
   });
 }
 
-// Перерисовать текущий слой (смена стиля)
+// Перерисовать текущий слой (смена стиля с сохранением зума и панорамирования)
 function reloadCurrent() {
-  return state.mode === 'region' && state.regionReq ? loadRegion(state.regionReq) : loadWorld();
+  const saved = { scale: state.scale, tx: state.tx, ty: state.ty };
+  if (state.mode === 'region' && state.regionReq) {
+    return loadRegion(state.regionReq, state.region ? { view: () => saved } : {});
+  }
+  return loadWorld(state.world ? { view: () => saved } : {});
 }
 
 // Что сейчас видно в окне: центр, охват по долготе, выходит ли видимая область за границы региона
@@ -1193,20 +1202,16 @@ function wireEvents() {
   $('btn-view-world').onclick = () => loadWorld();
   $('btn-fit').onclick = () => fitToViewport();
 
-  $('btn-style-expedition').onclick = () => {
-    if (state.style === 'expedition') return;
-    state.style = 'expedition';
-    $('btn-style-expedition').classList.add('active-tab');
-    $('btn-style-painted').classList.remove('active-tab');
-    reloadCurrent();
-  };
-  $('btn-style-painted').onclick = () => {
-    if (state.style === 'painted') return;
-    state.style = 'painted';
-    $('btn-style-painted').classList.add('active-tab');
-    $('btn-style-expedition').classList.remove('active-tab');
-    reloadCurrent();
-  };
+  for (const s of ['expedition', 'painted', 'sketch']) {
+    $('btn-style-' + s).onclick = () => {
+      if (state.style === s) return;
+      state.style = s;
+      for (const id of ['expedition', 'painted', 'sketch']) {
+        $('btn-style-' + id).classList.toggle('active-tab', id === s);
+      }
+      reloadCurrent();
+    };
+  }
 
   document.querySelectorAll('input[data-layer]').forEach((cb) => {
     cb.addEventListener('change', applyLayerToggles);

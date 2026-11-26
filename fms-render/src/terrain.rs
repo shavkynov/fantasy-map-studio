@@ -18,15 +18,23 @@ pub enum Style {
     Expedition,
     /// Живописный фэнтези-атлас: сочные луга, лазурный океан и свитки городов.
     Painted,
+    /// Карандашный атлас: рисунок графитовым карандашом от руки на тёплом пергаменте, без визуального шума.
+    Sketch,
 }
 
 impl Style {
-    pub const ALL: [Style; 2] = [Style::Expedition, Style::Painted];
+    pub const ALL: [Style; 3] = [Style::Expedition, Style::Painted, Style::Sketch];
+
+    /// Светлая пергаментная бумага с архивной компоновкой рамки, шапки и легенды.
+    pub fn is_parchment(self) -> bool {
+        matches!(self, Style::Expedition | Style::Sketch)
+    }
 
     pub fn slug(self) -> &'static str {
         match self {
             Style::Expedition => "expedition",
             Style::Painted => "painted",
+            Style::Sketch => "sketch",
         }
     }
 
@@ -34,6 +42,7 @@ impl Style {
         match self {
             Style::Expedition => "Экспедиционный атлас",
             Style::Painted => "Живописный атлас",
+            Style::Sketch => "Карандашный атлас",
         }
     }
 
@@ -41,6 +50,7 @@ impl Style {
         match s {
             "expedition" | "atlas" => Some(Style::Expedition),
             "painted" | "vivid" => Some(Style::Painted),
+            "sketch" | "pencil" | "ink" | "hand" => Some(Style::Sketch),
             _ => None,
         }
     }
@@ -801,11 +811,13 @@ pub(crate) fn paint_terrain_rivers_roads(
                 let bg = match style {
                     Style::Expedition => [216.0 - 9.0 * vig, 210.0 - 9.0 * vig, 194.0 - 8.0 * vig],
                     Style::Painted => [44.0, 35.0, 26.0],
+                    Style::Sketch => [235.0 - 7.0 * vig, 228.0 - 7.0 * vig, 211.0 - 6.0 * vig],
                 };
+                let tex_k = if style == Style::Sketch { 0.026 } else { 0.022 };
                 let modulated = [
-                    bg[0] * (1.0 + p_delta * 0.022),
-                    bg[1] * (1.0 + p_delta * 0.022),
-                    bg[2] * (1.0 + p_delta * 0.020),
+                    bg[0] * (1.0 + p_delta * tex_k),
+                    bg[1] * (1.0 + p_delta * tex_k),
+                    bg[2] * (1.0 + p_delta * (tex_k * 0.92)),
                 ];
                 rgb[3 * i..3 * i + 3].copy_from_slice(&rgb_to_u8(modulated));
                 continue;
@@ -926,6 +938,52 @@ pub(crate) fn paint_terrain_rivers_roads(
                             lerp_rgb(s, [44.0, 35.0, 24.0], bank_aa * 0.92)
                         }
                     }
+                    Style::Sketch => {
+                        let sk_coast_w = (1.85 * us).clamp(1.1, 2.3);
+                        let sk_bank = if lake_edge {
+                            0.88
+                        } else if !is_lk && cd <= sk_coast_w {
+                            ((sk_coast_w - cd) / sk_coast_w).clamp(0.0, 1.0) * (0.86 + 0.12 * (-illum).max(0.0))
+                        } else {
+                            0.0
+                        };
+                        if !is_lk && grid.polar_ice[i] != 0 {
+                            let mut s = lerp_rgb([244.0, 241.0, 232.0], [236.0, 233.0, 224.0], 0.5 + 0.35 * cloud);
+                            s = [s[0] - 4.0 * vig, s[1] - 4.0 * vig, s[2] - 3.5 * vig];
+                            if ice_edge {
+                                let dash = ((x + y) / (4.0 * us.max(0.6)).round().max(2.0) as usize) % 2 == 0;
+                                if dash {
+                                    s = lerp_rgb(s, [92.0, 85.0, 74.0], 0.72);
+                                }
+                            }
+                            lerp_rgb(s, [56.0, 50.0, 42.0], sk_bank)
+                        } else if is_lk {
+                            let mut s = lerp_rgb([229.0, 225.0, 212.0], [222.0, 218.0, 205.0], 0.5 + 0.35 * cloud);
+                            let inner_d = cd / us.max(0.45);
+                            if inner_d > 2.2 && inner_d < 4.2 {
+                                let r = (-((inner_d - 3.1) / 0.55).powi(2)).exp();
+                                s = lerp_rgb(s, [118.0, 111.0, 99.0], r * 0.24);
+                            }
+                            lerp_rgb(s, [56.0, 50.0, 42.0], sk_bank)
+                        } else {
+                            let mut sea = lerp_rgb(
+                                [228.0 + 3.0 * cloud, 223.0 + 3.0 * cloud, 209.0 + 2.5 * cloud],
+                                [216.0, 211.0, 198.0],
+                                depth_t * 0.80,
+                            );
+                            let ds = cd / us.max(0.45) + 0.55 * cloud;
+                            if ds > 1.4 && ds < 16.0 {
+                                let mut rip = 0.0f64;
+                                for &(pos, amp) in &[(3.4, 0.40), (7.2, 0.24), (11.8, 0.12)] {
+                                    rip = rip.max((-((ds - pos) / 0.58).powi(2)).exp() * amp);
+                                }
+                                let breathe = (0.5 + 0.5 * (x as f64 * 0.025 / us.max(0.45) + y as f64 * 0.019 / us.max(0.45) + cloud * 2.8).sin()) * 0.65 + 0.35;
+                                sea = lerp_rgb(sea, [106.0, 99.0, 88.0], rip * breathe);
+                            }
+                            sea = [sea[0] - 5.5 * vig, sea[1] - 5.5 * vig, sea[2] - 5.0 * vig];
+                            lerp_rgb(sea, [56.0, 50.0, 42.0], sk_bank)
+                        }
+                    }
                 }
             } else {
                 let mtn_soil = ((e - 1.15) / 0.85).clamp(0.0, 1.0);
@@ -1024,10 +1082,73 @@ pub(crate) fn paint_terrain_rivers_roads(
                         }
                         c
                     }
+                    Style::Sketch => {
+                        let mut c = [
+                            243.0 + 4.5 * cloud - 6.0 * vig,
+                            236.0 + 4.0 * cloud - 6.0 * vig,
+                            218.0 + 3.5 * cloud - 5.5 * vig,
+                        ];
+                        let arid = grid.aridity[i] as f64;
+                        if arid > 0.25 {
+                            let at = (((arid - 0.25) / 0.65) * (0.76 + 0.24 * cloud)).clamp(0.0, 1.0);
+                            c = lerp_rgb(c, [236.0, 224.0, 198.0], at * 0.34);
+                        }
+                        if f_cov > 0.08 {
+                            c = lerp_rgb(c, [222.0, 218.0, 201.0], f_cov * 0.36);
+                        }
+                        if w_cov > 0.22 {
+                            c = lerp_rgb(c, [224.0, 221.0, 207.0], w_cov * 0.34);
+                            let marsh_sk = w_cov > 0.32
+                                && glac < 0.2
+                                && (y % 4 == 0)
+                                && (((x + y * 5) % 15) < 6);
+                            if marsh_sk {
+                                c = lerp_rgb(c, [126.0, 120.0, 108.0], 0.38);
+                            }
+                        }
+                        if mtn_soil > 0.02 {
+                            c = lerp_rgb(c, [214.0, 207.0, 192.0], mtn_soil * 0.36);
+                        }
+                        if illum >= 0.0 {
+                            c = [c[0] + 7.0 * illum, c[1] + 6.0 * illum, c[2] + 5.0 * illum];
+                        } else {
+                            let sh = -illum;
+                            c = lerp_rgb(c, [148.0, 141.0, 128.0], (sh * 0.44).clamp(0.0, 0.48));
+                            if sh > 0.18 && e > 0.18 {
+                                let grain = (0.5 + 0.5 * ((x as f64 + y as f64) / (1.45 * us.max(0.6)) + cloud * 2.4).sin()).powf(2.2);
+                                c = lerp_rgb(c, [94.0, 87.0, 76.0], grain * (sh - 0.18) * 0.26);
+                            }
+                        }
+                        if salt {
+                            c = lerp_rgb(c, [246.0, 242.0, 230.0], 0.72);
+                        }
+                        if glac > 0.25 {
+                            c = lerp_rgb(c, [248.0, 246.0, 239.0], ((glac - 0.25) / 0.45).clamp(0.0, 0.84));
+                        }
+                        if rid >= 0 && bd <= 8.5 * us {
+                            c = lerp_rgb(c, [172.0, 164.0, 148.0], (1.0 - bd / (8.5 * us)).powf(1.6) * 0.22);
+                        }
+                        if lcd < 4.5 * us {
+                            c = lerp_rgb(c, [120.0, 112.0, 98.0], (1.0 - lcd / (4.5 * us)).powf(1.8) * 0.14);
+                        }
+                        let bw = (1.15 * us).max(0.9);
+                        if rid >= 0 && bd <= bw {
+                            let pat = (x + y) % 18;
+                            if pat < 8 || (pat >= 11 && pat < 13) {
+                                c = lerp_rgb(c, [72.0, 64.0, 54.0], ((bw - bd) / bw) * 0.78);
+                            }
+                        }
+                        c
+                    }
                 }
             };
 
-            let tex_strength = if grid.is_land[i] != 0 { 0.024 } else { 0.018 };
+            let tex_strength = match (style, grid.is_land[i] != 0) {
+                (Style::Sketch, true) => 0.028,
+                (Style::Sketch, false) => 0.022,
+                (_, true) => 0.024,
+                (_, false) => 0.018,
+            };
             col = [
                 col[0] * (1.0 + p_delta * tex_strength),
                 col[1] * (1.0 + p_delta * tex_strength),
@@ -1051,6 +1172,7 @@ pub(crate) fn paint_terrain_rivers_roads(
     let wadi_col = match style {
         Style::Expedition => [124.0, 98.0, 74.0],
         Style::Painted => [138.0, 112.0, 76.0],
+        Style::Sketch => [126.0, 118.0, 104.0],
     };
     let wadi_r = (if grid.is_world { 0.65 } else { 0.95 }) * us.max(0.7);
     for wd in wadis {
@@ -1113,12 +1235,14 @@ pub(crate) fn paint_terrain_rivers_roads(
                     let pool_c = match style {
                         Style::Expedition => [78.0, 142.0, 158.0],
                         Style::Painted => [56.0, 172.0, 188.0],
+                        Style::Sketch => [136.0, 132.0, 122.0],
                     };
                     rgb[3 * idx..3 * idx + 3].copy_from_slice(&rgb_to_u8(lerp_rgb(cur, pool_c, 0.88)));
                 } else if d <= oasis_outer {
                     let lush_c = match style {
                         Style::Expedition => [86.0, 128.0, 72.0],
                         Style::Painted => [72.0, 146.0, 56.0],
+                        Style::Sketch => [178.0, 173.0, 156.0],
                     };
                     let a = (1.0 - (d - oasis_pool) / (oasis_outer - oasis_pool).max(0.5)).clamp(0.0, 1.0) * 0.78;
                     rgb[3 * idx..3 * idx + 3].copy_from_slice(&rgb_to_u8(lerp_rgb(cur, lush_c, a)));
@@ -1205,6 +1329,7 @@ pub(crate) fn paint_terrain_rivers_roads(
     let bank_col = match style {
         Style::Expedition => [54.0, 44.0, 32.0],
         Style::Painted => [52.0, 40.0, 26.0],
+        Style::Sketch => [56.0, 50.0, 42.0],
     };
     for i in 0..n {
         let ba = riv_bank_a[i] as f64;
@@ -1216,6 +1341,7 @@ pub(crate) fn paint_terrain_rivers_roads(
         let water_col = match style {
             Style::Expedition => lerp_rgb([142.0, 182.0, 194.0], [84.0, 130.0, 150.0], ct),
             Style::Painted => lerp_rgb([142.0, 210.0, 222.0], [64.0, 146.0, 176.0], ct),
+            Style::Sketch => lerp_rgb([228.0, 224.0, 212.0], [186.0, 180.0, 166.0], ct),
         };
         let cur = [rgb[3 * i] as f64, rgb[3 * i + 1] as f64, rgb[3 * i + 2] as f64];
         let with_bank = lerp_rgb(cur, bank_col, (ba * 0.80).clamp(0.0, 1.0));
@@ -1270,16 +1396,29 @@ pub(crate) fn paint_terrain_rivers_roads(
                         road_dist[idx] = road_dist[idx].min(d as f32);
                         let p_delta = (paper_tex[(yy as usize & 511) * 512 + (xx as usize & 511)] as f64 - 128.0) / 14.0;
                         if d <= road_half {
-                            let road_c = match style {
-                                Style::Expedition => [214.0 + 4.0 * p_delta, 206.0 + 3.5 * p_delta, 180.0 + 3.0 * p_delta],
-                                Style::Painted => [200.0 + 4.5 * p_delta, 192.0 + 4.0 * p_delta, 162.0 + 3.5 * p_delta],
-                            };
-                            let cur = [rgb[3 * idx] as f64, rgb[3 * idx + 1] as f64, rgb[3 * idx + 2] as f64];
-                            let a = (1.0 - (d / road_half.max(0.5)).powf(2.0) * 0.25) * 0.90;
-                            rgb[3 * idx..3 * idx + 3].copy_from_slice(&rgb_to_u8(lerp_rgb(cur, road_c, a)));
+                            if style == Style::Sketch {
+                                let dash = (((mx + my) / (5.2 * us.max(0.6))).floor() as usize) % 2 == 0;
+                                let road_c = if dash {
+                                    [98.0, 90.0, 77.0]
+                                } else {
+                                    [242.0 + 3.0 * p_delta, 236.0 + 3.0 * p_delta, 219.0 + 2.5 * p_delta]
+                                };
+                                let cur = [rgb[3 * idx] as f64, rgb[3 * idx + 1] as f64, rgb[3 * idx + 2] as f64];
+                                let a = (1.0 - (d / road_half.max(0.5)).powf(2.0) * 0.25) * 0.72;
+                                rgb[3 * idx..3 * idx + 3].copy_from_slice(&rgb_to_u8(lerp_rgb(cur, road_c, a)));
+                            } else {
+                                let road_c = match style {
+                                    Style::Expedition => [214.0 + 4.0 * p_delta, 206.0 + 3.5 * p_delta, 180.0 + 3.0 * p_delta],
+                                    Style::Painted => [200.0 + 4.5 * p_delta, 192.0 + 4.0 * p_delta, 162.0 + 3.5 * p_delta],
+                                    Style::Sketch => unreachable!(),
+                                };
+                                let cur = [rgb[3 * idx] as f64, rgb[3 * idx + 1] as f64, rgb[3 * idx + 2] as f64];
+                                let a = (1.0 - (d / road_half.max(0.5)).powf(2.0) * 0.25) * 0.90;
+                                rgb[3 * idx..3 * idx + 3].copy_from_slice(&rgb_to_u8(lerp_rgb(cur, road_c, a)));
+                            }
                         } else if d <= road_half + 1.2 * us {
                             let cur = [rgb[3 * idx] as f64, rgb[3 * idx + 1] as f64, rgb[3 * idx + 2] as f64];
-                            let edge_a = (1.0 - (d - road_half) / (1.2 * us).max(0.4)) * 0.28;
+                            let edge_a = (1.0 - (d - road_half) / (1.2 * us).max(0.4)) * if style == Style::Sketch { 0.20 } else { 0.28 };
                             rgb[3 * idx..3 * idx + 3].copy_from_slice(&rgb_to_u8(lerp_rgb(cur, [72.0, 60.0, 44.0], edge_a)));
                         }
                     }
@@ -1339,7 +1478,9 @@ pub(crate) fn stamp_all_assets(
     let (tint, tint_amt): ([f64; 3], f64) = match style {
         Style::Expedition => ([212.0, 200.0, 176.0], 0.14),
         Style::Painted => ([246.0, 238.0, 214.0], 0.06),
+        Style::Sketch => ([242.0, 236.0, 218.0], 0.0),
     };
+    let spr_shadow = if style == Style::Sketch { 0.11 } else { 0.20 };
 
     let dist_to_city = |x: f64, y: f64| -> f64 {
         let mut md = 1e9f64;
@@ -1469,7 +1610,7 @@ pub(crate) fn stamp_all_assets(
             StampItem::Town => &pack.town,
             StampItem::Watchtower => &pack.watchtower,
         };
-        blit_sprite(rgb, w, clip, sp, item.x, item.y, item.scale, item.flip_x, tint, tint_amt, 0.20);
+        blit_sprite(rgb, w, clip, sp, item.x, item.y, item.scale, item.flip_x, tint, tint_amt, spr_shadow);
     }
 }
 
@@ -1815,11 +1956,15 @@ pub(crate) fn trace_ocean_currents(
     out
 }
 
-pub(crate) fn choose_legend_rect(grid: &SampledGrid, is_world: bool) -> [f64; 4] {
+pub(crate) fn choose_legend_rect(grid: &SampledGrid, is_world: bool, style: Style) -> [f64; 4] {
     let [fx, fy, fw, fh] = grid.frame;
     let us = grid.ui_scale;
     let bw = (if is_world { 208.0 } else { 192.0 }) * us;
-    let bh = (if is_world { 300.0 } else { 180.0 }) * us;
+    let bh = if style == Style::Sketch {
+        (if is_world { 204.0 } else { 124.0 }) * us
+    } else {
+        (if is_world { 300.0 } else { 180.0 }) * us
+    };
     let m = 16.0 * us;
     let top_off = (if is_world { 46.0 } else { 16.0 }) * us;
     let candidates = [
@@ -2264,10 +2409,10 @@ pub(crate) fn rasterize_overlay_finish(base_rgb: &[u8], ov: &OverlayModel, pack:
         }
     }
 
-    let route_col = if ov.style == Style::Expedition {
-        [51.0, 66.0, 74.0]
-    } else {
-        [220.0, 234.0, 230.0]
+    let route_col = match ov.style {
+        Style::Expedition => [51.0, 66.0, 74.0],
+        Style::Sketch => [86.0, 79.0, 68.0],
+        Style::Painted => [220.0, 234.0, 230.0],
     };
     for rt in &ov.routes {
         if !rt.is_sea || rt.pts.len() < 2 {
@@ -2289,16 +2434,34 @@ pub(crate) fn rasterize_overlay_finish(base_rgb: &[u8], ov: &OverlayModel, pack:
         {
             continue;
         }
-        let fill = match d.kind {
-            "iron" => [116.0, 134.0, 150.0],
-            "copper" => [224.0, 168.0, 62.0],
-            "gems" => [64.0, 184.0, 158.0],
-            "coal" => [53.0, 50.0, 48.0],
-            "oil" => [148.0, 82.0, 30.0],
-            "salt" => [244.0, 239.0, 228.0],
-            _ => [200.0, 155.0, 82.0],
+        let fill = if ov.style == Style::Sketch {
+            match d.kind {
+                "iron" => [118.0, 113.0, 104.0],
+                "copper" => [158.0, 149.0, 134.0],
+                "gems" => [196.0, 190.0, 176.0],
+                "coal" => [56.0, 52.0, 46.0],
+                "oil" => [94.0, 87.0, 76.0],
+                "salt" => [244.0, 239.0, 226.0],
+                _ => [150.0, 142.0, 128.0],
+            }
+        } else {
+            match d.kind {
+                "iron" => [116.0, 134.0, 150.0],
+                "copper" => [224.0, 168.0, 62.0],
+                "gems" => [64.0, 184.0, 158.0],
+                "coal" => [53.0, 50.0, 48.0],
+                "oil" => [148.0, 82.0, 30.0],
+                "salt" => [244.0, 239.0, 228.0],
+                _ => [200.0, 155.0, 82.0],
+            }
         };
-        let stroke = if d.kind == "coal" { [216.0, 207.0, 188.0] } else { [31.0, 24.0, 17.0] };
+        let stroke = if d.kind == "coal" {
+            if ov.style == Style::Sketch { [232.0, 224.0, 206.0] } else { [216.0, 207.0, 188.0] }
+        } else if ov.style == Style::Sketch {
+            [43.0, 37.0, 30.0]
+        } else {
+            [31.0, 24.0, 17.0]
+        };
         let x0 = ((d.x - dep_r - 1.5).floor() as isize).max(clip[0] as isize) as usize;
         let x1 = ((d.x + dep_r + 1.5).ceil() as isize).min(clip[2] as isize) as usize;
         let y0 = ((d.y - dep_r - 1.5).floor() as isize).max(clip[1] as isize) as usize;
@@ -2316,6 +2479,11 @@ pub(crate) fn rasterize_overlay_finish(base_rgb: &[u8], ov: &OverlayModel, pack:
             }
         }
     }
+    let (wf_top, wf_bot) = if ov.style == Style::Sketch {
+        ([245.0, 240.0, 226.0], [116.0, 108.0, 96.0])
+    } else {
+        ([242.0, 250.0, 252.0], [52.0, 134.0, 168.0])
+    };
     for wf in &ov.waterfalls {
         if (wf.x >= lr[0] - 6.0 && wf.x <= lr[0] + lr[2] + 6.0 && wf.y >= lr[1] - 6.0 && wf.y <= lr[1] + lr[3] + 6.0)
             || ((wf.x - rose_cx).powi(2) + (wf.y - rose_cy).powi(2)).sqrt() < rose_r + 12.0 * us
@@ -2323,13 +2491,21 @@ pub(crate) fn rasterize_overlay_finish(base_rgb: &[u8], ov: &OverlayModel, pack:
             continue;
         }
         let s = (if ov.is_world { 3.6 } else { 4.8 }) * us.max(0.6);
-        draw_line(&mut rgb, [wf.x - s, wf.y - s * 0.5], [wf.x + s, wf.y - s * 0.5], [242.0, 250.0, 252.0], 0.92, 1.1 * us.max(0.6));
-        draw_line(&mut rgb, [wf.x - s * 0.65, wf.y + s * 0.45], [wf.x + s * 0.65, wf.y + s * 0.45], [52.0, 134.0, 168.0], 0.88, 0.95 * us.max(0.6));
+        draw_line(&mut rgb, [wf.x - s, wf.y - s * 0.5], [wf.x + s, wf.y - s * 0.5], wf_top, 0.92, 1.1 * us.max(0.6));
+        draw_line(&mut rgb, [wf.x - s * 0.65, wf.y + s * 0.45], [wf.x + s * 0.65, wf.y + s * 0.45], wf_bot, 0.88, 0.95 * us.max(0.6));
     }
 
     // Двойная рамка на растре
-    let frame_col = if ov.style == Style::Expedition { [51.0, 41.0, 31.0] } else { [31.0, 20.0, 13.0] };
-    let accent_col = if ov.style == Style::Expedition { [143.0, 112.0, 71.0] } else { [199.0, 153.0, 66.0] };
+    let frame_col = match ov.style {
+        Style::Expedition => [51.0, 41.0, 31.0],
+        Style::Sketch => [56.0, 50.0, 42.0],
+        Style::Painted => [31.0, 20.0, 13.0],
+    };
+    let accent_col = match ov.style {
+        Style::Expedition => [143.0, 112.0, 71.0],
+        Style::Sketch => [136.0, 127.0, 112.0],
+        Style::Painted => [199.0, 153.0, 66.0],
+    };
     let stroke_rect = |rgb: &mut [u8], x0: isize, y0: isize, x1: isize, y1: isize, col: [f64; 3]| {
         let u8c = rgb_to_u8(col);
         for x in x0.max(0)..=x1.min(w as isize - 1) {

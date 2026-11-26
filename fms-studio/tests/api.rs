@@ -116,4 +116,13 @@ fn api_lod_projection_roundtrip_and_deep_region() {
     let rj = String::from_utf8(rr.body).unwrap();
     assert!(rj.contains("\"frame\":["), "{rj}");
     assert!(rj.contains("\"span_lon_deg\":"), "{rj}");
+
+    let mut sq = q.clone();
+    sq.insert("style".into(), "sketch".into());
+    let sw = app.handle_get("/api/world", &sq);
+    assert_eq!(sw.status, 200);
+    let ssvg = app.handle_get("/api/world/overlay.svg", &sq);
+    assert_eq!(ssvg.status, 200);
+    let svg_txt = String::from_utf8(ssvg.body).unwrap();
+    assert!(svg_txt.contains("id=\"layer-legend\""), "sketch SVG missing legend");
 }

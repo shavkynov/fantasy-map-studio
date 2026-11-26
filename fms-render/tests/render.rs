@@ -106,3 +106,48 @@ fn six_continents_projection_frame_invertible() {
     assert_eq!(&out.to_png_bytes()[..8], &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]);
     assert!(out.to_svg_standalone(&pack).contains("<svg "));
 }
+
+#[test]
+fn sketch_style_parchment_pencil_invariants() {
+    let pack = AssetPack::load_default().expect("assets must load");
+    let mut opt = Options::new("smoke");
+    opt.w = 180;
+    let planet = planet::generate(&opt).expect("planet");
+    let out = render_world_with_options(
+        &planet,
+        "smoke",
+        &pack,
+        &RenderOptions {
+            style: Style::Sketch,
+            target_width: 960,
+            title: None,
+        },
+    );
+
+    let mut warm_paper_px = 0usize;
+    let mut dark_pencil_px = 0usize;
+    for px in out.base_rgb.chunks_exact(3) {
+        let [r, g, b] = [px[0], px[1], px[2]];
+        assert!(
+            (r as i16 - b as i16).abs() <= 45,
+            "sketch pixel too saturated: rgb=({r},{g},{b})"
+        );
+        if r >= g && g >= b && r > 225 {
+            warm_paper_px += 1;
+        }
+        if r < 110 && g < 110 && b < 110 {
+            dark_pencil_px += 1;
+        }
+    }
+    assert!(warm_paper_px > 50_000, "expected warm parchment area, got {warm_paper_px}");
+    assert!(dark_pencil_px > 1_000, "expected crisp pencil strokes, got {dark_pencil_px}");
+
+    let svg = out.to_svg_standalone(&pack);
+    assert!(svg.contains("id=\"layer-legend\""));
+    let cur_start = svg.find("id=\"layer-currents\"").expect("currents group");
+    let cur_end = svg[cur_start..].find("</g>").expect("currents group close");
+    assert!(
+        !svg[cur_start..cur_start + cur_end].contains("<line "),
+        "sketch style must omit ocean current arrows"
+    );
+}
