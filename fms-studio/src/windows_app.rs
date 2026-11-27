@@ -46,6 +46,8 @@ pub fn run() -> Result<(), String> {
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| "/".to_string());
             let app_ref = Arc::clone(&proto_app);
+            let resp_slot = Arc::new(std::sync::Mutex::new(Some(responder)));
+            let resp_worker = Arc::clone(&resp_slot);
             let spawn_res = std::thread::Builder::new()
                 .name("fms-wv2-req".into())
                 .stack_size(8 * 1024 * 1024)
@@ -65,15 +67,23 @@ pub fn run() -> Result<(), String> {
                             .body(b"Internal response build error".to_vec())
                             .unwrap()
                     });
-                    responder.respond(http_resp);
+                    if let Ok(mut guard) = resp_worker.lock() {
+                        if let Some(r) = guard.take() {
+                            r.respond(http_resp);
+                        }
+                    }
                 });
             if spawn_res.is_err() {
-                let err_resp = Response::builder()
-                    .status(500)
-                    .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
-                    .body(b"Failed to spawn worker thread".to_vec())
-                    .unwrap();
-                responder.respond(err_resp);
+                if let Ok(mut guard) = resp_slot.lock() {
+                    if let Some(r) = guard.take() {
+                        let err_resp = Response::builder()
+                            .status(500)
+                            .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
+                            .body(b"Failed to spawn worker thread".to_vec())
+                            .unwrap();
+                        r.respond(err_resp);
+                    }
+                }
             }
         })
         .with_ipc_handler(move |req| {
