@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag (e.g. v0.90.0)'
+        description: 'Release tag (e.g. v0.90.1)'
         required: true
-        default: 'v0.90.0'
+        default: 'v0.90.1'
         type: string
 
 permissions:
@@ -172,6 +172,9 @@ jobs:
           ls -lh release-artifacts/
           cat > release-notes.md << EOF
           # Fantasy Map Studio ${TAG}
+
+          ## Исправления в ${TAG}
+          - **macOS crash fix (`EXC_BAD_ACCESS` на запуске):** перенесён 512 КБ буфер зерна бумаги из стека в кучу (`classic.rs`) и увеличен стек рабочих потоков `fms://` в нативном macOS-раннере (`macos.m`) и HTTP-сервере (`server.rs`) до 8 МБ, устранив переполнение 512 КБ стека потоков GCD (`com.apple.root.user-initiated-qos`).
 
           ## Основные изменения
           - **Классическое оформление «от руки» (линейка 0.89.0):** три стиля (`Сепия`, `Ч/Б`, `Цветной`), деликатная северо-западная светотень, прерывистые горизонтали рельефа и увалы на внутренних равнинах без визуального шума.

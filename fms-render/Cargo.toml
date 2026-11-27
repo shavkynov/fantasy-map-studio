@@ -1,6 +1,6 @@
 [package]
 name = "fms-render"
-version = "0.90.0"
+version = "0.90.1"
 edition = "2021"
 description = "Иллюстрированный картографический рендерер (PNG и многослойный SVG) для Fantasy Map Studio"
 license = "UNLICENSED"

@@ -1,5 +1,6 @@
 #import <Cocoa/Cocoa.h>
 #import <WebKit/WebKit.h>
+#include <pthread.h>
 #include <stdint.h>
 #include <stddef.h>
 
@@ -12,6 +13,28 @@ typedef struct {
 
 extern FmsBuf fms_handle_request(const void *ctx, const char *target);
 extern void fms_free_buf(FmsBuf buf);
+
+static void *fms_pthread_trampoline(void *arg) {
+    @autoreleasepool {
+        void (^block)(void) = (__bridge_transfer void (^)(void))arg;
+        block();
+    }
+    return NULL;
+}
+
+static void fms_run_on_large_stack(void (^block)(void)) {
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    pthread_attr_setstacksize(&attr, 8 * 1024 * 1024);
+    void *ctx = (__bridge_retained void *)[block copy];
+    pthread_t tid;
+    if (pthread_create(&tid, &attr, fms_pthread_trampoline, ctx) != 0) {
+        void (^fallback)(void) = (__bridge_transfer void (^)(void))ctx;
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), fallback);
+    }
+    pthread_attr_destroy(&attr);
+}
 
 @interface FmsSchemeHandler : NSObject <WKURLSchemeHandler>
 @property(nonatomic, assign) const void *ctx;
@@ -45,7 +68,7 @@ extern void fms_free_buf(FmsBuf buf);
         : path;
 
     const void *ctx = self.ctx;
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+    fms_run_on_large_stack(^{
         FmsBuf buf = fms_handle_request(ctx, [target UTF8String]);
         NSInteger status = (NSInteger)buf.status;
         NSString *ctype = buf.content_type
@@ -229,7 +252,7 @@ extern void fms_free_buf(FmsBuf buf);
     }
 
     const void *ctx = self.ctx;
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+    fms_run_on_large_stack(^{
         FmsBuf buf = fms_handle_request(ctx, [target UTF8String]);
         NSInteger status = (NSInteger)buf.status;
         NSData *body = (buf.data && buf.len > 0)

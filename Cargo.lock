@@ -4,18 +4,18 @@ version = 4
 
 [[package]]
 name = "fms-core"
-version = "0.90.0"
+version = "0.90.1"
 
 [[package]]
 name = "fms-render"
-version = "0.90.0"
+version = "0.90.1"
 dependencies = [
  "fms-core",
 ]
 
 [[package]]
 name = "fms-studio"
-version = "0.90.0"
+version = "0.90.1"
 dependencies = [
  "fms-core",
  "fms-render",

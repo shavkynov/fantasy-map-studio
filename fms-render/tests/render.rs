@@ -185,3 +185,40 @@ fn classic_089_styles_invariants() {
     }
     assert!(blue_ocean > 20_000 && green_land > 10_000, "expected ocean {blue_ocean} and land {green_land}");
 }
+
+#[test]
+fn render_safe_on_small_512k_thread_stack() {
+    let handle = std::thread::Builder::new()
+        .name("small-512k-stack".into())
+        .stack_size(512 * 1024)
+        .spawn(|| {
+            let pack = AssetPack::load_default().expect("assets must load");
+            let mut opt = Options::new("stack-smoke");
+            opt.w = 180;
+            let planet = planet::generate(&opt).expect("planet");
+            let r_opt = choose_region_window(&planet);
+            let mut r_opt_fast = r_opt.clone();
+            r_opt_fast.scale = 2;
+            let reg = region::generate_region(&planet, &r_opt_fast).expect("region");
+            for style in Style::ALL {
+                let w = render_world_with_options(
+                    &planet,
+                    "stack-smoke",
+                    &pack,
+                    &RenderOptions { style, target_width: 960, title: None },
+                );
+                assert!(!w.base_rgb.is_empty());
+                let r = render_region_with_options(
+                    &planet,
+                    &reg,
+                    &r_opt_fast,
+                    "stack-smoke",
+                    &pack,
+                    &RenderOptions { style, target_width: 960, title: None },
+                );
+                assert!(!r.flat_rgb.is_empty());
+            }
+        })
+        .expect("spawn 512K stack thread");
+    handle.join().expect("512K stack thread completed without overflow");
+}

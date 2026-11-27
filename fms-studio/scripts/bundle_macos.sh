@@ -3,7 +3,7 @@ set -euo pipefail
 
 TARGET="${TARGET:-aarch64-apple-darwin}"
 export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-12.0}"
-VERSION="${VERSION:-0.90.0}"
+VERSION="${VERSION:-0.90.1}"
 case "$TARGET" in
   aarch64-apple-darwin)
     ARCH_TAG="arm64"

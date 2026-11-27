@@ -1030,9 +1030,15 @@ pub fn serve_with_browser(cfg: StudioConfig, open_browser: bool) -> Result<(), S
     for stream in listener.incoming() {
         let Ok(stream) = stream else { continue };
         let app = Arc::clone(&app);
-        std::thread::spawn(move || {
-            let _ = handle_connection(stream, &app);
-        });
+        let builder = std::thread::Builder::new().stack_size(8 * 1024 * 1024);
+        if builder
+            .spawn(move || {
+                let _ = handle_connection(stream, &app);
+            })
+            .is_err()
+        {
+            eprintln!("failed to spawn HTTP worker thread with 8MB stack");
+        }
     }
     Ok(())
 }

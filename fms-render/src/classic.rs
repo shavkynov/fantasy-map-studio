@@ -1645,7 +1645,7 @@ fn paint_base_raster(
 
     let vig_r0 = 0.35 * (w.min(h) as f64);
     let vig_r1 = 0.55 * (w as f64).hypot(h as f64);
-    let mut grain_tbl = [1.0f64; 65536];
+    let mut grain_tbl = vec![1.0f64; 65536];
     let mut g_rng = Mulberry32::from_seed("grain-12345");
     for v in &mut grain_tbl {
         *v = 1.0 - g_rng.next() * th.grain;
