@@ -250,3 +250,58 @@ fn api_audit_regressions_region_inspect_downloads_clamps_and_ui() {
         "expected wide water_depth/activity range to change elevation: shallow={elev_sh}, deep={elev_dp}"
     );
 }
+
+#[test]
+fn api_region_inspect_uses_reg_window_over_point_lat_lon() {
+    let app = StudioApp::new().expect("init studio app");
+    let mut world_q = HashMap::new();
+    world_q.insert("seed".into(), "e".into());
+    world_q.insert("w".into(), "180".into());
+    world_q.insert("style".into(), "sepia".into());
+    world_q.insert("civ_realms".into(), "1".into());
+    world_q.insert("civ_cities".into(), "1".into());
+    world_q.insert("civ_routes".into(), "1".into());
+
+    let world_json = String::from_utf8(app.handle_get("/api/world", &world_q).body).unwrap();
+    let sr_off = world_json.find("\"suggested_region\":{").expect("suggested_region");
+    let sr_slice = &world_json[sr_off..];
+    let (reg_lat, _) = extract_pair(sr_slice, "lat").unwrap();
+    let (reg_lon, _) = extract_pair(sr_slice, "lon").unwrap();
+    let (reg_span, _) = extract_pair(sr_slice, "span").unwrap();
+
+    let mut reg_q = world_q.clone();
+    reg_q.insert("lat".into(), format!("{reg_lat:.4}"));
+    reg_q.insert("lon".into(), format!("{reg_lon:.4}"));
+    reg_q.insert("span".into(), format!("{reg_span:.1}"));
+    reg_q.insert("scale".into(), "4".into());
+    let reg_json = String::from_utf8(app.handle_get("/api/region", &reg_q).body).unwrap();
+
+    let rst_off = reg_json.find("\"id\":\"rst_").expect("expected local regional settlement rst_");
+    let rst_slice = &reg_json[rst_off..];
+    let name_tag = "\"name\":\"";
+    let name_start = rst_slice.find(name_tag).unwrap() + name_tag.len();
+    let name_end = rst_slice[name_start..].find('"').unwrap();
+    let rst_name = &rst_slice[name_start..name_start + name_end];
+    let (st_lat, _) = extract_pair(rst_slice, "lat").unwrap();
+    let (st_lon, _) = extract_pair(rst_slice, "lon").unwrap();
+
+    // Симулируем inspectSettlement для местного поселения: одновременно reg_* окна и lat/lon точки
+    let mut ins_q = world_q.clone();
+    ins_q.insert("mode".into(), "region".into());
+    ins_q.insert("reg_lat".into(), format!("{reg_lat:.4}"));
+    ins_q.insert("reg_lon".into(), format!("{reg_lon:.4}"));
+    ins_q.insert("reg_span".into(), format!("{reg_span:.1}"));
+    ins_q.insert("scale".into(), "4".into());
+    ins_q.insert("lat".into(), format!("{st_lat:.4}"));
+    ins_q.insert("lon".into(), format!("{st_lon:.4}"));
+
+    let ins_res = app.handle_get("/api/inspect", &ins_q);
+    assert_eq!(ins_res.status, 200);
+    let ins_json = String::from_utf8(ins_res.body).unwrap();
+    assert!(
+        ins_json.contains("\"settlement\":{")
+            && ins_json.contains("\"id\":null")
+            && ins_json.contains(&format!("\"name\":\"{rst_name}\"")),
+        "expected inspect in region mode to hit on-screen reg_* window and return local settlement `{rst_name}`: {ins_json}"
+    );
+}

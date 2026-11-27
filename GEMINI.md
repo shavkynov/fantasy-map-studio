@@ -88,7 +88,7 @@ SVG: `layer-base` (растр PNG), далее группы `layer-water-detail`
 - `/api/inspect` — карточка; `/api/route_road` — конструктор дорог
 
 Общие параметры мира (`parse_world_opts`): `seed` (деф. `e`), `w` (90..720, деф. 360), `continents` (0..6), `activity`, `water_depth`, `tilt`, `solar`, `rotation`, `civ_realms`, `civ_cities`, `civ_routes`, `target_realms`, `civ_salt`; плюс `style`, `target_w`.
-Регион: `lat|reg_lat`, `lon|reg_lon`, `span|reg_span`, `scale` (2..16); `lat`/`lon` имеют приоритет над `reg_*`.
+Регион: `reg_lat|lat`, `reg_lon|lon`, `reg_span|span`, `scale` (2..16); `reg_*` имеют приоритет над `lat`/`lon`/`span`.
 
 **Карточка поселения** `/api/inspect?mode=world|region` + `settlement_id` | `lat&lon` | `px&py`.
 Ответ (`build_inspect_json`): климат/рельеф/гидрология точки, `biome`, `realm_name`, `culture_name`, `nearest_*`, `resources{8}`, опционально `settlement {id (null у местных в регионе),name,tier,role,realm,lat,lon,population_score,trade_degree,resource/food/water/timber/mineral_score}`.
@@ -104,4 +104,4 @@ JS: `inspectSettlement`, `inspectPixel`, `renderInspectCard` (`#inspect-card`).
 ## Тесты, examples, CI
 - `fms-core/tests/{planet,water,tectonic}.rs`, `fms-render/tests/render.rs`, `fms-studio/tests/api.rs`.
 - Examples (по просьбе): `fms-render --example atlas -- <seed> <prefix> <sepia|ink|color|all>`; `fms-core --example planet|region` (PPM), `gen`, `sea`.
-- CI: `.github/workflows/rust.yml` (test + examples, release), `release.yml` (сборки с `-D warnings` на macOS); bundle: `fms-studio/scripts/bundle_macos.sh`.
+- CI: `.github/workflows/rust.yml` (test + examples, release), `release.yml` (сборки с `-D warnings` на macOS, Windows и Linux); bundle: `fms-studio/scripts/bundle_macos.sh`.

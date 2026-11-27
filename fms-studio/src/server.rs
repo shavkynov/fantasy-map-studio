@@ -510,19 +510,19 @@ impl StudioApp {
         let planet = self.get_or_build_planet(&wkey, &popt)?;
         let default_win = choose_region_window(&planet);
         let lat = q
-            .get("lat")
-            .or_else(|| q.get("reg_lat"))
+            .get("reg_lat")
+            .or_else(|| q.get("lat"))
             .and_then(|s| s.parse::<f64>().ok())
             .unwrap_or(default_win.center_lat_deg)
             .clamp(-82.0, 82.0);
         let lon = q
-            .get("lon")
-            .or_else(|| q.get("reg_lon"))
+            .get("reg_lon")
+            .or_else(|| q.get("lon"))
             .and_then(|s| s.parse::<f64>().ok())
             .unwrap_or(default_win.center_lon_deg);
         let span = q
-            .get("span")
-            .or_else(|| q.get("reg_span"))
+            .get("reg_span")
+            .or_else(|| q.get("span"))
             .and_then(|s| s.parse::<f64>().ok())
             .unwrap_or(default_win.span_lon_deg)
             .clamp(6.0, 100.0);
