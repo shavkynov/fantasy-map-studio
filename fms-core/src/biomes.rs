@@ -138,9 +138,10 @@ pub(crate) fn classify_land_biome(
         Biome::IceSheet
     } else if t_warm < 0.0 {
         Biome::PolarDesert
-    } else if is_delta && t_warm > 5.0 {
+    } else if is_delta && t_warm > 5.0 && elev < 0.25 {
         Biome::Wetland
     } else if slope < 0.0055
+        && elev < 0.45
         && t_warm > 4.5
         && permafrost > 0.35
         && aridity_index > 0.62
@@ -158,10 +159,11 @@ pub(crate) fn classify_land_biome(
     } else if elev > 2.6 || (elev > 1.9 && temp_c < 6.0) {
         Biome::Alpine
     } else if slope < 0.008
+        && elev < 0.35
         && t_warm > 6.0
         && aridity_index > 0.75
         && (discharge_m3s > 18_000.0
-            || (alluvium_km > 0.035 && aridity_index > 1.0 && slope < 0.005))
+            || (alluvium_km > 0.035 && aridity_index > 1.0 && slope < 0.005 && elev < 0.25))
     {
         Biome::Wetland
     } else if temp_c < 4.5 {

@@ -640,9 +640,11 @@ pub fn generate_region(planet: &Planet, opt: &RegionOptions) -> Result<Region, S
 
     let mut rng_det = Rng::new(&format!("{}|region|{}", planet.seed, opt.seed_tag));
     let noise_det = Noise::new(&mut rng_det);
+    let valley_noise = Noise::new(&mut Rng::sub(&planet.seed, "region-valleys"));
 
     let mut coarse_elevation_km = vec![0.0f32; n];
     let mut init_elev_f64 = vec![0.0f64; n];
+    let mut valley_aff = vec![0.5f64; n];
     let mut coarse_temp_c = vec![0.0f32; n];
     let mut coarse_temp_jan_c = vec![0.0f32; n];
     let mut coarse_temp_jul_c = vec![0.0f32; n];
@@ -731,7 +733,19 @@ pub fn generate_region(planet: &Planet, opt: &RegionOptions) -> Result<Region, S
                 + 0.12 * inc
                 + young_oro)
                 * scale_f;
-            let terrain_delta = (0.58 * ridge + 0.42 * fine) * rough.clamp(0.02, 0.90);
+            let terrain_delta = (0.58 * ridge + 0.42 * fine) * rough.clamp(0.032, 0.90);
+
+            let v_n = 0.60 * valley_noise.fbm(p[0] * 18.0 + 2.3, p[1] * 18.0 - 4.1, p[2] * 18.0 + 6.7, 3)
+                + 0.40 * valley_noise.fbm(p[0] * 44.0 - 5.2, p[1] * 44.0 + 3.8, p[2] * 44.0 - 1.9, 2);
+            let v_aff = (0.5 + 0.5 * v_n).clamp(0.0, 1.0);
+            valley_aff[i] = v_aff;
+
+            let lowland_channel = if ce > 0.0 && ce < 0.35 {
+                let w_low = 1.0 - (ce / 0.35).clamp(0.0, 1.0);
+                -0.014 * scale_f * w_low * (v_aff - 0.5)
+            } else {
+                0.0
+            };
 
             let coast_weight = (1.0 - (ce.abs() / 0.35)).clamp(0.0, 1.0);
             let coast_amp = if ct == 3 || gl > 0.05 {
@@ -746,7 +760,8 @@ pub fn generate_region(planet: &Planet, opt: &RegionOptions) -> Result<Region, S
                 * scale_f
                 * (0.65 * n1 + 0.35 * fine);
 
-            init_elev_f64[i] = ce + terrain_delta + coast_delta;
+            let raw_e = ce + terrain_delta + coast_delta + lowland_channel;
+            init_elev_f64[i] = if ce > 0.0 { raw_e.max(0.002) } else { raw_e };
         }
     }
 
@@ -998,7 +1013,7 @@ pub fn generate_region(planet: &Planet, opt: &RegionOptions) -> Result<Region, S
                 let dist = (if nx != cx { dx_c } else { 0.0 })
                     .hypot(if ny != cy { dy_km } else { 0.0 })
                     .max(1e-6);
-                let s = (filled_f64[c] - filled_f64[nb]) / dist;
+                let s = ((filled_f64[c] - filled_f64[nb]) / dist) * (1.0 + 0.28 * valley_aff[nb]);
                 if s > best_s {
                     best_s = s;
                     best_r = nb as i32;
@@ -1205,11 +1220,9 @@ pub fn generate_region(planet: &Planet, opt: &RegionOptions) -> Result<Region, S
         }
         let pet = (58.93 * (bio_sum / 12.0)).max(40.0);
         pet_mm[i] = pet as f32;
-        aridity_index[i] = if lapse_shift.abs() > 0.05 {
-            ((precip_mm[i] as f64) / pet.max(50.0)).clamp(0.0, 10.0) as f32
-        } else {
-            aridity_base[i]
-        };
+        let ai_local = ((precip_mm[i] as f64) / pet.max(50.0)).clamp(0.0, 10.0);
+        let w_blend = (lapse_shift.abs() / 0.35).clamp(0.0, 1.0);
+        aridity_index[i] = (aridity_base[i] as f64 * (1.0 - w_blend) + ai_local * w_blend) as f32;
         let sf = (snow_mm / (precip_mm[i] as f64).max(1.0)).clamp(0.0, 1.0) as f32;
         snow_frac[i] = sf;
         let bal = snow_mm - 4.5 * pdd;
@@ -1293,7 +1306,7 @@ pub fn generate_region(planet: &Planet, opt: &RegionOptions) -> Result<Region, S
             let dist = (if nx != cx { dx_c } else { 0.0 })
                 .hypot(if ny != cy { dy_km } else { 0.0 })
                 .max(1e-6);
-            let s = (filled_f64[c] - filled_f64[nb]) / dist;
+            let s = ((filled_f64[c] - filled_f64[nb]) / dist) * (1.0 + 0.28 * valley_aff[nb]);
             if s > best_s {
                 best_s = s;
                 best_r = nb as i32;
@@ -2158,7 +2171,58 @@ pub fn generate_region(planet: &Planet, opt: &RegionOptions) -> Result<Region, S
         }
     }
 
+    // 8. Перенос и локальная привязка сухопутных месторождений полезных ископаемых в регионе
     let snap_r = opt.scale as isize;
+    let mut deposits: Vec<RegionDeposit> = Vec::new();
+    for dep in &planet.resources.deposits {
+        if planet.hydrology.is_ocean[dep.cell] != 0 || planet.hydrology.is_lake[dep.cell] != 0 {
+            continue;
+        }
+        let (gx, gy) = planet.grid.xy(dep.cell);
+        let Some((ix, iy)) =
+            global_to_region_xy(planet.grid.lat_deg(gy), planet.grid.lon_deg(gx))
+        else {
+            continue;
+        };
+        let x0 = (ix as isize - snap_r).max(0) as usize;
+        let x1 = (ix as isize + snap_r).min(w as isize - 1) as usize;
+        let y0 = (iy as isize - snap_r).max(0) as usize;
+        let y1 = (iy as isize + snap_r).min(h as isize - 1) as usize;
+        let mut best_cell = None;
+        let mut best_score = f64::NEG_INFINITY;
+        for yy in y0..=y1 {
+            for xx in x0..=x1 {
+                let c = yy * w + xx;
+                if is_ocean[c] != 0 || is_lake[c] != 0 {
+                    continue;
+                }
+                let d2 = ((xx as f64 - ix as f64).powi(2) + (yy as f64 - iy as f64).powi(2)).sqrt();
+                let sc = match dep.kind {
+                    ResourceKind::Iron | ResourceKind::CopperGold | ResourceKind::GemsRare => {
+                        -d2 + 2.5 * elevation_km[c].max(0.0) as f64 + 1.8 * incised_km[c].max(0.0) as f64
+                    }
+                    _ => -d2 + 2.5 * alluvium_km[c] as f64 - 1.2 * (elevation_km[c] - 1.2).max(0.0) as f64,
+                };
+                if sc > best_score {
+                    best_score = sc;
+                    best_cell = Some(c);
+                }
+            }
+        }
+        if let Some(c) = best_cell {
+            if !deposits.iter().any(|d| d.kind == dep.kind && d.cell == c) {
+                deposits.push(RegionDeposit {
+                    kind: dep.kind,
+                    cell: c,
+                    x: c % w,
+                    y: c / w,
+                    richness: dep.richness,
+                });
+            }
+        }
+    }
+
+    // 9. Перенос глобальных поселений и достройка локальных деревень, городков, рудников и застав
     let mut settlements = Vec::new();
     for s in &planet.civilization.settlements {
         let (gx, gy) = planet.grid.xy(s.cell);
@@ -2215,7 +2279,153 @@ pub fn generate_region(planet: &Planet, opt: &RegionOptions) -> Result<Region, S
         }
     }
 
-    // 8. Сухопутные дороги в деталях региона (между местными поселениями по рельефу и перевалам)
+    if !planet.civilization.settlements.is_empty() && w >= 8 && h >= 8 {
+        let mut local_rng = Rng::new(&format!(
+            "{}|reg_setts|{:.2}|{:.2}|{:.1}|{}",
+            planet.seed, opt.center_lat_deg, opt.center_lon_deg, opt.span_lon_deg, planet.civilization.settlements.len()
+        ));
+        let mut used_names: std::collections::HashSet<String> = planet
+            .civilization
+            .settlements
+            .iter()
+            .map(|s| s.name.clone())
+            .collect();
+        let mut hab_land_km2 = 0.0f64;
+        let mut cands: Vec<(usize, f64, SettlementRole, bool)> = Vec::new();
+        for y in 2..(h - 2) {
+            let lat_deg = lat_max_deg - ((y as f64 + 0.5) / h as f64) * actual_span_lat;
+            for x in 2..(w - 2) {
+                let c = y * w + x;
+                if is_ocean[c] != 0 || is_lake[c] != 0 || is_salt_flat[c] != 0 {
+                    continue;
+                }
+                if glacier[c] > 0.30 || elevation_km[c] > 2.2 || slope[c] > 0.08 {
+                    continue;
+                }
+                let b = biome[c];
+                if matches!(b, Biome::IceSheet | Biome::PolarDesert | Biome::SaltFlat) {
+                    continue;
+                }
+                hab_land_km2 += cell_area_km2[y];
+
+                let (nbs4, cnt4) = reg_neighbors4(c, w, h);
+                let is_coast = nbs4[..cnt4].iter().any(|&nb| is_ocean[nb] != 0);
+                let on_river = river_mask[c] != 0;
+                let near_pass = passes.iter().any(|p| p.x.abs_diff(x) <= 2 && p.y.abs_diff(y) <= 2);
+                let near_dep = deposits.iter().any(|d| d.x.abs_diff(x) <= 2 && d.y.abs_diff(y) <= 2);
+                let fert = match b {
+                    Biome::TemperateForest | Biome::TemperateGrassland | Biome::Mediterranean => 0.42,
+                    Biome::TropicalSavanna | Biome::TropicalSeasonalForest | Biome::TemperateRainforest => 0.34,
+                    Biome::BorealForest | Biome::TropicalRainforest => 0.16,
+                    Biome::Wetland => 0.10,
+                    Biome::HotDesert | Biome::ColdDesert => if is_oasis[c] != 0 { 0.32 } else { 0.02 },
+                    _ => 0.05,
+                };
+                if fert <= 0.06 && !near_dep && !near_pass && !is_coast && !on_river {
+                    continue;
+                }
+                let q_sc = (discharge_m3s[c] as f64 / (river_thresh as f64 * 2.0)).clamp(0.0, 0.35);
+                let mut sc = fert + q_sc - (slope[c] as f64 * 4.5);
+                if is_coast {
+                    sc += 0.24;
+                }
+                if on_river {
+                    sc += 0.22;
+                }
+                if near_pass {
+                    sc += 0.26;
+                }
+                if near_dep {
+                    sc += 0.25;
+                }
+                if is_oasis[c] != 0 {
+                    sc += 0.28;
+                }
+                if permafrost[c] > 0.4 {
+                    sc -= 0.25;
+                }
+                let raw_lon = lon_min_deg + ((x as f64 + 0.5) / w as f64) * opt.span_lon_deg;
+                let lon_deg = (raw_lon + 540.0).rem_euclid(360.0) - 180.0;
+                let g_idx = sample_nearest_idx(lat_deg, lon_deg);
+                if planet.civilization.is_wild.get(g_idx).copied().unwrap_or(0) != 0 && !near_dep && !near_pass {
+                    sc -= 0.12;
+                }
+                sc += 0.08 * local_rng.next();
+                if sc < 0.28 {
+                    continue;
+                }
+                let role = if near_pass {
+                    SettlementRole::PassFortress
+                } else if is_coast && sc >= 0.48 {
+                    SettlementRole::Port
+                } else if near_dep {
+                    SettlementRole::MiningTown
+                } else if is_oasis[c] != 0 {
+                    SettlementRole::OasisTown
+                } else if on_river && discharge_m3s[c] > river_thresh * 2.5 {
+                    SettlementRole::RiverHub
+                } else {
+                    SettlementRole::MarketTown
+                };
+                cands.push((c, sc, role, is_coast));
+            }
+        }
+        cands.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+
+        let target_total = ((hab_land_km2 / 140_000.0).round() as usize).clamp(4, 14);
+        let min_sep_km = (dx_avg_km * 7.0).clamp(38.0, 140.0);
+        let mut local_added = 0usize;
+        for (cell, sc, role, is_coast) in cands {
+            if local_added >= target_total {
+                break;
+            }
+            let (cx, cy) = (cell % w, cell / w);
+            let too_close = settlements.iter().any(|existing| {
+                let ddx = (cx as f64 - existing.x as f64) * dx_km_row[cy];
+                let ddy = (cy as f64 - existing.y as f64) * dy_km;
+                ddx.hypot(ddy) < min_sep_km
+            });
+            if too_close {
+                continue;
+            }
+            let lat_deg = lat_max_deg - ((cy as f64 + 0.5) / h as f64) * actual_span_lat;
+            let raw_lon = lon_min_deg + ((cx as f64 + 0.5) / w as f64) * opt.span_lon_deg;
+            let lon_deg = (raw_lon + 540.0).rem_euclid(360.0) - 180.0;
+            let g_idx = sample_nearest_idx(lat_deg, lon_deg);
+            let prof = planet
+                .civilization
+                .culture_id
+                .get(g_idx)
+                .copied()
+                .and_then(|cid| (cid >= 0).then(|| planet.civilization.cultures.get(cid as usize)).flatten())
+                .map(|c| c.phonology_profile)
+                .unwrap_or(4);
+            let name = crate::toponymy::settlement_name(prof, role, &mut local_rng, &mut used_names);
+            let tier = if matches!(
+                role,
+                SettlementRole::Port | SettlementRole::PassFortress | SettlementRole::MiningTown | SettlementRole::RiverHub
+            ) || sc >= 0.68
+            {
+                SettlementTier::Town
+            } else {
+                SettlementTier::Village
+            };
+            settlements.push(RegionSettlement {
+                global_id: None,
+                name,
+                cell,
+                x: cx,
+                y: cy,
+                role,
+                tier,
+                is_port: is_coast,
+                river_access: river_mask[cell] != 0,
+            });
+            local_added += 1;
+        }
+    }
+
+    // 10. Сухопутные дороги в деталях региона (между местными поселениями по рельефу и перевалам)
     let mut roads: Vec<RegionRoad> = Vec::new();
     let mut road_used = vec![0u8; w * h];
     let mut pairs: BTreeSet<(usize, usize)> = BTreeSet::new();
@@ -2261,62 +2471,6 @@ pub fn generate_region(planet: &Planet, opt: &RegionOptions) -> Result<Region, S
                 road_used[c] = 1;
             }
             roads.push(rd);
-        }
-    }
-
-    // 9. Перенос и локальная привязка месторождений полезных ископаемых в регионе
-    let mut deposits: Vec<RegionDeposit> = Vec::new();
-    for dep in &planet.resources.deposits {
-        let (gx, gy) = planet.grid.xy(dep.cell);
-        let Some((ix, iy)) =
-            global_to_region_xy(planet.grid.lat_deg(gy), planet.grid.lon_deg(gx))
-        else {
-            continue;
-        };
-        let want_ocean = planet.hydrology.is_ocean[dep.cell] != 0;
-        let x0 = (ix as isize - snap_r).max(0) as usize;
-        let x1 = (ix as isize + snap_r).min(w as isize - 1) as usize;
-        let y0 = (iy as isize - snap_r).max(0) as usize;
-        let y1 = (iy as isize + snap_r).min(h as isize - 1) as usize;
-        let mut best_cell = None;
-        let mut best_score = f64::NEG_INFINITY;
-        for yy in y0..=y1 {
-            for xx in x0..=x1 {
-                let c = yy * w + xx;
-                let cell_ocean = is_ocean[c] != 0;
-                if want_ocean {
-                    if !cell_ocean {
-                        continue;
-                    }
-                } else if cell_ocean || is_lake[c] != 0 {
-                    continue;
-                }
-                let d2 = ((xx as f64 - ix as f64).powi(2) + (yy as f64 - iy as f64).powi(2)).sqrt();
-                let sc = match dep.kind {
-                    ResourceKind::Iron | ResourceKind::CopperGold | ResourceKind::GemsRare => {
-                        -d2 + 2.5 * elevation_km[c].max(0.0) as f64 + 1.8 * incised_km[c].max(0.0) as f64
-                    }
-                    ResourceKind::Hydrocarbons if want_ocean => {
-                        -d2 + 4.0 * if elevation_km[c] >= -0.45 { 1.0 } else { -1.0 }
-                    }
-                    _ => -d2 + 2.5 * alluvium_km[c] as f64 - 1.2 * (elevation_km[c] - 1.2).max(0.0) as f64,
-                };
-                if sc > best_score {
-                    best_score = sc;
-                    best_cell = Some(c);
-                }
-            }
-        }
-        if let Some(c) = best_cell {
-            if !deposits.iter().any(|d| d.kind == dep.kind && d.cell == c) {
-                deposits.push(RegionDeposit {
-                    kind: dep.kind,
-                    cell: c,
-                    x: c % w,
-                    y: c / w,
-                    richness: dep.richness,
-                });
-            }
         }
     }
 

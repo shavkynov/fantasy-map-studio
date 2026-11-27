@@ -1,6 +1,6 @@
 [package]
 name = "fms-core"
-version = "0.91.0"
+version = "0.92.0"
 edition = "2021"
 description = "Расчётное ядро Fantasy Map Studio (без интерфейса и рендера)"
 license = "UNLICENSED"

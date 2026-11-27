@@ -158,8 +158,8 @@ impl WorldProj {
             }
         }
         let max_y_pat = patterson_y(PI * 0.5);
-        let pad_x_rad = 14.0f64.to_radians();
-        let pad_y_pat = 10.0f64.to_radians();
+        let pad_x_rad = 18.0f64.to_radians();
+        let pad_y_pat = 13.0f64.to_radians();
         let min_x_rad = (min_x - pad_x_rad).max(-PI);
         let max_x_rad = (max_x + pad_x_rad).min(PI);
         let min_y_pat = (min_y - pad_y_pat).max(-max_y_pat);
@@ -176,7 +176,7 @@ impl WorldProj {
         let pad_bot = (64.0 * k_s).round().max(20.0);
         let canvas_w = target_w.max(320);
         let inner_w = canvas_w as f64 - 2.0 * pad_x;
-        let min_inner_h = (inner_w * 0.44).round();
+        let min_inner_h = (inner_w * 0.42).round();
         let max_inner_h = (inner_w * (max_y_pat / PI)).floor().max(min_inner_h);
 
         let px_per_unit_w = (inner_w / span_x_rad).max(inner_w / (2.0 * PI));

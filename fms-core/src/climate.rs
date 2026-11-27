@@ -333,7 +333,7 @@ fn advect_moisture_season(
             let u = wind_u[i] as f64;
             let v = wind_v[i] as f64;
             let spd = u.hypot(v).max(0.25);
-            let off_x = ((u / spd) * step_km / dx_row).clamp(-6.0, 6.0);
+            let off_x = ((u / spd) * step_km / dx_row).clamp(-18.0, 18.0);
             let off_y = ((v / spd) * step_km / dy_km).clamp(-4.0, 4.0);
             src_x[i] = (x as f64 - off_x).rem_euclid(wf);
             src_y[i] = (y as f64 + off_y).clamp(0.0, hf_max);

@@ -1,7 +1,9 @@
 use fms_core::biomes::Biome;
+use fms_core::civilization::CivilizationOptions;
 use fms_core::geography::{LandmassKind, MarineZone};
 use fms_core::planet::{self, PlanetOptions};
 use fms_core::region::{self, RegionOptions};
+use fms_core::resources::ResourceKind;
 use fms_core::tectonic::Options;
 use std::collections::HashSet;
 use std::f64::consts::PI;
@@ -594,5 +596,60 @@ fn hierarchical_resource_settlements_wilderness_and_offshore_routes() {
                 }
             }
         }
+    }
+}
+
+#[test]
+fn audit_regressions_wetlands_deposits_salt_and_regional_settlements() {
+    let mut opt = PlanetOptions::new("audit_reg");
+    opt.tectonic.w = 180;
+    let phys = planet::generate_physical_with_options(&opt).expect("physical planet");
+
+    // 1. Нет высокогорных «пойменных болот» выше 450 м
+    for i in 0..phys.grid.len() {
+        if phys.hydrology.is_ocean[i] == 0 && phys.erosion.elevation_km[i] > 0.45 {
+            assert_ne!(
+                phys.biomes.biome[i],
+                Biome::Wetland,
+                "cell {i} at elev {:.2} km misclassified as Wetland",
+                phys.erosion.elevation_km[i]
+            );
+        }
+    }
+
+    // 2. Все дискретные месторождения только на суше; фэнтези-название вместо «Нефть и газ»
+    assert!(!ResourceKind::Hydrocarbons.name().contains("Нефть"));
+    for dep in &phys.resources.deposits {
+        assert_eq!(phys.hydrology.is_ocean[dep.cell], 0, "deposit {:?} on ocean cell", dep.kind);
+        assert_eq!(phys.hydrology.is_lake[dep.cell], 0, "deposit {:?} on lake cell", dep.kind);
+    }
+
+    // 3. `civ_salt` реально меняет раскладку поселений, а не только названия
+    let mut civ0_opt = CivilizationOptions::default();
+    civ0_opt.salt = 0;
+    let p0 = planet::populate_civilization(&phys, &civ0_opt);
+    let mut civ1_opt = CivilizationOptions::default();
+    civ1_opt.salt = 1;
+    let p1 = planet::populate_civilization(&phys, &civ1_opt);
+
+    let cells0: Vec<usize> = p0.civilization.settlements.iter().map(|s| s.cell).collect();
+    let cells1: Vec<usize> = p1.civilization.settlements.iter().map(|s| s.cell).collect();
+    assert!(!cells0.is_empty());
+    assert_ne!(cells0, cells1, "civ_salt must change settlement layout");
+
+    // 4. В регионе без цивилизации — 0 поселений; с цивилизацией достраиваются локальные деревни/городки
+    let anchor = p0.civilization.settlements[0].cell;
+    let reg_opt = RegionOptions::around_cell(&p0, anchor, 16.0, 4);
+    let reg_phys = region::generate_region(&phys, &reg_opt).expect("region phys");
+    assert!(reg_phys.settlements.is_empty(), "physical region must have 0 settlements");
+
+    let reg_civ = region::generate_region(&p0, &reg_opt).expect("region civ");
+    assert!(
+        reg_civ.settlements.iter().any(|s| s.global_id.is_none()),
+        "populated region should generate local settlements beyond transferred global ones"
+    );
+    for rs in &reg_civ.settlements {
+        assert_eq!(reg_civ.is_ocean[rs.cell], 0);
+        assert_eq!(reg_civ.is_lake[rs.cell], 0);
     }
 }

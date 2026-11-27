@@ -346,7 +346,7 @@ impl ClassicGrid {
         let t_now = planet.stats_time();
         let ice_noise = Noise2::new(&format!("{}|packice", planet.seed));
 
-        // Оставляем только 8 крупнейших озёр планеты (>= 5 ячеек) и сглаживаем поле озёр
+        // Сохраняем до 24 настоящих озёр планеты (>= 3 ячеек) с минимальной фильтрацией, чтобы не превращать их в «фасолины»
         let world_lake_smooth = {
             let pn = pw * ph;
             let mut keep = vec![0.0f32; pn];
@@ -377,12 +377,12 @@ impl ClassicGrid {
                         }
                     }
                 }
-                if comp.len() >= 5 {
+                if comp.len() >= 3 {
                     comps.push(comp);
                 }
             }
             comps.sort_by(|a, b| b.len().cmp(&a.len()));
-            comps.truncate(8);
+            comps.truncate(24);
             for comp in comps {
                 for idx in comp {
                     keep[idx] = 1.0;
@@ -391,15 +391,13 @@ impl ClassicGrid {
             let mut sm = vec![0.0f32; pn];
             for y in 0..ph {
                 for x in 0..pw {
-                    let mut s = 0.0f32;
-                    for dy in -1isize..=1 {
-                        let ny = (y as isize + dy).clamp(0, ph as isize - 1) as usize;
-                        for dx in -1isize..=1 {
-                            let nx = (x as isize + dx).rem_euclid(pw as isize) as usize;
-                            s += keep[ny * pw + nx];
-                        }
-                    }
-                    sm[y * pw + x] = s / 9.0;
+                    let c = keep[y * pw + x];
+                    let xl = (x + pw - 1) % pw;
+                    let xr = (x + 1) % pw;
+                    let yu = y.saturating_sub(1);
+                    let yd = (y + 1).min(ph - 1);
+                    let nb4 = 0.25 * (keep[y * pw + xl] + keep[y * pw + xr] + keep[yu * pw + x] + keep[yd * pw + x]);
+                    sm[y * pw + x] = 0.65 * c + 0.35 * nb4;
                 }
             }
             sm
@@ -558,7 +556,7 @@ impl ClassicGrid {
         let t_now = planet.stats_time();
         let ice_noise = Noise2::new(&format!("{}|packice", planet.seed));
 
-        // Оставляем не более 4 крупнейших настоящих озёр региона (>= 14 ячеек reg), убирая рябь из луж FastScape
+        // Сохраняем до 16 настоящих озёр региона (>= 8 ячеек reg), сохраняя изрезанность берегов
         let reg_lake_smooth = {
             let rn = rw * rh;
             let mut keep = vec![0.0f32; rn];
@@ -588,12 +586,12 @@ impl ClassicGrid {
                         }
                     }
                 }
-                if comp.len() >= 14 {
+                if comp.len() >= 8 {
                     comps.push(comp);
                 }
             }
             comps.sort_by(|a, b| b.len().cmp(&a.len()));
-            comps.truncate(4);
+            comps.truncate(16);
             for comp in comps {
                 for idx in comp {
                     keep[idx] = 1.0;
@@ -602,15 +600,13 @@ impl ClassicGrid {
             let mut sm = vec![0.0f32; rn];
             for y in 0..rh {
                 for x in 0..rw {
-                    let mut s = 0.0f32;
-                    for dy in -1isize..=1 {
-                        let ny = (y as isize + dy).clamp(0, rh as isize - 1) as usize;
-                        for dx in -1isize..=1 {
-                            let nx = (x as isize + dx).clamp(0, rw as isize - 1) as usize;
-                            s += keep[ny * rw + nx];
-                        }
-                    }
-                    sm[y * rw + x] = s / 9.0;
+                    let c = keep[y * rw + x];
+                    let xl = x.saturating_sub(1);
+                    let xr = (x + 1).min(rw - 1);
+                    let yu = y.saturating_sub(1);
+                    let yd = (y + 1).min(rh - 1);
+                    let nb4 = 0.25 * (keep[y * rw + xl] + keep[y * rw + xr] + keep[yu * rw + x] + keep[yd * rw + x]);
+                    sm[y * rw + x] = 0.65 * c + 0.35 * nb4;
                 }
             }
             sm
@@ -1021,54 +1017,47 @@ impl ClassicGrid {
                     self.young[i] = 0.0;
                 }
             }
-            let fit_share = |field: &mut [f32], ocean: &[u8], lake: &[u8], h_arr: &[f32], thr: f32, lo: f64, hi: f64| {
+            // Физическая доля гор и холмов без принудительного выравнивания низменностей до горных стран;
+            // ограничиваем лишь верхний предел (>28%), чтобы альпийские области не перегружали значки.
+            let cap_excess = |field: &mut [f32], ocean: &[u8], lake: &[u8], h_arr: &[f32], thr: f32, max_hi: f64| {
                 let mut land_n = 0usize;
+                let mut hi_n = 0usize;
                 for i in 0..field.len() {
                     if ocean[i] == 0 && lake[i] == 0 && h_arr[i] > 0.06 {
                         land_n += 1;
+                        if field[i] > thr {
+                            hi_n += 1;
+                        }
                     }
                 }
                 if land_n < 32 {
                     return;
                 }
-                let share_at = |mul: f32| -> f64 {
-                    let mut c = 0usize;
-                    for i in 0..field.len() {
-                        if ocean[i] == 0 && lake[i] == 0 && h_arr[i] > 0.06 && field[i] * mul > thr {
-                            c += 1;
+                let share = hi_n as f64 / land_n as f64;
+                if share > max_hi {
+                    let (mut l, mut r) = (0.20f32, 1.0f32);
+                    for _ in 0..14 {
+                        let m = 0.5 * (l + r);
+                        let mut c = 0usize;
+                        for i in 0..field.len() {
+                            if ocean[i] == 0 && lake[i] == 0 && h_arr[i] > 0.06 && field[i] * m > thr {
+                                c += 1;
+                            }
                         }
+                        if (c as f64 / land_n as f64) > max_hi { r = m; } else { l = m; }
                     }
-                    c as f64 / land_n as f64
-                };
-                let s0 = share_at(1.0);
-                let mut mul = 1.0f32;
-                if s0 > hi {
-                    let (mut l, mut r) = (0.12f32, 1.0f32);
-                    for _ in 0..16 {
-                        let m = 0.5 * (l + r);
-                        if share_at(m) > hi { r = m; } else { l = m; }
-                    }
-                    mul = 0.5 * (l + r);
-                } else if s0 < lo && s0 > 0.003 {
-                    let (mut l, mut r) = (1.0f32, 2.8f32);
-                    for _ in 0..16 {
-                        let m = 0.5 * (l + r);
-                        if share_at(m) < lo { l = m; } else { r = m; }
-                    }
-                    mul = 0.5 * (l + r);
-                }
-                if (mul - 1.0).abs() > 1e-4 {
+                    let mul = 0.5 * (l + r);
                     for v in field.iter_mut() {
                         *v = (*v * mul).clamp(0.0, 1.5);
                     }
                 }
             };
-            fit_share(&mut self.young, &self.ocean, &self.lake, &self.h, 0.20, 0.075, 0.125);
+            cap_excess(&mut self.young, &self.ocean, &self.lake, &self.h, 0.20, 0.26);
             for i in 0..n {
                 let high_sup = if self.h[i] > 0.92 { 0.15 } else { 1.0 };
                 self.old[i] = (self.old[i] * (1.0 - 0.90 * self.young[i].min(1.0)) * high_sup).clamp(0.0, 1.2);
             }
-            fit_share(&mut self.old, &self.ocean, &self.lake, &self.h, 0.15, 0.060, 0.110);
+            cap_excess(&mut self.old, &self.ocean, &self.lake, &self.h, 0.15, 0.24);
         }
 
         // Локальные максимумы вулканизма на суше
@@ -1385,14 +1374,18 @@ fn coast_contours(
     grid: &ClassicGrid,
     noise: &Noise2,
 ) -> (Vec<Vec<[f64; 2]>>, Vec<(Vec<[f64; 2]>, bool)>, Vec<Vec<(Vec<[f64; 2]>, bool)>>) {
-    // 1. Замкнутые полигоны суши (с внешней каймой -1.0) для чёткой маски воды
+    // 1. Замкнутые полигоны суши из того же непрерывного поля `grid.h` (уровень 0.0) с внешней каймой -1.0
     let pw = grid.gw + 2;
     let ph = grid.gh + 2;
     let mut padded = vec![-1.0f32; pw * ph];
     for y in 0..grid.gh {
         for x in 0..grid.gw {
             let idx = y * grid.gw + x;
-            padded[(y + 1) * pw + (x + 1)] = if grid.ocean[idx] == 0 { 1.0 } else { -1.0 };
+            padded[(y + 1) * pw + (x + 1)] = if grid.ocean[idx] == 0 {
+                grid.h[idx].max(1e-3)
+            } else {
+                grid.h[idx].min(-1e-3)
+            };
         }
     }
     let filled_raw = marching_contours(&padded, pw, ph, 0.0);
@@ -3032,13 +3025,14 @@ fn classic_legend_rect(
     let pad = 12.0 * k;
     let rows_cnt = 4
         + if realms_n > 0 { 1 + realms_n.min(8) } else { 0 }
-        + if setts_n > 0 { 1 + if is_world { 4 } else { 3 } } else { 0 }
+        + if setts_n > 0 { 1 + 3 } else { 0 }
         + if has_roads { 1 } else { 0 }
         + if has_sea_routes { 1 } else { 0 }
         + if realms_n > 0 { 1 } else { 0 };
     let bw = 205.0 * k;
     let bh = (rows_cnt as f64 * row_h + pad * 2.0).min(fh * 0.65);
     let m = 22.0 * k;
+    let _ = is_world;
     let cands = [
         [fx + m, fy + fh - bh - m, bw, bh],
         [fx + fw - bw - m, fy + fh - bh - m, bw, bh],
@@ -3068,21 +3062,14 @@ fn classic_legend_rect(
     best
 }
 
-const STATE_PAL: &str = "#c74330,#3089c7,#b58e2f,#3b9c54,#7f3db8,#d16328,#2ea69e,#c73880,#8fa329,#3642bf,#589c36,#bd2b2b,#2a99b8,#a832a8";
-
-fn state_hex(rid: usize) -> &'static str {
-    let parts: Vec<&'static str> = STATE_PAL.split(',').collect();
-    parts[rid % parts.len()]
-}
-
 fn state_rgb(rid: usize) -> [f64; 3] {
     match rid % 6 {
-        0 => [199.0, 67.0, 48.0],
-        1 => [48.0, 137.0, 199.0],
-        2 => [181.0, 142.0, 47.0],
-        3 => [59.0, 156.0, 84.0],
-        4 => [127.0, 61.0, 184.0],
-        _ => [209.0, 99.0, 40.0],
+        0 => [186.0, 112.0, 98.0],
+        1 => [108.0, 138.0, 158.0],
+        2 => [190.0, 154.0, 92.0],
+        3 => [128.0, 156.0, 114.0],
+        4 => [148.0, 112.0, 138.0],
+        _ => [130.0, 150.0, 146.0],
     }
 }
 
@@ -3175,15 +3162,16 @@ fn settlement_kind(role: SettlementRole, tier: SettlementTier) -> &'static str {
     match tier {
         SettlementTier::Capital => "capital",
         SettlementTier::Metropolis => "metropolis",
+        SettlementTier::City => "city",
         _ => match role {
             SettlementRole::Capital => "capital",
             SettlementRole::Port => "port",
             SettlementRole::PassFortress => "fortress",
             SettlementRole::MiningTown => "mine",
             _ => match tier {
-                SettlementTier::City => "city",
                 SettlementTier::Town => "town",
                 SettlementTier::Village => "village",
+                SettlementTier::City => "city",
                 SettlementTier::Metropolis => "metropolis",
                 SettlementTier::Capital => "capital",
             },
@@ -3517,25 +3505,23 @@ fn compose_scene(
         let mut lk_f = vec![-1.0f32; grid.gw * grid.gh];
         for y in 0..grid.gh {
             for x in 0..grid.gw {
-                let mut s = 0.0f32;
-                for dy in -1isize..=1 {
-                    let ny = (y as isize + dy).clamp(0, grid.gh as isize - 1) as usize;
-                    for dx in -1isize..=1 {
-                        let nx = (x as isize + dx).clamp(0, grid.gw as isize - 1) as usize;
-                        s += lk_raw_f[ny * grid.gw + nx];
-                    }
-                }
-                lk_f[y * grid.gw + x] = s / 9.0;
+                let c = lk_raw_f[y * grid.gw + x];
+                let xl = x.saturating_sub(1);
+                let xr = (x + 1).min(grid.gw - 1);
+                let yu = y.saturating_sub(1);
+                let yd = (y + 1).min(grid.gh - 1);
+                let nb4 = 0.25 * (lk_raw_f[y * grid.gw + xl] + lk_raw_f[y * grid.gw + xr] + lk_raw_f[yu * grid.gw + x] + lk_raw_f[yd * grid.gw + x]);
+                lk_f[y * grid.gw + x] = 0.65 * c + 0.35 * nb4;
             }
         }
         let lk_raw = marching_contours(&lk_f, grid.gw, grid.gh, 0.0);
         let mut lk_b = PathBatch::default();
         let lk_col = if th.is_color { th.river_rgb } else { th.water_near };
         for (pts, closed) in lk_raw {
-            if !closed || pts.len() < 6 {
+            if !closed || pts.len() < 4 {
                 continue;
             }
-            let lp = hand_loop2(grid, &pts, true, noise, 1.15 * k, false);
+            let lp = hand_loop2(grid, &pts, true, noise, 0.95 * k, false);
             lk_b.polyline(&lp, true);
             cv.fill_poly(&lp, lk_col, 0.94);
             cv.stroke_poly(&lp, true, th.coast_rgb, coast_w_est(&th), 0.9);
@@ -4030,14 +4016,32 @@ fn compose_scene(
     // 10. Значки городов и важных точек
     let _ = writeln!(svg, r#"<g id="layer-settlements" clip-path="url(#fmsFrameClip)" stroke-linecap="round" stroke-linejoin="round">"#);
     let mut occupied: Vec<Rect> = Vec::new();
-    let leg_occ = Rect { x: legend_rect[0] - 8.0 * k, y: legend_rect[1] - 8.0 * k, w: legend_rect[2] + 16.0 * k, h: legend_rect[3] + 16.0 * k };
-    occupied.push(leg_occ);
+
+    // Поселения, к которым подходят видимые дороги или морские пути, отображаем и на карте мира, чтобы дороги не обрывались
+    let is_route_endpoint = |sx: f64, sy: f64| -> bool {
+        let thr2 = (14.0 * k) * (14.0 * k);
+        let check_poly = |pts: &[[f64; 2]]| -> bool {
+            if let (Some(&a), Some(&b)) = (pts.first(), pts.last()) {
+                let da = (a[0] - sx) * (a[0] - sx) + (a[1] - sy) * (a[1] - sy);
+                let db = (b[0] - sx) * (b[0] - sx) + (b[1] - sy) * (b[1] - sy);
+                if da <= thr2 || db <= thr2 {
+                    return true;
+                }
+            }
+            false
+        };
+        roads.highways.iter().any(|p| check_poly(p))
+            || roads.roads.iter().any(|p| check_poly(p))
+            || roads.trails.iter().any(|p| check_poly(p))
+            || roads.sea_routes.iter().any(|r| check_poly(&r.pts))
+    };
 
     let mut ordered_st: Vec<&SettlementPin> = settlements
         .iter()
         .filter(|s| {
             if is_world {
-                matches!(s.kind, "capital" | "metropolis" | "city") || (s.kind == "port" && s.score >= 38.0)
+                matches!(s.kind, "capital" | "metropolis" | "city" | "port" | "fortress" | "mine")
+                    || is_route_endpoint(s.x, s.y)
             } else {
                 true
             }
@@ -4138,9 +4142,6 @@ fn compose_scene(
         if x < fx + 6.0 || x > fx + fw - 6.0 || y < fy + 6.0 || y > fy + fh - 6.0 {
             continue;
         }
-        if leg_occ.intersects(&Rect { x: x - 6.0 * k, y: y - 6.0 * k, w: 12.0 * k, h: 12.0 * k }) {
-            continue;
-        }
         occupied.push(Rect { x: x - 6.0 * k, y: y - 6.0 * k, w: 12.0 * k, h: 12.0 * k });
         match ws.kind {
             "camp" => {
@@ -4195,9 +4196,6 @@ fn compose_scene(
     // 10c. Месторождения ресурсов
     let _ = writeln!(svg, r#"<g id="layer-deposits" clip-path="url(#fmsFrameClip)">"#);
     for d in deposits {
-        if leg_occ.intersects(&Rect { x: d.x - 4.0, y: d.y - 4.0, w: 8.0, h: 8.0 }) {
-            continue;
-        }
         let col = match d.kind {
             "iron" => "#7b8a98",
             "copper" => "#d69c38",
@@ -4396,11 +4394,16 @@ fn compose_scene(
         if !legend_realms.is_empty() {
             let _ = writeln!(svg, r#"  <text x="{x0:.1}" y="{cy:.1}" font-weight="700" font-size="{fs:.1}" dominant-baseline="middle" fill="{}">Государства</text>"#, th.ink_hex);
             cy += row_h;
-            for (idx, (rname, _)) in legend_realms.iter().enumerate() {
-                let col = state_hex(idx);
+            for (idx, (rname, rrgb)) in legend_realms.iter().enumerate() {
+                let col = if !th.is_color && !th.hatch {
+                    let g = 115 + (idx * 24) % 108;
+                    format!("rgb({g},{g},{g})")
+                } else {
+                    format!("rgb({:.0},{:.0},{:.0})", rrgb[0], rrgb[1], rrgb[2])
+                };
                 let _ = writeln!(
                     svg,
-                    r#"  <rect x="{x0:.1}" y="{:.1}" width="{:.1}" height="{:.1}" fill="{col}" fill-opacity="0.75" stroke="{}" stroke-width="{:.2}"/>
+                    r#"  <rect x="{x0:.1}" y="{:.1}" width="{:.1}" height="{:.1}" fill="{col}" fill-opacity="0.78" stroke="{}" stroke-width="{:.2}"/>
   <text x="{xt:.1}" y="{cy:.1}" font-size="{fs:.1}" dominant-baseline="middle" fill="{}">{}</text>"#,
                     cy - 6.0 * k, 24.0 * k, 12.0 * k, th.ink_hex, 0.8 * k, th.ink_hex, xml_escape(rname)
                 );
@@ -4415,7 +4418,13 @@ fn compose_scene(
                 match kind {
                     0 => { let _ = writeln!(svg, r#"  <polygon points="{ix:.1},{:.1} {:.1},{cy:.1} {ix:.1},{:.1} {:.1},{cy:.1}" fill="{}" stroke="{}" stroke-width="{:.2}"/>"#, cy - 5.0 * k, ix + 5.0 * k, cy + 5.0 * k, ix - 5.0 * k, th.sym_paper_hex, th.ink_hex, 1.4 * k); }
                     1 => { let _ = writeln!(svg, r#"  <polygon points="{ix:.1},{:.1} {:.1},{cy:.1} {ix:.1},{:.1} {:.1},{cy:.1}" fill="{}" stroke="{}" stroke-width="{:.2}"/>"#, cy - 4.2 * k, ix + 4.2 * k, cy + 4.2 * k, ix - 4.2 * k, th.ink_hex, th.ink_hex, 1.2 * k); }
-                    _ => { let _ = writeln!(svg, r#"  <circle cx="{ix:.1}" cy="{cy:.1}" r="{:.1}" fill="none" stroke="{}" stroke-width="{:.2}"/>"#, 3.4 * k, th.ink_hex, 1.3 * k); }
+                    _ => {
+                        let _ = writeln!(
+                            svg,
+                            r#"  <g fill="none" stroke="{}" stroke-width="{:.2}"><circle cx="{ix:.1}" cy="{:.1}" r="{:.2}"/><path d="M{ix:.1},{:.1} L{ix:.1},{:.1} M{:.1},{:.1} L{:.1},{:.1} M{:.1},{:.1} Q{ix:.1},{:.1} {:.1},{:.1}"/></g>"#,
+                            th.ink_hex, 1.2 * k, cy - 3.0 * k, 1.1 * k, cy - 1.9 * k, cy + 3.2 * k, ix - 2.2 * k, cy - 0.5 * k, ix + 2.2 * k, cy - 0.5 * k, ix - 3.0 * k, cy + 0.8 * k, cy + 5.2 * k, ix + 3.0 * k, cy + 0.8 * k
+                        );
+                    }
                 }
                 let _ = writeln!(svg, r#"  <text x="{xt:.1}" y="{cy:.1}" font-size="{fs:.1}" dominant-baseline="middle" fill="{}">{lbl}</text>"#, th.ink_hex);
                 cy += row_h;

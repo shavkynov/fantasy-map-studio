@@ -219,29 +219,47 @@ fn make_craton(p: [f64; 3], size: f64, r: &mut Rng) -> Craton {
     t1x /= t1l; t1y /= t1l; t1z /= t1l;
     let (t2x, t2y, t2z) = (py * t1z - pz * t1y, pz * t1x - px * t1z, px * t1y - py * t1x);
     let th = r.next() * PI;
-    let e = 1.12 + 0.85 * r.next();
+    let e = 1.15 + 1.25 * r.next();
     let rho = (0.45 + 0.28 * r.next()) * size;
     let pw = 1.45 + 0.95 * r.next();
     Craton { p, t1: [t1x, t1y, t1z], t2: [t2x, t2y, t2z], co: th.cos(), si: th.sin(), e, rho, pw }
 }
 
-/// Центры `k` материков: farthest-point на сфере в полосе `|z| <= 0.52`, угловое разнесение не меньше `1.85 / sqrt(k)` рад.
-/// Из кандидатов берётся случайный из почти наилучших, чтобы расклад был естественным и не растягивался у полюсов.
+/// Ортонормированный сдвиг точки `p` на единичной сфере вдоль локального касательного базиса.
+#[inline]
+fn jitter_on_sphere(p: [f64; 3], j1: f64, j2: f64) -> [f64; 3] {
+    let ax = if p[2].abs() > 0.9 { [1.0, 0.0, 0.0] } else { [0.0, 0.0, 1.0] };
+    let u0 = [
+        p[1] * ax[2] - p[2] * ax[1],
+        p[2] * ax[0] - p[0] * ax[2],
+        p[0] * ax[1] - p[1] * ax[0],
+    ];
+    let ul = (u0[0] * u0[0] + u0[1] * u0[1] + u0[2] * u0[2]).sqrt().max(1e-12);
+    let u = [u0[0] / ul, u0[1] / ul, u0[2] / ul];
+    let v = [
+        p[1] * u[2] - p[2] * u[1],
+        p[2] * u[0] - p[0] * u[2],
+        p[0] * u[1] - p[1] * u[0],
+    ];
+    let q = [
+        p[0] + j1 * u[0] + j2 * v[0],
+        p[1] + j1 * u[1] + j2 * v[1],
+        p[2] + j1 * u[2] + j2 * v[2],
+    ];
+    let l = (q[0] * q[0] + q[1] * q[1] + q[2] * q[2]).sqrt().max(1e-12);
+    [q[0] / l, q[1] / l, q[2] / l]
+}
+
+/// Центры `k` материков: farthest-point на сфере в расширенной полосе `|z| <= 0.74` с полушарной асимметрией.
 fn continent_centers(k: usize, r: &mut Rng) -> Vec<[f64; 3]> {
-    const ZMAX: f64 = 0.52;
+    const ZMAX: f64 = 0.74;
     let sep = 1.85 / (k as f64).sqrt();
+    let hemi_bias = (r.next() - 0.5) * 0.42;
     let sample = |r: &mut Rng| -> [f64; 3] {
-        loop {
-            let z = (r.next() * 2.0 - 1.0) * ZMAX;
-            let a = r.next() * TAU;
-            let rr = (1.0 - z * z).sqrt();
-            let c = [rr * a.cos(), rr * a.sin(), z];
-            // Оставляем чистый океанский коридор около меридиана разреза при k >= 2
-            if k >= 2 && c[0] < -0.92 && c[1].abs() < 0.26 {
-                continue;
-            }
-            return c;
-        }
+        let z = ((r.next() * 2.0 - 1.0) * ZMAX + hemi_bias).clamp(-ZMAX, ZMAX);
+        let a = r.next() * TAU;
+        let rr = (1.0 - z * z).sqrt();
+        [rr * a.cos(), rr * a.sin(), z]
     };
     let mut centers = vec![sample(r)];
     while centers.len() < k {
@@ -263,38 +281,50 @@ fn continent_centers(k: usize, r: &mut Rng) -> Vec<[f64; 3]> {
     centers
 }
 
-/// Кратоны для `k >= 2` материков: каждый материк выстраивается вдоль изогнутой тектонической дуги
-/// (крупное ядро + асимметричные полуостровные выступы), чтобы силуэты были естественными, а не «ромашками».
+/// Кратоны для `k >= 2` материков: материки заметно различаются по размеру, вытянуты вдоль тектонических дуг
+/// и имеют асимметричные полуостровные выступы без «блинов».
 fn multi_continent_cratons(k: usize, seed: &str) -> (Vec<Craton>, Vec<u8>) {
     let mut cr = Rng::new(&format!("{}|continents|{}", seed, k));
     let centers = continent_centers(k, &mut cr);
     let mut out = Vec::new();
     let mut cluster = Vec::new();
-    let k_scale = (2.15 / k as f64).sqrt().clamp(0.52, 1.0);
+    let k_scale = (2.15 / k as f64).sqrt().clamp(0.50, 1.0);
+    let mut weights: Vec<f64> = (0..k)
+        .map(|i| {
+            if i == 0 {
+                1.18 + 0.32 * cr.next()
+            } else {
+                0.48 + 0.62 * cr.next()
+            }
+        })
+        .collect();
+    let rms = (weights.iter().map(|w| w * w).sum::<f64>() / k as f64).sqrt().max(1e-6);
+    for w in &mut weights {
+        *w /= rms;
+    }
     for (i, c) in centers.iter().enumerate() {
-        let sz = (if i == 0 { 1.08 } else { 0.76 + 0.28 * cr.next() }) * k_scale;
-        let ncr = 4 + (cr.next() * 3.0).floor() as usize;
+        let sz = weights[i] * k_scale;
+        let ncr = 3 + (cr.next() * 5.0).floor() as usize;
         let ax = if c[2].abs() > 0.9 { [1.0, 0.0, 0.0] } else { [0.0, 0.0, 1.0] };
         let u0 = [c[1] * ax[2] - c[2] * ax[1], c[2] * ax[0] - c[0] * ax[2], c[0] * ax[1] - c[1] * ax[0]];
         let ul = (u0[0] * u0[0] + u0[1] * u0[1] + u0[2] * u0[2]).sqrt().max(1e-12);
         let u = [u0[0] / ul, u0[1] / ul, u0[2] / ul];
         let v = [c[1] * u[2] - c[2] * u[1], c[2] * u[0] - c[0] * u[2], c[0] * u[1] - c[1] * u[0]];
         let spine_phi = cr.next() * TAU;
-        let bend = (cr.next() - 0.5) * 1.3;
+        let bend = (cr.next() - 0.5) * 1.45;
         for j in 0..ncr {
             let (a, phi) = if j == 0 {
                 (0.0, spine_phi)
             } else {
                 let side = if j % 2 == 1 { 1.0 } else { -1.0 };
-                let step_r = (0.07 + 0.095 * ((j + 1) / 2) as f64 * (0.75 + 0.40 * cr.next())) * k_scale;
-                let ang = spine_phi + (if side < 0.0 { PI } else { 0.0 }) + bend * (j as f64 * 0.32) + (cr.next() - 0.5) * 0.65;
-                (step_r.min(0.28), ang)
+                let step_r = (0.07 + 0.10 * ((j + 1) / 2) as f64 * (0.75 + 0.45 * cr.next())) * k_scale;
+                let ang = spine_phi + (if side < 0.0 { PI } else { 0.0 }) + bend * (j as f64 * 0.32) + (cr.next() - 0.5) * 0.70;
+                (step_r.min(0.36), ang)
             };
             let d = [u[0] * phi.cos() + v[0] * phi.sin(), u[1] * phi.cos() + v[1] * phi.sin(), u[2] * phi.cos() + v[2] * phi.sin()];
             let mut p = [c[0] * a.cos() + d[0] * a.sin(), c[1] * a.cos() + d[1] * a.sin(), c[2] * a.cos() + d[2] * a.sin()];
-            // Не даём полуостровным кратонам уходить в полярные шапки
-            if p[2].abs() > 0.68 {
-                let zc = p[2].signum() * 0.68;
+            if p[2].abs() > 0.85 {
+                let zc = p[2].signum() * 0.85;
                 let xy = p[0].hypot(p[1]).max(1e-9);
                 let sc = (1.0 - zc * zc).sqrt() / xy;
                 p = [p[0] * sc, p[1] * sc, zc];
@@ -304,7 +334,7 @@ fn multi_continent_cratons(k: usize, seed: &str) -> (Vec<Craton>, Vec<u8>) {
             } else if j <= 2 {
                 sz * (0.60 + 0.30 * cr.next())
             } else {
-                sz * (0.38 + 0.26 * cr.next())
+                sz * (0.38 + 0.28 * cr.next())
             };
             out.push(make_craton(p, csz, &mut cr));
             cluster.push(i as u8);
@@ -337,31 +367,25 @@ fn rot_matrix(w: [f64; 3], dt: f64) -> [f64; 9] {
     ]
 }
 
-/// Сетка блюра по строкам (периодична по долготе).
-fn blur_x(a: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
-    let mut o = vec![0f32; w * h];
-    let n = (2 * r + 1) as f32;
-    for y in 0..h {
-        for x in 0..w {
-            let mut s = 0f32;
-            for d in 0..=(2 * r) {
-                s += a[y * w + (x + w + d - r) % w];
-            }
-            o[y * w + x] = s / n;
-        }
-    }
-    o
-}
+/// Блюр по меридиану с переходом через полюса (со сдвигом долготы на 180°).
 fn blur_y(a: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
     let mut o = vec![0f32; w * h];
+    let ri = r as isize;
+    let c = (2 * r + 1) as f32;
+    let half_w = w / 2;
     for y in 0..h {
-        let y0 = y.saturating_sub(r);
-        let y1 = (y + r).min(h - 1);
-        let c = (y1 - y0 + 1) as f32;
         for x in 0..w {
             let mut s = 0f32;
-            for yy in y0..=y1 {
-                s += a[yy * w + x];
+            for dy in -ri..=ri {
+                let yy = y as isize + dy;
+                let (sy, sx) = if yy < 0 {
+                    (((-1 - yy) as usize).min(h - 1), (x + half_w) % w)
+                } else if yy >= h as isize {
+                    (((2 * h as isize - 1 - yy) as usize).min(h - 1), (x + half_w) % w)
+                } else {
+                    (yy as usize, x)
+                };
+                s += a[sy * w + sx];
             }
             o[y * w + x] = s / c;
         }
@@ -443,12 +467,29 @@ pub fn generate(opt: &Options) -> Result<World, String> {
         if l == 0.0 { 1.0 } else { l }
     };
     let tc = opt.target_continents as usize;
+    let eff_tc: usize = if tc > 0 {
+        tc
+    } else {
+        let mut ar = Rng::new(&format!("{}|auto_k", opt.seed));
+        let u = ar.next();
+        if u < 0.18 {
+            1
+        } else if u < 0.48 {
+            2
+        } else if u < 0.74 {
+            3
+        } else if u < 0.90 {
+            4
+        } else {
+            5
+        }
+    };
     // Базовая (невозмущённая) толщина континентальной коры: к ней эрозия возвращает древние орогены.
-    let t_base: f64 = if tc >= 2 { 27.5 } else { TREF };
+    let t_base: f64 = if eff_tc >= 2 { 30.5 } else { TREF };
     let mut c0 = [cx / cl, cy / cl, cz / cl];
-    if c0[2].abs() > 0.48 {
-        // Держим стартовые суперконтиненты в умеренных/тропических широтах, вдали от полюсов
-        let z = c0[2].signum() * 0.48;
+    if c0[2].abs() > 0.64 {
+        // Ограничиваем стартовые суперконтиненты только вдали от самых полюсов
+        let z = c0[2].signum() * 0.64;
         let xy = c0[0].hypot(c0[1]);
         let s = (1.0 - z * z).sqrt();
         c0 = if xy < 1e-9 { [s, 0.0, z] } else { [c0[0] / xy * s, c0[1] / xy * s, z] };
@@ -458,14 +499,10 @@ pub fn generate(opt: &Options) -> Result<World, String> {
     let mut crat: Vec<Craton> = Vec::new();
     // номер материка для каждого кратона (используется только при заданном числе материков)
     let mut cluster_of: Vec<u8> = Vec::new();
-    if tc >= 2 {
-        (crat, cluster_of) = multi_continent_cratons(tc, &opt.seed);
-    } else if tc == 0 {
-        let mut ar = Rng::new(&format!("{}|auto_k", opt.seed));
-        let k_auto = 2 + (ar.next() * 2.0).floor() as usize;
-        (crat, cluster_of) = multi_continent_cratons(k_auto, &opt.seed);
+    if eff_tc >= 2 {
+        (crat, cluster_of) = multi_continent_cratons(eff_tc, &opt.seed);
     }
-    for c in 0..(if tc == 1 { ncr } else { 0 }) {
+    for c in 0..(if eff_tc == 1 { ncr } else { 0 }) {
         let (mut dx, mut dy, mut dz) = (r.next() * 2.0 - 1.0, r.next() * 2.0 - 1.0, r.next() * 2.0 - 1.0);
         let dl = { let l = (dx * dx + dy * dy + dz * dz).sqrt(); if l == 0.0 { 1.0 } else { l } };
         dx /= dl; dy /= dl; dz /= dl;
@@ -476,7 +513,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
         let (px, py, pz) = (
             c0[0] * a.cos() + dx / dm * a.sin(),
             c0[1] * a.cos() + dy / dm * a.sin(),
-            (c0[2] * a.cos() + dz / dm * a.sin()).clamp(-0.68, 0.68),
+            (c0[2] * a.cos() + dz / dm * a.sin()).clamp(-0.84, 0.84),
         );
         let pl = (px * px + py * py + pz * pz).sqrt().max(1e-9);
         let (px, py, pz) = (px / pl, py / pl, pz / pl);
@@ -490,7 +527,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
         let pw = 1.2 + 1.5 * r.next();
         crat.push(Craton { p: [px, py, pz], t1: [t1x, t1y, t1z], t2: [t2x, t2y, t2z], co: th.cos(), si: th.sin(), e, rho, pw });
     }
-    if tc == 1 {
+    if eff_tc == 1 {
         cluster_of = vec![0u8; crat.len()];
     }
     let mut pcl_pt = vec![0u8; np];
@@ -507,16 +544,16 @@ pub fn generate(opt: &Options) -> Result<World, String> {
             let d = dcr(c, sx[i], sy[i], sz[i]);
             if d < d1 { d2 = d1; d1 = d; } else if d < d2 { d2 = d; }
         }
-        let wx = sx[i] + 0.14 * noise.get(sx[i] * 3.1 + 11.0, sy[i] * 3.1 - 5.0, sz[i] * 3.1 + 7.0);
-        let wy = sy[i] + 0.14 * noise.get(sx[i] * 3.1 - 8.0, sy[i] * 3.1 + 13.0, sz[i] * 3.1 - 3.0);
-        let wz = sz[i] + 0.14 * noise.get(sx[i] * 3.1 + 4.0, sy[i] * 3.1 + 6.0, sz[i] * 3.1 - 12.0);
+        let wx = sx[i] + 0.20 * noise.get(sx[i] * 3.1 + 11.0, sy[i] * 3.1 - 5.0, sz[i] * 3.1 + 7.0);
+        let wy = sy[i] + 0.20 * noise.get(sx[i] * 3.1 - 8.0, sy[i] * 3.1 + 13.0, sz[i] * 3.1 - 3.0);
+        let wz = sz[i] + 0.20 * noise.get(sx[i] * 3.1 + 4.0, sy[i] * 3.1 + 6.0, sz[i] * 3.1 - 12.0);
         let coast_fbm = 0.62 * noise.get(wx * 4.2 + 3.0, wy * 4.2 + 9.0, wz * 4.2 + 1.0)
             + 0.28 * noise.get(wx * 9.4 + 7.0, wy * 9.4 + 1.0, wz * 9.4 + 4.0)
             + 0.10 * noise.get(sx[i] * 18.5 - 4.0, sy[i] * 18.5 + 8.0, sz[i] * 18.5 + 2.0);
-        let polar_guard = smooth(0.74, 0.93, sz[i].abs()) * 0.58;
-        let n_amp = 0.24;
+        let polar_guard = smooth(0.86, 0.985, sz[i].abs()) * 0.42;
+        let n_amp = 0.32;
         score[i] = (d1 + n_amp * coast_fbm + polar_guard) as f32;
-        suture[i] = if tc >= 2 {
+        suture[i] = if eff_tc >= 2 {
             if d1 < 1.05 && d2 < 1.18 && (d2 - d1) < 0.14 { 1 } else { 0 }
         } else if d2 < 1.25 && d1 < 1.25 {
             1
@@ -534,8 +571,8 @@ pub fn generate(opt: &Options) -> Result<World, String> {
     }
     let mut order: Vec<usize> = (0..np).collect();
     order.sort_by(|&a, &b| score[a].partial_cmp(&score[b]).unwrap_or(std::cmp::Ordering::Equal));
-    let eff_cf = if tc >= 3 {
-        opt.continental_fraction.min(0.33)
+    let eff_cf = if eff_tc >= 3 {
+        opt.continental_fraction.min(0.36)
     } else {
         opt.continental_fraction
     };
@@ -556,7 +593,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
     for k in 0..n {
         let i = order[k];
         x[3 * k] = sx[i]; x[3 * k + 1] = sy[i]; x[3 * k + 2] = sz[i];
-        let edge_drop = if tc >= 2 { 11.0 } else { 15.0 };
+        let edge_drop = if eff_tc >= 2 { 11.0 } else { 15.0 };
         let base_t = t_base;
         let ridge_bump = if suture[i] == 1 { 8.5 } else { 0.0 };
         thick[k] = (base_t - edge_drop * smooth(0.55, 1.0, k as f64 / n as f64) + ridge_bump).max(16.0) as f32;
@@ -607,7 +644,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
     let mut suture_pt = vec![0f32; n];
     for k in 0..n {
         if suture[order[k]] == 1 {
-            suture_pt[k] = if tc >= 2 { 0.85 } else { 0.65 };
+            suture_pt[k] = if eff_tc >= 2 { 0.85 } else { 0.65 };
         }
     }
     let mut suture_hit_bin = vec![0u8; nb];
@@ -653,7 +690,11 @@ pub fn generate(opt: &Options) -> Result<World, String> {
         // случайными трещинами, но дуги, орогения и эрозия работают как обычно), плюс 2..3 океанские плиты.
         // Дрейф сдержан: суперконтинент — умеренно (плиты крупные, 3..4), разнесённые материки — заметно медленнее,
         // чтобы не слипаться в меньшее число масс.
-        let vf = match tc { 0 => 0.62, 1 => 0.62, 2..=3 => 0.18, _ => 0.10 };
+        let vf = if tc > 0 {
+            match tc { 1 => 0.56, 2..=3 => 0.18, _ => 0.10 }
+        } else {
+            match eff_tc { 1 => 0.56, 2 => 0.38, 3 => 0.30, 4 => 0.25, _ => 0.22 }
+        };
         let lock_continents = tc > 0;
         let kp = if tc > 0 { tc + 2 + (r.next() * 2.0).floor() as usize } else { 4 + (r.next() * 5.0).floor() as usize };
         let pick = |r: &mut Rng| -> usize {
@@ -844,7 +885,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
             }
             seeds.push(bi);
         }
-        let wob = 0.22 + 0.16 * r.next();
+        let wob = 0.30 + 0.20 * r.next();
         let nsx = r.next() * 50.0;
         let mut size = vec![0f64; kp];
         let mut csz = vec![0f64; kp];
@@ -855,11 +896,17 @@ pub fn generate(opt: &Options) -> Result<World, String> {
             if lock_continents && k < n {
                 bg = pcl[k] as usize;
             } else {
+                // Искривляем границы плит Вороного трёхмерным шумом, чтобы рифты шли дугами, а не по линейке
+                let wx = px + 0.18 * noise.get(px * 2.4 + nsx, py * 2.4 - nsx, pz * 2.4 + 5.1);
+                let wy = py + 0.18 * noise.get(px * 2.4 - 4.7, py * 2.4 + nsx, pz * 2.4 - 3.3);
+                let wz = pz + 0.18 * noise.get(px * 2.4 + 6.2, py * 2.4 + 1.9, pz * 2.4 + nsx);
+                let wl = (wx * wx + wy * wy + wz * wz).sqrt().max(1e-12);
+                let (ux, uy, uz) = (wx / wl, wy / wl, wz / wl);
                 for s in 0..kp {
                     let q = seeds[s];
-                    let wn = 0.68 * noise.get(px * 2.8 + nsx + s as f64 * 7.1, py * 2.8 + s as f64 * 3.3, pz * 2.8 - nsx)
-                        + 0.32 * noise.get(px * 6.8 - nsx + s as f64 * 4.7, py * 6.8 + s as f64 * 5.9, pz * 6.8 + nsx);
-                    let d = 1.0 - (px * x[3 * q] + py * x[3 * q + 1] + pz * x[3 * q + 2]) + wob * wn;
+                    let wn = 0.68 * noise.get(ux * 2.8 + nsx + s as f64 * 7.1, uy * 2.8 + s as f64 * 3.3, uz * 2.8 - nsx)
+                        + 0.32 * noise.get(ux * 6.8 - nsx + s as f64 * 4.7, uy * 6.8 + s as f64 * 5.9, uz * 6.8 + nsx);
+                    let d = 1.0 - (ux * x[3 * q] + uy * x[3 * q + 1] + uz * x[3 * q + 2]) + wob * wn;
                     if d < bs { bs = d; bg = s; }
                 }
             }
@@ -963,7 +1010,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
                 volc_pt[k] = (volc_pt[k] + (inc / 5.0) as f32).min(1.0);
             }
             // Внутриматериковая компрессионная орогения вдоль швов при множестве материков
-            if tc >= 2 {
+            if eff_tc >= 2 {
                 for k in 0..n {
                     if suture_pt[k] > 0.35 && (thick[k] as f64) < T_ARC_MAX {
                         let inc = (T_ARC_MAX - thick[k] as f64)
@@ -1034,10 +1081,8 @@ pub fn generate(opt: &Options) -> Result<World, String> {
                     for u in 0..mv_n {
                         let k = by_bin[b_start[b] + u];
                         let j = 1.0 / 2.2;
-                        let (jx, jy) = ((r.next() - 0.5) * j * step, (r.next() - 0.5) * j * step);
-                        let (mut px, mut py, mut pz) = (bc[3 * nbi] + jx, bc[3 * nbi + 1] + jy, bc[3 * nbi + 2] + jx * 0.3);
-                        let l = (px * px + py * py + pz * pz).sqrt();
-                        px /= l; py /= l; pz /= l;
+                        let (j1, j2) = ((r.next() - 0.5) * j * step, (r.next() - 0.5) * j * step);
+                        let [px, py, pz] = jitter_on_sphere([bc[3 * nbi], bc[3 * nbi + 1], bc[3 * nbi + 2]], j1, j2);
                         x[3 * k] = px; x[3 * k + 1] = py; x[3 * k + 2] = pz;
                         bin_idx[k] = bin_of(px, py, pz);
                     }
@@ -1147,10 +1192,9 @@ pub fn generate(opt: &Options) -> Result<World, String> {
                 }
                 let k = free.pop().unwrap();
                 let j = 1.0 / 2.2;
-                let (jx, jy) = ((r.next() - 0.5) * j * step, (r.next() - 0.5) * j * step);
-                let (px, py, pz) = (bc[3 * b] + jx, bc[3 * b + 1] + jy, bc[3 * b + 2] + jx * 0.3);
-                let l = (px * px + py * py + pz * pz).sqrt();
-                x[3 * k] = px / l; x[3 * k + 1] = py / l; x[3 * k + 2] = pz / l;
+                let (j1, j2) = ((r.next() - 0.5) * j * step, (r.next() - 0.5) * j * step);
+                let [px, py, pz] = jitter_on_sphere([bc[3 * b], bc[3 * b + 1], bc[3 * b + 2]], j1, j2);
+                x[3 * k] = px; x[3 * k + 1] = py; x[3 * k + 2] = pz;
                 alive[k] = 1; o_age[k] = 0.0; thick[k] = 0.0; volc_pt[k] = 0.0; grp[k] = g; bin_idx[k] = b; oce_bin[b] = k;
             }
             {
@@ -1362,9 +1406,9 @@ pub fn generate(opt: &Options) -> Result<World, String> {
     if rem_tot > 0.0 {
         let rr = 2usize.max(jsround(wf / 120.0) as usize);
         let mut dep = removed.clone();
-        for _ in 0..2 { dep = blur_y(&blur_x(&dep, w_, h_, rr), w_, h_, rr); }
+        for _ in 0..2 { dep = blur_y(&blur_x_polar(&dep, rr), w_, h_, rr); }
         let cont_in: Vec<f32> = te.iter().map(|&v| if v > 5.0 { 1.0 } else { 0.0 }).collect();
-        let cont = blur_y(&blur_x(&cont_in, w_, h_, rr), w_, h_, rr);
+        let cont = blur_y(&blur_x_polar(&cont_in, rr), w_, h_, rr);
         let mut dep_tot = 0f64;
         for i in 0..nc {
             dep[i] = (dep[i] as f64 * smooth(0.02, 0.2, cont[i] as f64) * if (te[i] as f64) < t_base { 1.0 } else { 0.0 }) as f32;
@@ -1379,11 +1423,13 @@ pub fn generate(opt: &Options) -> Result<World, String> {
         }
         lost = rem_tot - put;
     }
-    // обрушение перегруженной коры
+    // обрушение перегруженной коры (буферизованное по проходу — без сканлайновой асимметрии и со строгим сохранением объёма)
     {
         const T_COLLAPSE: f64 = 65.0;
+        let mut delta_vol = vec![0.0f64; nc];
         for _ in 0..40 {
             let mut moved = 0;
+            delta_vol.fill(0.0);
             for i in 0..nc {
                 if te[i] as f64 <= T_COLLAPSE { continue; }
                 let (xx, yy) = (i % w_, i / w_);
@@ -1400,11 +1446,17 @@ pub fn generate(opt: &Options) -> Result<World, String> {
                 if j == usize::MAX { continue; }
                 let dv = (te[i] as f64 - (lo as f64).max(T_COLLAPSE * 0.7)) * 0.35;
                 if dv <= 0.0 { continue; }
-                te[i] = (te[i] as f64 - dv) as f32;
-                te[j] = (te[j] as f64 + dv * area[i] / area[j]) as f32;
+                let d_vol = dv * area[i];
+                delta_vol[i] -= d_vol;
+                delta_vol[j] += d_vol;
                 moved += 1;
             }
             if moved == 0 { break; }
+            for i in 0..nc {
+                if delta_vol[i] != 0.0 {
+                    te[i] = (te[i] as f64 + delta_vol[i] / area[i]) as f32;
+                }
+            }
         }
     }
     // классификация окраин: берег суши (толстая кора рядом с океаном) — активный, если над ним недавно шла субдукция
@@ -1425,7 +1477,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
     }
     // вулканические дуги и горячие точки, рифты, желоба субдукции и упругий предгорный прогиб
     let mut volcanic = if w_ >= 180 {
-        blur_y(&blur_x(&volc_grid, w_, h_, 1), w_, h_, 1)
+        blur_y(&blur_x_polar(&volc_grid, 1), w_, h_, 1)
     } else {
         volc_grid
     };
@@ -1434,7 +1486,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
         .map(|i| if te[i] >= T_CONT as f32 && (te[i] as f64) < t_base + RIFT_DT_MAX { rift_grid[i].clamp(0.0, 1.0) } else { 0.0 })
         .collect();
     let mut rift = if w_ >= 180 {
-        blur_y(&blur_x(&rift_raw, w_, h_, 1), w_, h_, 1)
+        blur_y(&blur_x_polar(&rift_raw, 1), w_, h_, 1)
     } else {
         rift_raw
     };
@@ -1445,7 +1497,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
         .map(|i| if te[i] >= T_CONT as f32 { suture_grid[i].clamp(0.0, 1.0) } else { 0.0 })
         .collect();
     let mut suture_out = if w_ >= 180 {
-        blur_y(&blur_x(&suture_raw, w_, h_, 1), w_, h_, 1)
+        blur_y(&blur_x_polar(&suture_raw, 1), w_, h_, 1)
     } else {
         suture_raw
     };
@@ -1453,7 +1505,7 @@ pub fn generate(opt: &Options) -> Result<World, String> {
         suture_out[i] = if te[i] >= T_CONT as f32 { suture_out[i].clamp(0.0, 1.0) } else { 0.0 };
     }
     let r_rift = 1usize.max(jsround(wf / 140.0) as usize);
-    let rift_wide = blur_y(&blur_x(&rift, w_, h_, r_rift), w_, h_, r_rift);
+    let rift_wide = blur_y(&blur_x_polar(&rift, r_rift), w_, h_, r_rift);
 
     let r_tr = (w_ / 180).clamp(1, 3) as i32;
     let mut trench_raw = vec![0f32; nc];
@@ -1489,8 +1541,8 @@ pub fn generate(opt: &Options) -> Result<World, String> {
         })
         .collect();
     let r_flex = 1usize.max(jsround(wf / 90.0) as usize);
-    let load_flex = blur_y(&blur_x(&load, w_, h_, r_flex), w_, h_, r_flex);
-    let load_bulge = blur_y(&blur_x(&load_flex, w_, h_, r_flex), w_, h_, r_flex);
+    let load_flex = blur_y(&blur_x_polar(&load, r_flex), w_, h_, r_flex);
+    let load_bulge = blur_y(&blur_x_polar(&load_flex, r_flex), w_, h_, r_flex);
     let mut foreland = vec![0f32; nc];
     for i in 0..nc {
         if (te[i] as f64) >= T_CONT && (te[i] as f64) < t_base + 2.0 {
@@ -1546,13 +1598,13 @@ pub fn generate(opt: &Options) -> Result<World, String> {
                 0.0
             };
 
-            // Полярные океанические бассейны: исключаем горизонтальное растяжение суши у верхнего/нижнего краёв карты
+            // Мягкое сглаживание экстремальных полюсов: оставляем приполярные материки и убираем «ножевой срез» на 60–68°
             let lat_abs = lat_rad.abs() / DEG;
-            let polar_dy = if lat_abs > 58.0 {
-                let p_n = 7.0 * coast_noise.get(ux * 3.8 - 15.0, uy * 3.8 + 9.0, uz * 3.8 + 3.0)
-                    + 3.0 * coast_noise.get(ux * 9.5 + 4.0, uy * 9.5 - 6.0, uz * 9.5 + 12.0);
-                let lim = 67.5 + p_n;
-                -3.2 * smooth(lim - 6.0, lim + 8.0, lat_abs)
+            let polar_dy = if lat_abs > 72.0 {
+                let p_n = 9.0 * coast_noise.get(ux * 3.8 - 15.0, uy * 3.8 + 9.0, uz * 3.8 + 3.0)
+                    + 4.0 * coast_noise.get(ux * 9.5 + 4.0, uy * 9.5 - 6.0, uz * 9.5 + 12.0);
+                let lim = 80.5 + p_n;
+                -2.2 * smooth(lim - 6.5, lim + 7.5, lat_abs)
             } else {
                 0.0
             };

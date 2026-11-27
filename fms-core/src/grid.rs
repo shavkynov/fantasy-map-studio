@@ -155,39 +155,52 @@ impl Grid {
     }
 }
 
-/// Быстрое разделимое размытие окна `2*radius+1`: периодичное по X и зажатое по Y.
+/// Быстрое разделимое размытие: широтная компенсация по X (`~ 1/cos φ`) и переход через полюса по Y.
 pub fn blur_xwrap(field: &mut [f32], w: usize, h: usize, radius: usize) {
     if radius == 0 || w == 0 || h == 0 {
         return;
     }
     let mut tmp = vec![0f32; w * h];
-    let k = (2 * radius + 1) as f64;
-    let r = radius as isize;
     for y in 0..h {
+        let lat_rad = (90.0 - (y as f64 + 0.5) / h as f64 * 180.0).to_radians();
+        let rx = ((radius as f64 / lat_rad.cos().abs().max(0.18)).round() as usize).min(w / 2);
+        let kx = (2 * rx + 1) as f64;
+        let ri = rx as isize;
         let row = y * w;
         let mut sum = 0.0f64;
-        for dx in -r..=r {
+        for dx in -ri..=ri {
             let xx = dx.rem_euclid(w as isize) as usize;
             sum += field[row + xx] as f64;
         }
         for x in 0..w {
-            tmp[row + x] = (sum / k) as f32;
-            let x_add = (x as isize + r + 1).rem_euclid(w as isize) as usize;
-            let x_sub = (x as isize - r).rem_euclid(w as isize) as usize;
+            tmp[row + x] = (sum / kx) as f32;
+            let x_add = (x as isize + ri + 1).rem_euclid(w as isize) as usize;
+            let x_sub = (x as isize - ri).rem_euclid(w as isize) as usize;
             sum += field[row + x_add] as f64 - field[row + x_sub] as f64;
         }
     }
+    let sample_polar = |buf: &[f32], x: usize, yy: isize| -> f64 {
+        let (sy, sx) = if yy < 0 {
+            (((-1 - yy) as usize).min(h - 1), (x + w / 2) % w)
+        } else if yy >= h as isize {
+            (((2 * h as isize - 1 - yy) as usize).min(h - 1), (x + w / 2) % w)
+        } else {
+            (yy as usize, x)
+        };
+        buf[sy * w + sx] as f64
+    };
+    let ky = (2 * radius + 1) as f64;
+    let r = radius as isize;
     for x in 0..w {
         let mut sum = 0.0f64;
         for dy in -r..=r {
-            let yy = dy.clamp(0, h as isize - 1) as usize;
-            sum += tmp[yy * w + x] as f64;
+            sum += sample_polar(&tmp, x, dy);
         }
         for y in 0..h {
-            field[y * w + x] = (sum / k) as f32;
-            let y_add = (y as isize + r + 1).clamp(0, h as isize - 1) as usize;
-            let y_sub = (y as isize - r).clamp(0, h as isize - 1) as usize;
-            sum += tmp[y_add * w + x] as f64 - tmp[y_sub * w + x] as f64;
+            field[y * w + x] = (sum / ky) as f32;
+            let y_add = y as isize + r + 1;
+            let y_sub = y as isize - r;
+            sum += sample_polar(&tmp, x, y_add) - sample_polar(&tmp, x, y_sub);
         }
     }
 }

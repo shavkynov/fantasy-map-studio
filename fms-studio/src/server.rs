@@ -144,19 +144,32 @@ struct CachedRender {
     lon_min_deg: f64,
     lon_max_deg: f64,
     base_png: Vec<u8>,
-    full_png: Vec<u8>,
     overlay_svg: String,
-    standalone_svg: String,
+    reg_opt: Option<RegionOptions>,
     reg_proj: Option<RegionProj>,
     region: Option<Arc<Region>>,
+}
+
+fn encode_base64(data: &[u8]) -> String {
+    const TBL: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0] as usize;
+        let b1 = if chunk.len() > 1 { chunk[1] as usize } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] as usize } else { 0 };
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(TBL[(n >> 18) & 63] as char);
+        out.push(TBL[(n >> 12) & 63] as char);
+        out.push(if chunk.len() > 1 { TBL[(n >> 6) & 63] as char } else { '=' });
+        out.push(if chunk.len() > 2 { TBL[n & 63] as char } else { '=' });
+    }
+    out
 }
 
 impl CachedRender {
     fn from_world(out: RenderOutput, planet: &Planet, pack: &AssetPack, png_href: &str) -> Self {
         let base_png = out.to_base_png_bytes();
-        let full_png = out.to_png_bytes();
         let overlay_svg = out.to_svg_with_image_href(pack, png_href);
-        let standalone_svg = out.to_svg_standalone(pack);
         Self {
             width: out.width,
             height: out.height,
@@ -170,9 +183,8 @@ impl CachedRender {
             lon_min_deg: -180.0,
             lon_max_deg: 180.0,
             base_png,
-            full_png,
             overlay_svg,
-            standalone_svg,
+            reg_opt: None,
             reg_proj: None,
             region: None,
         }
@@ -186,9 +198,7 @@ impl CachedRender {
         png_href: &str,
     ) -> Self {
         let base_png = out.to_base_png_bytes();
-        let full_png = out.to_png_bytes();
         let overlay_svg = out.to_svg_with_image_href(pack, png_href);
-        let standalone_svg = out.to_svg_standalone(pack);
         let reg_proj = RegionProj::new(&reg, reg_opt, out.width);
         Self {
             width: out.width,
@@ -203,12 +213,31 @@ impl CachedRender {
             lon_min_deg: reg.lon_min_deg,
             lon_max_deg: reg.lon_max_deg,
             base_png,
-            full_png,
             overlay_svg,
-            standalone_svg,
+            reg_opt: Some(reg_opt.clone()),
             reg_proj: Some(reg_proj),
             region: Some(reg),
         }
+    }
+
+    /// Собирает автономный SVG со встроенным base64 PNG по запросу, без дублирования в RAM кэша.
+    fn build_standalone_svg(&self) -> String {
+        let b64 = encode_base64(&self.base_png);
+        if let Some(pos) = self.overlay_svg.find("<image id=\"layer-base\"") {
+            if let Some(href_rel) = self.overlay_svg[pos..].find("href=\"") {
+                let href_start = pos + href_rel + 6;
+                if let Some(href_end_rel) = self.overlay_svg[href_start..].find('"') {
+                    let href_end = href_start + href_end_rel;
+                    let mut out = String::with_capacity(self.overlay_svg.len() + b64.len() + 32);
+                    out.push_str(&self.overlay_svg[..href_start]);
+                    out.push_str("data:image/png;base64,");
+                    out.push_str(&b64);
+                    out.push_str(&self.overlay_svg[href_end..]);
+                    return out;
+                }
+            }
+        }
+        self.overlay_svg.clone()
     }
 }
 
@@ -237,6 +266,17 @@ impl StudioCache {
         }
     }
 
+    fn touch_lru<K: Eq + Clone>(lru: &mut VecDeque<K>, key: &K) {
+        if lru.back() == Some(key) {
+            return;
+        }
+        if let Some(idx) = lru.iter().position(|k| k == key) {
+            if let Some(item) = lru.remove(idx) {
+                lru.push_back(item);
+            }
+        }
+    }
+
     fn insert_bounded<K: Eq + std::hash::Hash + Clone, V>(
         map: &mut HashMap<K, V>,
         lru: &mut VecDeque<K>,
@@ -244,7 +284,9 @@ impl StudioCache {
         val: V,
         cap: usize,
     ) {
-        if !map.contains_key(&key) {
+        if map.contains_key(&key) {
+            Self::touch_lru(lru, &key);
+        } else {
             lru.push_back(key.clone());
             while lru.len() > cap {
                 if let Some(old) = lru.pop_front() {
@@ -298,27 +340,27 @@ impl StudioApp {
             .get("activity")
             .and_then(|s| s.parse::<f64>().ok())
             .unwrap_or(1.0)
-            .clamp(0.75, 1.35);
+            .clamp(0.50, 1.50);
         let water_depth = q
             .get("water_depth")
             .and_then(|s| s.parse::<f64>().ok())
             .unwrap_or(2.62)
-            .clamp(2.20, 3.05);
+            .clamp(1.80, 3.40);
         let tilt = q
             .get("tilt")
             .and_then(|s| s.parse::<f64>().ok())
             .unwrap_or(23.4)
-            .clamp(15.0, 30.0);
+            .clamp(10.0, 35.0);
         let solar = q
             .get("solar")
             .and_then(|s| s.parse::<f64>().ok())
             .unwrap_or(0.0)
-            .clamp(-3.5, 3.5);
+            .clamp(-6.0, 6.0);
         let rot = q
             .get("rotation")
             .and_then(|s| s.parse::<f64>().ok())
             .unwrap_or(1.0)
-            .clamp(0.70, 1.40);
+            .clamp(0.60, 1.60);
 
         let realms = Self::parse_bool(q, "civ_realms");
         let cities = Self::parse_bool(q, "civ_cities");
@@ -388,9 +430,10 @@ impl StudioApp {
 
     fn get_or_build_physical(&self, pkey: &PhysWorldKey, opt: &PlanetOptions) -> Result<Arc<Planet>, String> {
         {
-            let guard = self.cache.lock().map_err(|_| "cache poisoned".to_string())?;
-            if let Some(p) = guard.phys_planets.get(pkey) {
-                return Ok(Arc::clone(p));
+            let mut guard = self.cache.lock().map_err(|_| "cache poisoned".to_string())?;
+            if let Some(p) = guard.phys_planets.get(pkey).cloned() {
+                StudioCache::touch_lru(&mut guard.phys_lru, pkey);
+                return Ok(p);
             }
         }
         let planet = Arc::new(planet::generate_physical_with_options(opt)?);
@@ -406,9 +449,10 @@ impl StudioApp {
             return Ok(phys);
         }
         {
-            let guard = self.cache.lock().map_err(|_| "cache poisoned".to_string())?;
-            if let Some(p) = guard.planets.get(key) {
-                return Ok(Arc::clone(p));
+            let mut guard = self.cache.lock().map_err(|_| "cache poisoned".to_string())?;
+            if let Some(p) = guard.planets.get(key).cloned() {
+                StudioCache::touch_lru(&mut guard.planet_lru, key);
+                return Ok(p);
             }
         }
         let populated = Arc::new(planet::populate_civilization(&phys, &key.civ.to_options()));
@@ -437,9 +481,10 @@ impl StudioApp {
         let qs = Self::world_query_string(&wkey, style, target_w);
         let planet = self.get_or_build_planet(&wkey, &popt)?;
         {
-            let guard = self.cache.lock().map_err(|_| "cache poisoned".to_string())?;
-            if let Some(r) = guard.world_renders.get(&rkey) {
-                return Ok((wkey, planet, Arc::clone(r), qs));
+            let mut guard = self.cache.lock().map_err(|_| "cache poisoned".to_string())?;
+            if let Some(r) = guard.world_renders.get(&rkey).cloned() {
+                StudioCache::touch_lru(&mut guard.world_lru, &rkey);
+                return Ok((wkey, planet, r, qs));
             }
         }
         let ropt = RenderOptions {
@@ -504,9 +549,10 @@ impl StudioApp {
         let base_qs = Self::world_query_string(&wkey, style, target_w);
         let full_qs = format!("{base_qs}&lat={lat:.4}&lon={lon:.4}&span={span:.1}&scale={scale}");
         {
-            let guard = self.cache.lock().map_err(|_| "cache poisoned".to_string())?;
-            if let Some(r) = guard.region_renders.get(&rkey) {
-                return Ok((wkey, planet, Arc::clone(r), full_qs));
+            let mut guard = self.cache.lock().map_err(|_| "cache poisoned".to_string())?;
+            if let Some(r) = guard.region_renders.get(&rkey).cloned() {
+                StudioCache::touch_lru(&mut guard.region_lru, &rkey);
+                return Ok((wkey, planet, r, full_qs));
             }
         }
         let span_lat = (span * 0.68).clamp(4.0, 70.0);
@@ -568,13 +614,19 @@ impl StudioApp {
                 Err(e) => StudioResponse::err(400, &e),
             },
             "/api/world/download.png" => match self.get_or_render_world(q) {
-                Ok((wkey, _, cached, _)) => {
-                    let st = Self::parse_style(q).slug();
+                Ok((wkey, planet, cached, _)) => {
+                    let style = Self::parse_style(q);
+                    let ropt = RenderOptions {
+                        style,
+                        target_width: cached.width,
+                        title: None,
+                    };
+                    let out = render_world_with_options(&planet, &wkey.phys.seed, &self.pack, &ropt);
                     StudioResponse {
                         status: 200,
                         content_type: "image/png",
-                        disposition: Some(format!("attachment; filename=\"atlas_{}_{}.png\"", sanitize_filename(&wkey.phys.seed), st)),
-                        body: cached.full_png.clone(),
+                        disposition: Some(format!("attachment; filename=\"atlas_{}_{}.png\"", sanitize_filename(&wkey.phys.seed), style.slug())),
+                        body: out.to_png_bytes(),
                     }
                 }
                 Err(e) => StudioResponse::err(400, &e),
@@ -586,7 +638,7 @@ impl StudioApp {
                         status: 200,
                         content_type: "image/svg+xml; charset=utf-8",
                         disposition: Some(format!("attachment; filename=\"atlas_{}_{}.svg\"", sanitize_filename(&wkey.phys.seed), st)),
-                        body: cached.standalone_svg.as_bytes().to_vec(),
+                        body: cached.build_standalone_svg().into_bytes(),
                     }
                 }
                 Err(e) => StudioResponse::err(400, &e),
@@ -614,13 +666,22 @@ impl StudioApp {
                 Err(e) => StudioResponse::err(400, &e),
             },
             "/api/region/download.png" => match self.get_or_render_region(q) {
-                Ok((wkey, _, cached, _)) => {
-                    let st = Self::parse_style(q).slug();
+                Ok((wkey, planet, cached, _)) => {
+                    let style = Self::parse_style(q);
+                    let (Some(reg), Some(reg_opt)) = (&cached.region, &cached.reg_opt) else {
+                        return StudioResponse::err(500, "Missing region state");
+                    };
+                    let ropt = RenderOptions {
+                        style,
+                        target_width: cached.width,
+                        title: None,
+                    };
+                    let out = render_region_with_options(&planet, reg, reg_opt, &wkey.phys.seed, &self.pack, &ropt);
                     StudioResponse {
                         status: 200,
                         content_type: "image/png",
-                        disposition: Some(format!("attachment; filename=\"region_{}_{}.png\"", sanitize_filename(&wkey.phys.seed), st)),
-                        body: cached.full_png.clone(),
+                        disposition: Some(format!("attachment; filename=\"region_{}_{}.png\"", sanitize_filename(&wkey.phys.seed), style.slug())),
+                        body: out.to_png_bytes(),
                     }
                 }
                 Err(e) => StudioResponse::err(400, &e),
@@ -632,7 +693,7 @@ impl StudioApp {
                         status: 200,
                         content_type: "image/svg+xml; charset=utf-8",
                         disposition: Some(format!("attachment; filename=\"region_{}_{}.svg\"", sanitize_filename(&wkey.phys.seed), st)),
-                        body: cached.standalone_svg.as_bytes().to_vec(),
+                        body: cached.build_standalone_svg().into_bytes(),
                     }
                 }
                 Err(e) => StudioResponse::err(400, &e),
@@ -692,6 +753,16 @@ impl StudioApp {
         let px = q.get("px").and_then(|s| s.parse::<f64>().ok());
         let py = q.get("py").and_then(|s| s.parse::<f64>().ok());
         let settlement_id = q.get("settlement_id").and_then(|s| s.parse::<u32>().ok());
+        let in_region = mode == "region";
+
+        let reg_cached: Option<Arc<CachedRender>> = if in_region {
+            match self.get_or_render_region(q) {
+                Ok((_, _, c, _)) => Some(c),
+                Err(e) => return StudioResponse::err(400, &e),
+            }
+        } else {
+            None
+        };
 
         let (planet, lat_lon): (Arc<Planet>, Option<(f64, f64)>) = if let Some(sid) = settlement_id {
             let (wkey, popt) = Self::parse_world_opts(q);
@@ -715,14 +786,14 @@ impl StudioApp {
                 Err(e) => return StudioResponse::err(400, &e),
             }
         } else if let (Some(px), Some(py)) = (px, py) {
-            if mode == "region" {
-                match self.get_or_render_region(q) {
-                    Ok((_, p, cached, _)) => {
-                        let ll = cached.reg_proj.as_ref().and_then(|rp| rp.inverse(px, py));
-                        (p, ll)
-                    }
+            if let Some(cached) = &reg_cached {
+                let (wkey, popt) = Self::parse_world_opts(q);
+                let p = match self.get_or_build_planet(&wkey, &popt) {
+                    Ok(p) => p,
                     Err(e) => return StudioResponse::err(400, &e),
-                }
+                };
+                let ll = cached.reg_proj.as_ref().and_then(|rp| rp.inverse(px, py));
+                (p, ll)
             } else {
                 match self.get_or_render_world(q) {
                     Ok((_, p, cached, _)) => {
@@ -740,7 +811,10 @@ impl StudioApp {
         let Some((lat, lon)) = lat_lon else {
             return StudioResponse::json("{\"in_bounds\":false}".into());
         };
-        StudioResponse::json(build_inspect_json(&planet, lat, lon, settlement_id))
+        let reg_ctx = reg_cached
+            .as_deref()
+            .and_then(|c| c.region.as_deref().zip(c.reg_proj.as_ref()));
+        StudioResponse::json(build_inspect_json(&planet, lat, lon, settlement_id, reg_ctx))
     }
 
     fn handle_route_road(&self, q: &HashMap<String, String>) -> StudioResponse {
@@ -1606,7 +1680,13 @@ fn settlement_role_name(r: SettlementRole) -> &'static str {
     }
 }
 
-fn build_inspect_json(planet: &Planet, lat_deg: f64, lon_deg: f64, settlement_id: Option<u32>) -> String {
+fn build_inspect_json(
+    planet: &Planet,
+    lat_deg: f64,
+    lon_deg: f64,
+    settlement_id: Option<u32>,
+    region_ctx: Option<(&Region, &RegionProj)>,
+) -> String {
     let w = planet.grid.w;
     let h = planet.grid.h;
     let fy = ((90.0 - lat_deg) / 180.0 * h as f64 - 0.5).clamp(0.0, (h - 1) as f64);
@@ -1616,22 +1696,89 @@ fn build_inspect_json(planet: &Planet, lat_deg: f64, lon_deg: f64, settlement_id
     let y = (fy.round() as usize).min(h - 1);
     let cell = planet.grid.idx(x, y);
 
-    let is_ocean = planet.hydrology.is_ocean[cell] != 0;
-    let elev_m = planet.erosion.elevation_km[cell] * 1000.0;
-    let biome = planet.biomes.biome[cell].name();
+    let reg_sample: Option<(&Region, &RegionProj, usize, usize, usize)> = region_ctx.and_then(|(reg, rp)| {
+        let dlon = (lon_deg - reg.center_lon_deg + 540.0).rem_euclid(360.0) - 180.0;
+        let half_lon = 0.5 * rp.span_lon_deg;
+        if dlon < -half_lon || dlon > half_lon || lat_deg < reg.lat_min_deg || lat_deg > reg.lat_max_deg {
+            return None;
+        }
+        let rx = (((dlon + half_lon) / rp.span_lon_deg.max(1e-6)) * reg.w as f64)
+            .floor()
+            .clamp(0.0, (reg.w - 1) as f64) as usize;
+        let ry = (((reg.lat_max_deg - lat_deg) / (reg.lat_max_deg - reg.lat_min_deg).max(1e-6)) * reg.h as f64)
+            .floor()
+            .clamp(0.0, (reg.h - 1) as f64) as usize;
+        Some((reg, rp, rx, ry, reg.idx(rx, ry)))
+    });
+
+    let is_ocean = reg_sample
+        .map(|(reg, _, _, _, rc)| reg.is_ocean[rc] != 0)
+        .unwrap_or_else(|| planet.hydrology.is_ocean[cell] != 0);
+    let elev_m = reg_sample
+        .map(|(reg, _, _, _, rc)| reg.elevation_km[rc] * 1000.0)
+        .unwrap_or_else(|| planet.erosion.elevation_km[cell] * 1000.0);
+    let biome = reg_sample
+        .map(|(reg, _, _, _, rc)| reg.biome[rc].name())
+        .unwrap_or_else(|| planet.biomes.biome[cell].name());
+    let temp_c = reg_sample
+        .map(|(reg, _, _, _, rc)| reg.temp_c[rc])
+        .unwrap_or(planet.climate.temp_c[cell]);
+    let temp_jan_c = reg_sample
+        .map(|(reg, _, _, _, rc)| reg.temp_jan_c[rc])
+        .unwrap_or(planet.climate.temp_jan_c[cell]);
+    let temp_jul_c = reg_sample
+        .map(|(reg, _, _, _, rc)| reg.temp_jul_c[rc])
+        .unwrap_or(planet.climate.temp_jul_c[cell]);
+    let precip_mm = reg_sample
+        .map(|(reg, _, _, _, rc)| reg.precip_mm[rc])
+        .unwrap_or(planet.climate.precip_mm[cell]);
+    let permafrost = reg_sample
+        .map(|(reg, _, _, _, rc)| reg.permafrost[rc])
+        .unwrap_or(planet.climate.permafrost[cell]);
+    let aridity_index = reg_sample
+        .map(|(reg, _, _, _, rc)| {
+            let t_bio = ((reg.temp_jan_c[rc] + reg.temp_jul_c[rc]) * 0.5).clamp(1.0, 30.0);
+            let pet = (58.93 * t_bio).max(40.0);
+            (reg.precip_mm[rc] / pet).clamp(0.0, 10.0)
+        })
+        .unwrap_or(planet.climate.aridity_index[cell]);
+    let discharge_m3s = reg_sample
+        .map(|(reg, _, _, _, rc)| reg.discharge_m3s[rc])
+        .unwrap_or(planet.hydrology.discharge_m3s[cell]);
+    let river_order = reg_sample
+        .map(|(reg, _, _, _, rc)| reg.river_order[rc])
+        .unwrap_or(planet.hydrology.river_order[cell]);
+    let is_wadi = reg_sample
+        .map(|(reg, _, _, _, rc)| reg.is_wadi[rc] != 0)
+        .unwrap_or(planet.hydrology.is_wadi[cell] != 0);
+    let is_oasis = reg_sample
+        .map(|(reg, _, _, _, rc)| reg.is_oasis[rc] != 0)
+        .unwrap_or(planet.hydrology.is_oasis[cell] != 0);
+    let is_delta = reg_sample
+        .map(|(reg, _, _, _, rc)| reg.is_delta[rc] != 0)
+        .unwrap_or(planet.hydrology.is_delta[cell] != 0);
+
     let bedrock = bedrock_name(planet.biomes.bedrock[cell]);
-    let marine_zone = marine_zone_name(planet.geography.marine_zone[cell]);
+    let marine_zone = if is_ocean {
+        marine_zone_name(planet.geography.marine_zone[cell])
+    } else {
+        "Суша"
+    };
     let livelihood = planet.civilization.livelihood[cell].name();
-    let is_wild = planet.civilization.is_wild.get(cell).copied().unwrap_or(0) != 0;
+    let is_wild = if is_ocean {
+        true
+    } else {
+        planet.civilization.is_wild.get(cell).copied().unwrap_or(0) != 0 && !is_oasis
+    };
     let wild_reason = if !is_wild {
         ""
     } else if is_ocean {
         "открытое море"
-    } else if planet.climate.temp_c[cell] < -4.0 || planet.climate.permafrost[cell] > 0.45 {
+    } else if temp_c < -4.0 || permafrost > 0.45 {
         "вечная мерзлота и суровые морозы"
-    } else if planet.erosion.elevation_km[cell] > 2.4 {
+    } else if elev_m > 2400.0 {
         "высокогорье и скалистые хребты"
-    } else if planet.climate.aridity_index[cell] > 0.72 {
+    } else if aridity_index < 0.35 {
         "засуха и дефицит пресной воды"
     } else if planet.biomes.soil_fertility[cell] < 0.20 {
         "бедные почвы и скудное пропитание"
@@ -1684,14 +1831,35 @@ fn build_inspect_json(planet: &Planet, lat_deg: f64, lon_deg: f64, settlement_id
     let mut nearest_dist = f64::INFINITY;
     let mut matched_settlement: Option<&fms_core::civilization::Settlement> =
         settlement_id.and_then(|id| planet.civilization.settlements.get(id as usize));
-    for st in &planet.civilization.settlements {
-        let (sx, sy) = planet.grid.xy(st.cell);
-        let d = planet.grid.spherical_dist_km(u_pt, planet.grid.unit_vec(sx, sy));
-        if d < nearest_dist {
-            nearest_dist = d;
-            nearest_label = format!("{} ({})", st.name, st.tier.name());
-            if matched_settlement.is_none() && d <= 45.0 {
-                matched_settlement = Some(st);
+    let mut matched_reg_settlement: Option<&fms_core::region::RegionSettlement> = None;
+    if let Some((reg, rp, rx, ry, _)) = reg_sample {
+        for rs in &reg.settlements {
+            let ddx = (rs.x as f64 - rx as f64) * reg.dx_km_row[ry];
+            let ddy = (rs.y as f64 - ry as f64) * reg.dy_km;
+            let d = ddx.hypot(ddy);
+            if d < nearest_dist {
+                nearest_dist = d;
+                nearest_label = format!("{} ({})", rs.name, rs.tier.name());
+                if matched_settlement.is_none() && d <= 28.0 {
+                    if let Some(gid) = rs.global_id {
+                        matched_settlement = planet.civilization.settlements.get(gid as usize);
+                    } else {
+                        matched_reg_settlement = Some(rs);
+                    }
+                }
+            }
+        }
+        let _ = rp;
+    } else {
+        for st in &planet.civilization.settlements {
+            let (sx, sy) = planet.grid.xy(st.cell);
+            let d = planet.grid.spherical_dist_km(u_pt, planet.grid.unit_vec(sx, sy));
+            if d < nearest_dist {
+                nearest_dist = d;
+                nearest_label = format!("{} ({})", st.name, st.tier.name());
+                if matched_settlement.is_none() && d <= 45.0 {
+                    matched_settlement = Some(st);
+                }
             }
         }
     }
@@ -1720,13 +1888,27 @@ fn build_inspect_json(planet: &Planet, lat_deg: f64, lon_deg: f64, settlement_id
     let mut nearest_dep_name = String::new();
     let mut nearest_dep_dist = f64::INFINITY;
     let mut nearest_dep_rich = 0.0f32;
-    for dep in &planet.resources.deposits {
-        let (dx, dy) = planet.grid.xy(dep.cell);
-        let d = planet.grid.spherical_dist_km(u_pt, planet.grid.unit_vec(dx, dy));
-        if d < nearest_dep_dist {
-            nearest_dep_dist = d;
-            nearest_dep_name = dep.kind.name().to_string();
-            nearest_dep_rich = dep.richness;
+    if let Some((reg, _, rx, ry, _)) = reg_sample {
+        for dep in &reg.deposits {
+            let ddx = (dep.x as f64 - rx as f64) * reg.dx_km_row[ry];
+            let ddy = (dep.y as f64 - ry as f64) * reg.dy_km;
+            let d = ddx.hypot(ddy);
+            if d < nearest_dep_dist {
+                nearest_dep_dist = d;
+                nearest_dep_name = dep.kind.name().to_string();
+                nearest_dep_rich = dep.richness;
+            }
+        }
+    }
+    if nearest_dep_name.is_empty() {
+        for dep in &planet.resources.deposits {
+            let (dx, dy) = planet.grid.xy(dep.cell);
+            let d = planet.grid.spherical_dist_km(u_pt, planet.grid.unit_vec(dx, dy));
+            if d < nearest_dep_dist {
+                nearest_dep_dist = d;
+                nearest_dep_name = dep.kind.name().to_string();
+                nearest_dep_rich = dep.richness;
+            }
         }
     }
     if !nearest_dep_dist.is_finite() {
@@ -1735,12 +1917,26 @@ fn build_inspect_json(planet: &Planet, lat_deg: f64, lon_deg: f64, settlement_id
 
     let mut nearest_wf_dist = f64::INFINITY;
     let mut nearest_wf_drop = 0.0f32;
-    for wf in &planet.hydrology.waterfalls {
-        let (wx, wy) = planet.grid.xy(wf.cell);
-        let d = planet.grid.spherical_dist_km(u_pt, planet.grid.unit_vec(wx, wy));
-        if d < nearest_wf_dist {
-            nearest_wf_dist = d;
-            nearest_wf_drop = wf.drop_m;
+    if let Some((reg, _, rx, ry, _)) = reg_sample {
+        for wf in &reg.waterfalls {
+            let (wx, wy) = reg.xy(wf.cell);
+            let ddx = (wx as f64 - rx as f64) * reg.dx_km_row[ry];
+            let ddy = (wy as f64 - ry as f64) * reg.dy_km;
+            let d = ddx.hypot(ddy);
+            if d < nearest_wf_dist {
+                nearest_wf_dist = d;
+                nearest_wf_drop = wf.drop_m;
+            }
+        }
+    }
+    if !nearest_wf_dist.is_finite() {
+        for wf in &planet.hydrology.waterfalls {
+            let (wx, wy) = planet.grid.xy(wf.cell);
+            let d = planet.grid.spherical_dist_km(u_pt, planet.grid.unit_vec(wx, wy));
+            if d < nearest_wf_dist {
+                nearest_wf_dist = d;
+                nearest_wf_drop = wf.drop_m;
+            }
         }
     }
     if !nearest_wf_dist.is_finite() {
@@ -1756,19 +1952,19 @@ fn build_inspect_json(planet: &Planet, lat_deg: f64, lon_deg: f64, settlement_id
         lon_deg,
         is_ocean,
         is_wild,
-        planet.hydrology.is_wadi[cell] != 0,
-        planet.hydrology.is_oasis[cell] != 0,
-        planet.hydrology.is_delta[cell] != 0,
+        is_wadi,
+        is_oasis,
+        is_delta,
         elev_m,
-        planet.climate.temp_c[cell],
-        planet.climate.temp_jan_c[cell],
-        planet.climate.temp_jul_c[cell],
-        planet.climate.precip_mm[cell],
-        planet.climate.aridity_index[cell],
-        planet.climate.permafrost[cell],
+        temp_c,
+        temp_jan_c,
+        temp_jul_c,
+        precip_mm,
+        aridity_index,
+        permafrost,
         planet.biomes.soil_fertility[cell],
-        planet.hydrology.discharge_m3s[cell],
-        planet.hydrology.river_order[cell],
+        discharge_m3s,
+        river_order,
         planet.civilization.habitability[cell],
         nearest_dist,
         nearest_wild_dist,
@@ -1830,6 +2026,31 @@ fn build_inspect_json(planet: &Planet, lat_deg: f64, lon_deg: f64, settlement_id
         push_json_str(&mut out, settlement_role_name(st.role));
         out.push_str(",\"realm\":");
         push_json_str(&mut out, s_realm);
+        out.push('}');
+    } else if let (Some(rs), Some((reg, rp, _, _, _))) = (matched_reg_settlement, reg_sample) {
+        let [slat, slon] = region_cell_latlon(reg, rp.span_lon_deg, rs.cell);
+        let w_s = if rs.river_access { 0.85 } else if rs.is_port { 0.72 } else { 0.55 };
+        let f_s = planet.biomes.soil_fertility[cell].clamp(0.25, 0.95);
+        let t_s = r.timber[cell].clamp(0.10, 0.95);
+        let m_s = r.iron[cell].max(r.copper_gold[cell]).max(r.coal[cell]).clamp(0.05, 0.90);
+        let r_s = (0.35 * f_s + 0.30 * w_s + 0.20 * t_s + 0.15 * m_s).clamp(0.2, 0.95);
+        let pop_s = match rs.tier {
+            SettlementTier::Town => 42.0,
+            SettlementTier::Village => 24.0,
+            _ => 55.0,
+        };
+        let _ = write!(
+            out,
+            ",\"settlement\":{{\"id\":null,\"lat\":{:.4},\"lon\":{:.4},\"population_score\":{:.1},\"trade_degree\":1,\"resource_score\":{:.3},\"food_score\":{:.3},\"water_score\":{:.3},\"timber_score\":{:.3},\"mineral_score\":{:.3},\"name\":",
+            slat, slon, pop_s, r_s, f_s, w_s, t_s, m_s
+        );
+        push_json_str(&mut out, &rs.name);
+        out.push_str(",\"tier\":");
+        push_json_str(&mut out, rs.tier.name());
+        out.push_str(",\"role\":");
+        push_json_str(&mut out, settlement_role_name(rs.role));
+        out.push_str(",\"realm\":");
+        push_json_str(&mut out, realm_name);
         out.push('}');
     }
     let _ = write!(

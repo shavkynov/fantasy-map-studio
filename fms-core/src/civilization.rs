@@ -10,10 +10,10 @@ use crate::grid::{blur_xwrap, slope_field, Grid};
 use crate::hydrology::{Hydrology, MouthKind};
 use crate::planet::Planet;
 use crate::resources::Resources;
-use crate::rng::Rng;
+use crate::rng::{Noise, Rng};
 use crate::toponymy;
 use std::cmp::Ordering;
-use std::collections::{BTreeSet, BinaryHeap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, BinaryHeap, HashSet, VecDeque};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
@@ -336,7 +336,7 @@ fn land_step_cost(
     existing_road_mask: Option<&[u8]>,
 ) -> f64 {
     if hydrology.is_lake[v] != 0 || hydrology.is_lake[u] != 0 {
-        return 0.55 * dist_km;
+        return 24.0 * dist_km;
     }
     if hydrology.river_mask[u] != 0 && hydrology.river_mask[v] != 0 {
         if hydrology.receiver[u] == v as i32 {
@@ -381,11 +381,11 @@ fn land_step_cost(
     };
     let perma_pen = 2.4 * (permafrost[v] as f64).clamp(0.0, 1.0);
     let river_cross_pen = if hydrology.river_mask[v] != 0
-        && hydrology.discharge_m3s[v] > 3000.0
+        && hydrology.discharge_m3s[v] > 2500.0
         && hydrology.receiver[u] != v as i32
         && hydrology.receiver[v] != u as i32
     {
-        0.45
+        1.55 + 0.85 * ((hydrology.discharge_m3s[v] as f64 - 2500.0) / 10_000.0).clamp(0.0, 1.0)
     } else {
         0.0
     };
@@ -727,45 +727,49 @@ fn resource_and_wild_fields(
         }
     }
 
-    // Окрестностный потенциал древесины и ископаемых (радиус 2 ячейки)
+    // Окрестностный потенциал древесины и ископаемых (физический радиус ~220 км с широтной компенсацией)
     let mut local_timber = vec![0.0f32; n];
     let mut local_mineral = vec![0.0f32; n];
+    let dy_km_res = grid.dy_km().max(1.0);
     for y in 0..h {
         let y0 = y.saturating_sub(2);
         let y1 = (y + 2).min(h - 1);
+        let rx = ((2.0 / grid.lat_rad(y).cos().abs().max(0.25)).round() as isize).clamp(2, 6);
         for x in 0..w {
             let i = y * w + x;
             if hydrology.is_ocean[i] != 0 || hydrology.is_lake[i] != 0 {
                 continue;
             }
-            let mut best_t = resources.timber[i].max(0.55 * resources.coal[i]);
+            let uc = grid.unit_vec(x, y);
+            let mut best_t = resources.timber[i];
             let mut best_m = dep_rich[i].max(
                 resources.iron[i]
                     .max(resources.copper_gold[i])
                     .max(resources.gems_rare[i])
                     .max(resources.coal[i])
                     .max(resources.salt[i])
-                    .max(resources.hydrocarbons[i]),
+                    .max(0.55 * resources.hydrocarbons[i]),
             );
             for yy in y0..=y1 {
-                for dx in -2isize..=2 {
+                for dx in -rx..=rx {
                     let xx = grid.wrap_x(x as isize + dx);
                     let c = yy * w + xx;
-                    if hydrology.is_ocean[c] != 0 {
+                    if hydrology.is_ocean[c] != 0 || c == i {
                         continue;
                     }
-                    let atten = if dx.abs() <= 1 && (yy as isize - y as isize).abs() <= 1 {
-                        0.85
-                    } else {
-                        0.62
-                    };
-                    let t_c = resources.timber[c].max(0.50 * resources.coal[c]) * atten;
+                    let d_km = grid.spherical_dist_km(uc, grid.unit_vec(xx, yy));
+                    if d_km > 2.6 * dy_km_res {
+                        continue;
+                    }
+                    let atten = if d_km <= 1.5 * dy_km_res { 0.85 } else { 0.62 };
+                    let t_c = resources.timber[c] * atten;
                     let m_c = dep_rich[c].max(
                         resources.iron[c]
                             .max(resources.copper_gold[c])
                             .max(resources.gems_rare[c])
                             .max(resources.coal[c])
-                            .max(resources.salt[c]),
+                            .max(resources.salt[c])
+                            .max(0.55 * resources.hydrocarbons[c]),
                     ) * atten;
                     if t_c > best_t { best_t = t_c; }
                     if m_c > best_m { best_m = m_c; }
@@ -1151,16 +1155,34 @@ pub fn simulate(
     let resource_score = baskets.resource_score;
     let is_wild = baskets.is_wild;
 
-    // 2. Иерархическое размещение поселений по ресурсам и дистанции (города не стоят вплотную друг к другу)
+    // 2. Иерархическое размещение поселений по ресурсам, материкам и вариативности civ_salt
+    let mut layout_rng = Rng::sub(seed, "civilization-layout");
+    let layout_noise = Noise::new(&mut layout_rng);
+    let mut border_noise = vec![1.0f64; n];
+    for y in 0..h {
+        let row = y * w;
+        for x in 0..w {
+            let i = row + x;
+            let u = grid.unit_vec(x, y);
+            let bn = layout_noise.fbm(u[0] * 7.5 - 3.2, u[1] * 7.5 + 4.1, u[2] * 7.5 - 1.4, 2);
+            border_noise[i] = (1.0 + 0.14 * bn).clamp(0.86, 1.16);
+        }
+    }
+
     let mut hinterland = habitability.clone();
     let r_hint = ((w as f64 / 120.0).round() as usize).max(1);
     blur_xwrap(&mut hinterland, w, h, r_hint);
 
     let mut site_scores = vec![0.0f32; n];
     let mut site_cands: Vec<(usize, f32)> = Vec::new();
+    let mut lm_hab_area: BTreeMap<i32, f64> = BTreeMap::new();
     for i in 0..n {
         if is_wild[i] != 0 || habitability[i] < 0.09 || water_score[i] < 0.16 || food_score[i] < 0.14 {
             continue;
+        }
+        let lid = geography.landmass_id[i];
+        if lid >= 0 {
+            *lm_hab_area.entry(lid).or_insert(0.0) += area_row[i / w] * habitability[i] as f64;
         }
         let hab = habitability[i];
         let mut score = 0.42 * resource_score[i] + 0.24 * hab + 0.34 * hinterland[i];
@@ -1212,6 +1234,10 @@ pub fn simulate(
         if erosion.elevation_km[i] > 1.85 && is_pass_zone[i] == 0 && deposit_bonus[i] < 0.50 {
             score -= 0.45 * (erosion.elevation_km[i] - 1.85);
         }
+        let (cx, cy) = grid.xy(i);
+        let u = grid.unit_vec(cx, cy);
+        let j_site = 0.16 * layout_noise.fbm(u[0] * 4.5 + 1.7, u[1] * 4.5 - 2.3, u[2] * 4.5 + 3.1, 2) as f32;
+        score = (score + j_site).max(0.01);
         site_scores[i] = score;
         site_cands.push((i, score));
     }
@@ -1224,12 +1250,13 @@ pub fn simulate(
         ((hab_area_km2 / 4_400_000.0).round() as usize).clamp(4, 8)
     };
 
-    // Проход 1: крупные городские центры (будущие столицы и большие города, строгий ценз ресурсов и дистанции)
+    // Проход 0: диверсификация крупных центров по обитаемым материкам
+    // Проход 1: крупные городские центры (строгий ценз ресурсов и дистанции >= 460 км)
     // Проход 2: специализированные города/порты/крепости/посёлки
     // Проход 3: деревни
-    let max_major = ((hab_area_km2 / 1_900_000.0).round() as usize).clamp(auto_realms.max(6), 16);
-    let max_towns = ((hab_area_km2 / 980_000.0).round() as usize).clamp(12, 30);
-    let max_settlements = ((hab_area_km2 / 580_000.0).round() as usize).clamp(16, 52);
+    let max_major = ((hab_area_km2 / 1_650_000.0).round() as usize).clamp(auto_realms.max(7), 20);
+    let max_towns = ((hab_area_km2 / 820_000.0).round() as usize).clamp(16, 42);
+    let max_settlements = ((hab_area_km2 / 480_000.0).round() as usize).clamp(24, 68);
 
     // (cell, score, from_major_pass)
     let mut raw_sites: Vec<(usize, f32, bool)> = Vec::new();
@@ -1241,6 +1268,33 @@ pub fn simulate(
             grid.spherical_dist_km(uc, grid.unit_vec(ox, oy)) < min_km
         })
     };
+
+    let mut lm_list: Vec<(i32, f64)> = lm_hab_area.into_iter().collect();
+    lm_list.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    let total_lm_hab = lm_list.iter().map(|v| v.1).sum::<f64>().max(1.0);
+    for (lid, lm_hab) in &lm_list {
+        if raw_sites.len() >= max_major {
+            break;
+        }
+        if *lm_hab < (total_lm_hab * 0.035).min(120_000.0) {
+            continue;
+        }
+        let quota = ((*lm_hab / total_lm_hab) * max_major as f64).round().max(1.0) as usize;
+        let mut added_lm = 0usize;
+        for &(cell, score) in &site_cands {
+            if raw_sites.len() >= max_major || added_lm >= quota {
+                break;
+            }
+            if geography.landmass_id[cell] != *lid || raw_sites.iter().any(|&(c, _, _)| c == cell) {
+                continue;
+            }
+            let town_or_rich = water_score[cell] >= 0.20 && food_score[cell] >= 0.18 && resource_score[cell] >= 0.25;
+            if town_or_rich && far_enough(&raw_sites, cell, 460.0) {
+                raw_sites.push((cell, score, true));
+                added_lm += 1;
+            }
+        }
+    }
 
     for sep in [600.0f64, 460.0] {
         for &(cell, score) in &site_cands {
@@ -1263,7 +1317,7 @@ pub fn simulate(
                 raw_sites.push((cell, score, true));
             }
         }
-        if raw_sites.len() >= (auto_realms + 3).min(max_major) {
+        if raw_sites.len() >= max_major {
             break;
         }
     }
@@ -1288,7 +1342,7 @@ pub fn simulate(
                 raw_sites.push((cell, score, false));
             }
         }
-        if raw_sites.len() >= auto_realms.max(8) {
+        if raw_sites.len() >= max_towns {
             break;
         }
     }
@@ -1305,7 +1359,7 @@ pub fn simulate(
                 raw_sites.push((cell, score, false));
             }
         }
-        if raw_sites.len() >= auto_realms.max(12) {
+        if raw_sites.len() >= max_settlements {
             break;
         }
     }
@@ -1314,7 +1368,33 @@ pub fn simulate(
 
     let mut is_capital_idx = vec![false; raw_sites.len()];
     let mut capital_indices: Vec<usize> = Vec::new();
-    for min_cap_sep in [900.0f64, 620.0, 380.0, 220.0] {
+    // Сначала выбираем по столице на разных обитаемых материках (исключая карликовые островки), затем добираем
+    let mut cap_lms = BTreeSet::new();
+    for (idx, &(cell, _, _)) in raw_sites.iter().enumerate() {
+        if capital_indices.len() >= desired_realms {
+            break;
+        }
+        let lid = geography.landmass_id[cell];
+        if lid < 0 || cap_lms.contains(&lid) {
+            continue;
+        }
+        let lm_hab = lm_list.iter().find(|&&(id, _)| id == lid).map(|v| v.1).unwrap_or(0.0);
+        if lm_hab < (total_lm_hab * 0.04).min(80_000.0) {
+            continue;
+        }
+        let (cx, cy) = grid.xy(cell);
+        let uc = grid.unit_vec(cx, cy);
+        let too_close = capital_indices.iter().any(|&ci| {
+            let (ox, oy) = grid.xy(raw_sites[ci].0);
+            grid.spherical_dist_km(uc, grid.unit_vec(ox, oy)) < 480.0
+        });
+        if !too_close {
+            cap_lms.insert(lid);
+            is_capital_idx[idx] = true;
+            capital_indices.push(idx);
+        }
+    }
+    for min_cap_sep in [900.0f64, 620.0, 380.0, 260.0] {
         for (idx, &(cell, _, _)) in raw_sites.iter().enumerate() {
             if capital_indices.len() >= desired_realms {
                 break;
@@ -1388,9 +1468,12 @@ pub fn simulate(
             if geography.marine_zone[oce_c] == MarineZone::Strait {
                 28.0 + 0.35 * dist_km
             } else if is_port_settlement[land_c] != 0 {
-                70.0 + 0.40 * dist_km
+                65.0 + 0.40 * dist_km
+            } else if road_used.is_some() {
+                // Торговым морским путям запрещено высаживаться на дикие пляжи вне портов и проливов
+                1350.0 + 0.65 * dist_km
             } else {
-                165.0 + 0.55 * dist_km
+                240.0 + 0.55 * dist_km
             }
         } else {
             let sea_ice_pen = if climate.temp_c[v] < -12.0 { 12.0 } else { 0.0 };
@@ -1753,7 +1836,7 @@ pub fn simulate(
         });
     }
 
-    // 4. Государства и естественные границы по логистической досягаемости и культурной близости
+    // 4. Государства и естественные границы по логистической досягаемости, хребтам, рекам и культурной близости
     let mut realm_id = vec![-1i32; n];
     let mut best_cost = vec![f64::INFINITY; n];
     let mut heap = BinaryHeap::new();
@@ -1764,14 +1847,6 @@ pub fn simulate(
         let cap_cell = settlements[s_idx].cell;
         let cap_cult = settlements[s_idx].culture_id;
         let rid_u32 = rid as u32;
-        settlements[s_idx].realm_id = rid_u32;
-        best_cost[cap_cell] = 0.0;
-        realm_id[cap_cell] = rid as i32;
-        heap.push(DijkNode {
-            cost: 0.0,
-            cell: cap_cell,
-            realm: rid_u32,
-        });
         realms.push(Realm {
             id: rid_u32,
             name: String::new(),
@@ -1784,104 +1859,70 @@ pub fn simulate(
         });
     }
 
-    while let Some(DijkNode { cost, cell, realm }) = heap.pop() {
-        if cost > best_cost[cell] + 1e-6 {
-            continue;
+    let expand_realms = |realms_list: &[Realm],
+                         setts: &[Settlement],
+                         realm_id_buf: &mut [i32],
+                         best_cost_buf: &mut [f64],
+                         heap_buf: &mut BinaryHeap<DijkNode>| {
+        realm_id_buf.fill(-1);
+        best_cost_buf.fill(f64::INFINITY);
+        heap_buf.clear();
+        for (rid, rm) in realms_list.iter().enumerate() {
+            let cap_cell = rm.capital_cell;
+            best_cost_buf[cap_cell] = 0.0;
+            realm_id_buf[cap_cell] = rid as i32;
+            heap_buf.push(DijkNode {
+                cost: 0.0,
+                cell: cap_cell,
+                realm: rid as u32,
+            });
         }
-        let r_ref = &realms[realm as usize];
-        let cap_s_id = r_ref.capital_settlement_id as usize;
-        let cap_cult = r_ref.culture_id as i32;
-        let power_scale =
-            1.0 / (0.75 + 0.45 * (settlements[cap_s_id].population_score as f64 / 100.0));
-
-        let (nbs, cnt) = grid.neighbors8(cell);
-        for &nb in &nbs[..cnt] {
-            let cult_mult = if culture_id[nb] >= 0 && culture_id[nb] != cap_cult {
-                1.28
-            } else {
-                1.0
-            };
-            let next_cost = cost + step_cost_base(cell, nb, None) * power_scale * cult_mult;
-            if next_cost <= max_admin_cost && next_cost + 1e-6 < best_cost[nb] {
-                best_cost[nb] = next_cost;
-                if hydrology.is_ocean[nb] == 0
-                    && hydrology.is_lake[nb] == 0
-                    && habitability[nb] >= 0.03
-                {
-                    realm_id[nb] = realm as i32;
-                }
-                heap.push(DijkNode {
-                    cost: next_cost,
-                    cell: nb,
-                    realm,
-                });
+        while let Some(DijkNode { cost, cell, realm }) = heap_buf.pop() {
+            if cost > best_cost_buf[cell] + 1e-6 {
+                continue;
             }
-        }
-    }
+            let r_ref = &realms_list[realm as usize];
+            let cap_s_id = r_ref.capital_settlement_id as usize;
+            let cap_cult = r_ref.culture_id as i32;
+            let cap_pop = setts.get(cap_s_id).map(|s| s.population_score).unwrap_or(50.0);
+            let power_scale = 1.0 / (0.75 + 0.45 * (cap_pop as f64 / 100.0));
 
-    // Очищаем морские/озёрные метки и считаем статистику держав
-    let mut liv_counts = vec![[0.0f64; 7]; realms.len()];
-    for i in 0..n {
-        if hydrology.is_ocean[i] != 0 || hydrology.is_lake[i] != 0 || habitability[i] < 0.03 {
-            realm_id[i] = -1;
-            continue;
-        }
-        let r = realm_id[i];
-        if r >= 0 {
-            let ru = r as usize;
-            let a = area_row[i / w];
-            realms[ru].area_km2 += a;
-            let cap = a * habitability[i] as f64;
-            realms[ru].carrying_capacity += cap;
-            let li = livelihood[i] as usize;
-            if li > 0 && li < 7 {
-                liv_counts[ru][li] += cap;
-            }
-        }
-    }
-    for (ru, r) in realms.iter_mut().enumerate() {
-        let mut best_l = r.dominant_livelihood;
-        let mut best_v = -1.0f64;
-        for (li, &v) in liv_counts[ru].iter().enumerate().skip(1) {
-            if v > best_v {
-                best_v = v;
-                best_l = match li {
-                    1 => Livelihood::Agrarian,
-                    2 => Livelihood::Pastoral,
-                    3 => Livelihood::Maritime,
-                    4 => Livelihood::Oasis,
-                    5 => Livelihood::Mining,
-                    _ => Livelihood::HunterForest,
+            let (nbs, cnt) = grid.neighbors8(cell);
+            for &nb in &nbs[..cnt] {
+                let cult_mult = if culture_id[nb] >= 0 && culture_id[nb] != cap_cult {
+                    1.32
+                } else {
+                    1.0
                 };
+                let ridge_mult = if hydrology.is_ocean[nb] == 0 {
+                    1.0 + 1.35 * (erosion.elevation_km[nb] as f64 - 0.90).max(0.0)
+                } else {
+                    1.0
+                };
+                let next_cost =
+                    cost + step_cost_base(cell, nb, None) * power_scale * cult_mult * ridge_mult * border_noise[nb];
+                if next_cost <= max_admin_cost && next_cost + 1e-6 < best_cost_buf[nb] {
+                    best_cost_buf[nb] = next_cost;
+                    if hydrology.is_ocean[nb] == 0
+                        && hydrology.is_lake[nb] == 0
+                        && habitability[nb] >= 0.03
+                    {
+                        realm_id_buf[nb] = realm as i32;
+                    }
+                    heap_buf.push(DijkNode {
+                        cost: next_cost,
+                        cell: nb,
+                        realm,
+                    });
+                }
             }
         }
-        if best_v > 0.0 {
-            r.dominant_livelihood = best_l;
-        }
-        let (prof, ethos) = cultures
-            .get(r.culture_id as usize)
-            .map(|c| (c.phonology_profile, c.ethos))
-            .unwrap_or((4, CultureEthos::Agrarian));
-        let root = toponymy::generate_proper_name(prof, &mut name_rng, 2, 3, &mut used_names);
-        let mut title = toponymy::realm_title(&root, r.dominant_livelihood, ethos, &mut name_rng);
-        while used_names.contains(&title) {
-            let alt = toponymy::generate_proper_name(prof, &mut name_rng, 2, 3, &mut used_names);
-            title = toponymy::realm_title(&alt, r.dominant_livelihood, ethos, &mut name_rng);
-        }
-        used_names.insert(title.clone());
-        r.name = title;
-    }
+    };
 
-    for s in &mut settlements {
-        if s.realm_id == u32::MAX {
-            let rid = realm_id[s.cell];
-            if rid >= 0 {
-                s.realm_id = rid as u32;
-            }
-        }
-    }
+    expand_realms(&realms, &settlements, &mut realm_id, &mut best_cost, &mut heap);
 
     // Проверяем, что столица каждой державы находится в самом выгодном и богатом месте государства
+    let mut reassigned = false;
     for ru in 0..realms.len() {
         let rid_i32 = ru as i32;
         let cur_cap_idx = settlements
@@ -1919,31 +1960,122 @@ pub fn simulate(
         }
         if let (Some(old_i), Some(new_i)) = (cur_cap_idx, best_idx) {
             if old_i != new_i {
+                reassigned = true;
                 is_capital_idx[old_i] = false;
                 is_capital_idx[new_i] = true;
                 let old_cell = settlements[old_i].cell;
-                settlements[old_i].role = natural_role_for(old_cell);
+                let new_role_old = natural_role_for(old_cell);
+                let old_prof = cultures
+                    .get(settlements[old_i].culture_id as usize)
+                    .map(|c| c.phonology_profile)
+                    .unwrap_or(4);
+                settlements[old_i].role = new_role_old;
+                settlements[old_i].tier = if raw_sites[old_i].2 {
+                    SettlementTier::City
+                } else {
+                    SettlementTier::Town
+                };
+                settlements[old_i].name =
+                    toponymy::settlement_name(old_prof, new_role_old, &mut name_rng, &mut used_names);
+
+                let new_prof = cultures
+                    .get(settlements[new_i].culture_id as usize)
+                    .map(|c| c.phonology_profile)
+                    .unwrap_or(4);
                 settlements[new_i].role = SettlementRole::Capital;
                 settlements[new_i].tier = SettlementTier::Capital;
+                settlements[new_i].name = toponymy::settlement_name(
+                    new_prof,
+                    SettlementRole::Capital,
+                    &mut name_rng,
+                    &mut used_names,
+                );
                 let new_id = settlements[new_i].id;
                 let new_cell = settlements[new_i].cell;
                 realms[ru].capital_settlement_id = new_id;
                 realms[ru].capital_cell = new_cell;
+                realms[ru].culture_id = settlements[new_i].culture_id;
             }
         }
     }
 
-    // 5. Сухопутные, речные и морские торговые пути между важнейшими узлами
-    let mut hub_indices: Vec<usize> = Vec::with_capacity(settlements.len().min(38));
+    // При смене столицы пересчитываем границы от финальных столиц (иерархия: регионы -> столицы -> финальные границы)
+    if reassigned {
+        expand_realms(&realms, &settlements, &mut realm_id, &mut best_cost, &mut heap);
+    }
+
+    // Очищаем морские/озёрные метки и считаем статистику держав
+    let mut liv_counts = vec![[0.0f64; 7]; realms.len()];
+    for i in 0..n {
+        if hydrology.is_ocean[i] != 0 || hydrology.is_lake[i] != 0 || habitability[i] < 0.03 {
+            realm_id[i] = -1;
+            continue;
+        }
+        let r = realm_id[i];
+        if r >= 0 {
+            let ru = r as usize;
+            let a = area_row[i / w];
+            realms[ru].area_km2 += a;
+            let cap = a * habitability[i] as f64;
+            realms[ru].carrying_capacity += cap;
+            let li = livelihood[i] as usize;
+            if li > 0 && li < 7 {
+                liv_counts[ru][li] += cap;
+            }
+        }
+    }
+    for (ru, r) in realms.iter_mut().enumerate() {
+        realm_id[r.capital_cell] = ru as i32;
+        let mut best_l = r.dominant_livelihood;
+        let mut best_v = -1.0f64;
+        for (li, &v) in liv_counts[ru].iter().enumerate().skip(1) {
+            if v > best_v {
+                best_v = v;
+                best_l = match li {
+                    1 => Livelihood::Agrarian,
+                    2 => Livelihood::Pastoral,
+                    3 => Livelihood::Maritime,
+                    4 => Livelihood::Oasis,
+                    5 => Livelihood::Mining,
+                    _ => Livelihood::HunterForest,
+                };
+            }
+        }
+        if best_v > 0.0 {
+            r.dominant_livelihood = best_l;
+        }
+        let (prof, ethos) = cultures
+            .get(r.culture_id as usize)
+            .map(|c| (c.phonology_profile, c.ethos))
+            .unwrap_or((4, CultureEthos::Agrarian));
+        let root = toponymy::generate_proper_name(prof, &mut name_rng, 2, 3, &mut used_names);
+        let mut title = toponymy::realm_title(&root, r.dominant_livelihood, ethos, &mut name_rng);
+        while used_names.contains(&title) {
+            let alt = toponymy::generate_proper_name(prof, &mut name_rng, 2, 3, &mut used_names);
+            title = toponymy::realm_title(&alt, r.dominant_livelihood, ethos, &mut name_rng);
+        }
+        used_names.insert(title.clone());
+        r.name = title;
+    }
+
+    for s in &mut settlements {
+        let rid = realm_id[s.cell];
+        s.realm_id = if rid >= 0 { rid as u32 } else { u32::MAX };
+    }
+    for rm in &realms {
+        if let Some(cs) = settlements.iter_mut().find(|s| s.id == rm.capital_settlement_id) {
+            cs.realm_id = rm.id;
+        }
+    }
+
+    // 5. Сухопутные, речные и морские торговые пути между важнейшими узлами (разделение материковых дорог и портового каботажа)
+    let mut hub_indices: Vec<usize> = Vec::with_capacity(settlements.len());
     for (idx, s) in settlements.iter().enumerate() {
         if s.role == SettlementRole::Capital {
             hub_indices.push(idx);
         }
     }
     for (idx, _) in settlements.iter().enumerate() {
-        if hub_indices.len() >= settlements.len().min(38) {
-            break;
-        }
         if !hub_indices.contains(&idx) {
             hub_indices.push(idx);
         }
@@ -1951,24 +2083,41 @@ pub fn simulate(
 
     let mut pairs: BTreeSet<(usize, usize)> = BTreeSet::new();
     for &a in &hub_indices {
-        let (ax, ay) = grid.xy(settlements[a].cell);
+        let sa = &settlements[a];
+        let (ax, ay) = grid.xy(sa.cell);
         let ua = grid.unit_vec(ax, ay);
-        let mut cands: Vec<(usize, f64)> = Vec::new();
+        let lm_a = geography.landmass_id[sa.cell];
+        let mut land_cands: Vec<(usize, f64)> = Vec::new();
+        let mut sea_cands: Vec<(usize, f64)> = Vec::new();
         for &b in &hub_indices {
             if a == b {
                 continue;
             }
-            let (bx, by) = grid.xy(settlements[b].cell);
+            let sb = &settlements[b];
+            let (bx, by) = grid.xy(sb.cell);
             let d = grid.spherical_dist_km(ua, grid.unit_vec(bx, by));
-            if d <= 3100.0 {
-                cands.push((b, d));
+            let lm_b = geography.landmass_id[sb.cell];
+            if lm_a >= 0 && lm_a == lm_b && d <= 3000.0 {
+                land_cands.push((b, d));
+            } else if sa.is_port && sb.is_port && d <= 4200.0 {
+                sea_cands.push((b, d));
+            } else if d <= 1800.0 && (lm_a != lm_b) {
+                sea_cands.push((b, d));
             }
         }
-        cands.sort_by(|x, y| x.1.total_cmp(&y.1).then_with(|| x.0.cmp(&y.0)));
-        let take_n = if settlements[a].role == SettlementRole::Capital { 3 } else { 2 };
-        for &(b, _) in cands.iter().take(take_n) {
+        land_cands.sort_by(|x, y| x.1.total_cmp(&y.1).then_with(|| x.0.cmp(&y.0)));
+        sea_cands.sort_by(|x, y| x.1.total_cmp(&y.1).then_with(|| x.0.cmp(&y.0)));
+        let take_land = if sa.role == SettlementRole::Capital { 3 } else { 2 };
+        for &(b, _) in land_cands.iter().take(take_land) {
             let p = if a < b { (a, b) } else { (b, a) };
             pairs.insert(p);
+        }
+        if sa.is_port {
+            let take_sea = if sa.role == SettlementRole::Capital || sa.role == SettlementRole::Port { 2 } else { 1 };
+            for &(b, _) in sea_cands.iter().take(take_sea) {
+                let p = if a < b { (a, b) } else { (b, a) };
+                pairs.insert(p);
+            }
         }
     }
 
@@ -1982,7 +2131,7 @@ pub fn simulate(
     let mut dist = vec![f64::INFINITY; n];
     let mut prev = vec![usize::MAX; n];
     let mut visited = Vec::with_capacity(n / 4);
-    let max_route_cost = 4600.0f64;
+    let max_route_cost = 5600.0f64;
 
     for (a, targets) in adj_targets.iter().enumerate() {
         if targets.is_empty() {
@@ -2190,6 +2339,7 @@ pub fn simulate(
         if near_sett {
             continue;
         }
+        let w_jitter = 0.12 * layout_noise.fbm(uc[0] * 6.1 - 2.2, uc[1] * 6.1 + 3.4, uc[2] * 6.1 - 1.5, 2) as f32;
         if matches!(
             b,
             Biome::BorealForest
@@ -2201,7 +2351,8 @@ pub fn simulate(
         {
             let sc = 0.55 * resources.timber[i]
                 + 0.35 * (hydrology.discharge_m3s[i] / 2500.0).clamp(0.0, 1.0)
-                + 0.25 * (1.0 - slope[i] * 8.0).clamp(0.0, 1.0);
+                + 0.25 * (1.0 - slope[i] * 8.0).clamp(0.0, 1.0)
+                + w_jitter;
             wild_cands.push((i, WildSiteKind::HunterCamp, sc));
         } else if matches!(
             b,
@@ -2209,7 +2360,8 @@ pub fn simulate(
         ) {
             let sc = 0.35 * if hydrology.is_wadi[i] != 0 { 1.0 } else { 0.3 }
                 + 0.30 * (world_elev_or_incision_score(erosion.incised_km[i], erosion.alluvium_km[i]))
-                + 0.25 * mineral_score[i];
+                + 0.25 * mineral_score[i]
+                + w_jitter;
             wild_cands.push((i, WildSiteKind::Ruins, sc));
         }
     }

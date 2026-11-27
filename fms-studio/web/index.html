@@ -397,6 +397,27 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 
+  /* Toast Notification */
+  #toast-banner {
+    position: fixed;
+    bottom: 72px; left: 50%;
+    transform: translateX(-50%) translateY(8px);
+    background: var(--glass-strong);
+    border: 1px solid var(--border-strong);
+    border-radius: 12px;
+    padding: 8px 16px;
+    font-size: 12.5px;
+    color: var(--text);
+    box-shadow: var(--shadow);
+    z-index: 65;
+    max-width: min(480px, 86vw);
+    text-align: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.16s ease, transform 0.16s ease;
+  }
+  #toast-banner.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
   /* Interactive SVG target animations */
   .wp-ring { cursor: pointer; transition: transform 0.12s ease, opacity 0.12s ease; transform-box: fill-box; transform-origin: center; }
   .wp-ring:hover { transform: scale(1.18); }
@@ -419,6 +440,7 @@
 </div>
 
 <div id="loading-banner"><span class="spinner"></span><span id="loading-text">Генерация планеты...</span></div>
+<div id="toast-banner" role="status" aria-live="polite"></div>
 
 <!-- Floating Top Bar -->
 <header id="topbar">
@@ -557,7 +579,7 @@
       <div class="field" style="margin:0;">
         <label><span>Материки</span></label>
         <select id="inp-continents">
-          <option value="0" selected>Авто (2–5)</option>
+          <option value="0" selected>Авто (1–5)</option>
           <option value="1">1</option>
           <option value="2">2</option>
           <option value="3">3</option>
@@ -581,7 +603,7 @@
       <div style="margin-top:10px;">
         <div class="field">
           <label><span>Тектоническая активность</span><span id="val-activity">1.00</span></label>
-          <input type="range" id="inp-activity" min="0.5" max="1.6" step="0.05" value="1.00" />
+          <input type="range" id="inp-activity" min="0.5" max="1.5" step="0.05" value="1.00" />
         </div>
         <div class="field">
           <label><span>Объём воды (глубина океана)</span><span id="val-water">2.62</span></label>
@@ -647,6 +669,31 @@ const state = {
 };
 
 const $ = (id) => document.getElementById(id);
+
+function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+let toastTimer = null;
+function showToast(msg, ms = 3200) {
+  const el = $('toast-banner');
+  if (!el) return;
+  el.textContent = String(msg ?? '');
+  el.classList.add('show');
+  if (toastTimer) clearTimeout(toastTimer);
+  if (ms > 0) {
+    toastTimer = setTimeout(hideToast, ms);
+  }
+}
+function hideToast() {
+  const el = $('toast-banner');
+  if (el) el.classList.remove('show');
+}
 
 function setLoading(on, text = 'Обновление...') {
   state.loading = on;
@@ -1106,7 +1153,7 @@ function updateToolSubbar() {
       <button data-tier="2" class="${state.roadTier === 2 ? 'active' : ''}">Дорога</button>
       <button data-tier="3" class="${state.roadTier === 3 ? 'active' : ''}">Тракт</button>
       <span class="sep"></span>
-      <span class="road-status" id="road-status">${state.roadHint}</span>
+      <span class="road-status" id="road-status">${escapeHtml(state.roadHint)}</span>
       ${state.roadFrom ? '<button id="btn-road-cancel" class="subtle">Отмена</button>' : ''}
       ${state.customRoads.length > 0 || state.customMarkers.length > 0 ? '<button id="btn-clear-custom" class="subtle">Очистить</button>' : ''}
     `;
@@ -1301,9 +1348,9 @@ function updateCivUi(data) {
   }
   box.style.display = 'flex';
   box.innerHTML = w.realms.map((r) => `
-    <div class="realm-item" data-lat="${r.lat}" data-lon="${r.lon}" title="Приблизиться к столице">
-      <span><span class="swatch" style="background:rgb(${r.color[0]},${r.color[1]},${r.color[2]})"></span>${r.name}</span>
-      <span style="color:var(--muted);">${r.capital}</span>
+    <div class="realm-item" data-lat="${Number(r.lat)}" data-lon="${Number(r.lon)}" title="Приблизиться к столице">
+      <span><span class="swatch" style="background:rgb(${Number(r.color[0])},${Number(r.color[1])},${Number(r.color[2])})"></span>${escapeHtml(r.name)}</span>
+      <span style="color:var(--muted);">${escapeHtml(r.capital)}</span>
     </div>
   `).join('');
   box.querySelectorAll('.realm-item').forEach((el) => {
@@ -1550,8 +1597,7 @@ async function runLod() {
 }
 
 function openSettlementMapStub(settlement) {
-  showBanner(`План поселения «${settlement.name}» (${settlement.tier}): режим градостроительной карты готовится к следующему обновлению`);
-  setTimeout(hideBanner, 3200);
+  showToast(`План поселения «${settlement.name}» (${settlement.tier}): градостроительная карта готовится к следующему обновлению`, 3200);
 }
 
 async function renderInspectCard(info) {
@@ -1568,9 +1614,9 @@ async function renderInspectCard(info) {
     ? st.name
     : (info.is_ocean ? info.marine_zone : (info.landmass_name || info.biome));
   $('inspect-coords').innerHTML = st
-    ? `${st.tier} · ${st.role} · ${st.lat.toFixed(2)}°, ${st.lon.toFixed(2)}°`
-    : `${info.lat.toFixed(2)}°, ${info.lon.toFixed(2)}° · ${info.biome}` +
-      (info.is_wild ? `<br><span class="wild-pill">Дикие земли: ${info.wild_reason || 'необжитая зона'}</span>` : '');
+    ? `${escapeHtml(st.tier)} · ${escapeHtml(st.role)} · ${st.lat.toFixed(2)}°, ${st.lon.toFixed(2)}°`
+    : `${info.lat.toFixed(2)}°, ${info.lon.toFixed(2)}° · ${escapeHtml(info.biome)}` +
+      (info.is_wild ? `<br><span class="wild-pill">Дикие земли: ${escapeHtml(info.wild_reason || 'необжитая зона')}</span>` : '');
 
   let hydroNote = info.discharge_m3s > 1 ? `${Math.round(info.discharge_m3s)} м³/с (пор. ${info.river_order})` : 'нет';
   if (info.is_delta) hydroNote += ' · дельта';
@@ -1601,7 +1647,7 @@ async function renderInspectCard(info) {
     ...(info.nearest_wild_site ? [['Дикая метка', `${info.nearest_wild_site} (${Math.round(info.nearest_wild_dist_km)} км)`]] : []),
     ...(info.nearest_deposit ? [['Месторожд.', `${info.nearest_deposit} (${Math.round(info.nearest_deposit_dist_km)} км)`]] : []),
   ];
-  $('inspect-kv').innerHTML = rows.map(([k, v]) => `<div class="k">${k}</div><div class="v">${v}</div>`).join('');
+  $('inspect-kv').innerHTML = rows.map(([k, v]) => `<div class="k">${escapeHtml(k)}</div><div class="v">${escapeHtml(v)}</div>`).join('');
 
   const acts = $('inspect-actions');
   if (st) {
@@ -1611,10 +1657,7 @@ async function renderInspectCard(info) {
       <button id="btn-zoom-settlement" class="btn-rect">Окрестности (4×)</button>
     `;
     $('btn-open-settlement').addEventListener('click', () => openSettlementMapStub(st));
-    $('btn-zoom-settlement').addEventListener('click', async () => {
-      const regData = await loadRegion({ lat: st.lat, lon: st.lon, span: 12 });
-      if (regData) fitToViewport();
-    });
+    $('btn-zoom-settlement').addEventListener('click', () => focusOn(st.lat, st.lon, 12));
     $('inspect-res-summary').textContent = 'Ресурсная корзина поселения';
   } else {
     acts.style.display = 'none';
@@ -1633,19 +1676,21 @@ async function renderInspectCard(info) {
     ['Медь/золото', info.resources.copper_gold],
     ['Самоцветы', info.resources.gems_rare],
     ['Уголь', info.resources.coal],
-    ['Углеводороды', info.resources.hydrocarbons],
+    ['Янтарь / смолы', info.resources.hydrocarbons],
     ['Соль', info.resources.salt],
     ['Строевой лес', info.resources.timber],
     ['Рыба', info.resources.fishery],
   ];
   $('inspect-resources').innerHTML = rList.map(([label, val]) => {
     const pct = Math.round(Math.min(1, Math.max(0, val)) * 100);
-    return `<div class="res-bar"><span style="color:var(--muted)">${label}</span><div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div><span style="text-align:right">${pct}%</span></div>`;
+    return `<div class="res-bar"><span style="color:var(--muted)">${escapeHtml(label)}</span><div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div><span style="text-align:right">${pct}%</span></div>`;
   }).join('');
 }
 
 async function inspectSettlement(idAttr, latAttr, lonAttr) {
   const p = worldParams();
+  p.set('mode', state.mode);
+  addRegionWindow(p);
   if (idAttr !== '' && idAttr != null) {
     p.set('settlement_id', String(idAttr));
   } else {

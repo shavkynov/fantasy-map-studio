@@ -29,7 +29,7 @@ impl ResourceKind {
             ResourceKind::CopperGold => "Медь и золото",
             ResourceKind::GemsRare => "Самоцветы и редкие металлы",
             ResourceKind::Coal => "Каменный уголь",
-            ResourceKind::Hydrocarbons => "Нефть и газ",
+            ResourceKind::Hydrocarbons => "Смолы, янтарь и битум",
             ResourceKind::Salt => "Соль и эвапориты",
             ResourceKind::Timber => "Строевой лес",
             ResourceKind::Fishery => "Рыбный промысел",
@@ -245,7 +245,7 @@ pub fn compute(
 
             // 6. Каменная соль и эвапориты: солончаки, аридные бассейны и ископаемые соляные купола
             let salt_raw = if hydrology.is_salt_flat[i] != 0 {
-                0.88
+                0.78 + 0.18 * (0.5 * pf_sl.min(1.0) + 0.5 * v_sl)
             } else if sed > 0.12 && climate.aridity_index[i] < 0.28 {
                 (0.45 + 0.40 * sed) * pf_sl
             } else if sed > 0.25 && (rift > 0.14 || sub_hist > 0.42 || world.margin[i] == 2) {
@@ -271,7 +271,7 @@ pub fn compute(
         }
     }
 
-    // Выделяем крупнейшие дискретные месторождения ископаемых (с масштабированием под рудные пояса и бассейны)
+    // Выделяем крупнейшие дискретные месторождения ископаемых (только на суше, без широтного перекоса при равенстве)
     let mut deposits = Vec::new();
     let mineral_layers: [(ResourceKind, &[f32], f32, f64); 6] = [
         (ResourceKind::Iron, &iron, 0.56, 210.0),
@@ -282,22 +282,40 @@ pub fn compute(
         (ResourceKind::Salt, &salt, 0.58, 300.0),
     ];
 
+    let mut seed_hash = 0x9e37_79b9_7f4a_7c15u64;
+    for b in seed.bytes() {
+        seed_hash = seed_hash.wrapping_mul(0x1000_0000_01b3) ^ (b as u64);
+    }
+    let cell_tie = |kind_u8: u8, cell: usize| -> u64 {
+        let mut z = (cell as u64).wrapping_add((kind_u8 as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15)) ^ seed_hash;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^ (z >> 31)
+    };
+
     for (kind, field, min_val, min_sep_km) in mineral_layers {
-        let mut cands: Vec<(usize, f32)> = Vec::new();
+        let mut cands: Vec<(usize, f32, u64)> = Vec::new();
         for i in 0..n {
+            if hydrology.is_ocean[i] != 0 || hydrology.is_lake[i] != 0 {
+                continue;
+            }
             let v = field[i];
             if v < min_val {
                 continue;
             }
             let (nbs, cnt) = grid.neighbors8(i);
             if nbs[..cnt].iter().all(|&nb| v >= field[nb]) {
-                cands.push((i, v));
+                cands.push((i, v, cell_tie(kind as u8, i)));
             }
         }
-        cands.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        cands.sort_by(|a, b| {
+            b.1.total_cmp(&a.1)
+                .then_with(|| a.2.cmp(&b.2))
+                .then_with(|| a.0.cmp(&b.0))
+        });
 
         let mut kept: Vec<usize> = Vec::new();
-        for (cell, richness) in cands {
+        for (cell, richness, _) in cands {
             let (cx, cy) = grid.xy(cell);
             let uc = grid.unit_vec(cx, cy);
             let too_close = kept.iter().any(|&k| {

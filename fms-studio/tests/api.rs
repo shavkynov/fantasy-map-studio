@@ -158,3 +158,95 @@ fn api_lod_projection_roundtrip_and_deep_region() {
         assert!(svg_txt.contains("id=\"layer-legend\""), "{st} SVG missing legend");
     }
 }
+
+#[test]
+fn api_audit_regressions_region_inspect_downloads_clamps_and_ui() {
+    let app = StudioApp::new().expect("init studio app");
+
+    // 1. UI HTML: нет падающих showBanner/hideBanner и есть escapeHtml + showToast
+    let html_res = app.handle_get("/", &HashMap::new());
+    assert_eq!(html_res.status, 200);
+    let html = String::from_utf8(html_res.body).expect("utf8 html");
+    assert!(html.contains("function escapeHtml("), "missing XSS escapeHtml helper");
+    assert!(html.contains("function showToast("), "missing toast helper");
+    assert!(!html.contains("showBanner("), "broken undefined showBanner reference remains");
+    assert!(!html.contains("hideBanner"), "broken undefined hideBanner reference remains");
+
+    let mut civ_q = HashMap::new();
+    civ_q.insert("seed".into(), "e".into());
+    civ_q.insert("w".into(), "180".into());
+    civ_q.insert("style".into(), "sepia".into());
+    civ_q.insert("civ_realms".into(), "1".into());
+    civ_q.insert("civ_cities".into(), "1".into());
+    civ_q.insert("civ_routes".into(), "1".into());
+
+    // 2. Ленивый экспорт SVG/PNG для мира и региона
+    let dl_wsvg = app.handle_get("/api/world/download.svg", &civ_q);
+    assert_eq!(dl_wsvg.status, 200);
+    let wsvg = String::from_utf8(dl_wsvg.body).expect("utf8 wsvg");
+    assert!(wsvg.contains("data:image/png;base64,"), "standalone SVG must embed base64 PNG");
+
+    let dl_wpng = app.handle_get("/api/world/download.png", &civ_q);
+    assert_eq!(dl_wpng.status, 200);
+    assert_eq!(&dl_wpng.body[..8], b"\x89PNG\r\n\x1a\n");
+
+    let mut reg_q = civ_q.clone();
+    reg_q.insert("lat".into(), "0.0".into());
+    reg_q.insert("lon".into(), "0.0".into());
+    reg_q.insert("span".into(), "20".into());
+    reg_q.insert("scale".into(), "4".into());
+    reg_q.insert("target_w".into(), "800".into());
+
+    let dl_rsvg = app.handle_get("/api/region/download.svg", &reg_q);
+    assert_eq!(dl_rsvg.status, 200);
+    let rsvg = String::from_utf8(dl_rsvg.body).expect("utf8 rsvg");
+    assert!(rsvg.contains("data:image/png;base64,"));
+
+    let dl_rpng = app.handle_get("/api/region/download.png", &reg_q);
+    assert_eq!(dl_rpng.status, 200);
+    assert_eq!(&dl_rpng.body[..8], b"\x89PNG\r\n\x1a\n");
+
+    // 3. Инспекция в режиме region работает по региональным координатам
+    let mut ri_q = reg_q.clone();
+    ri_q.insert("mode".into(), "region".into());
+    ri_q.insert("px".into(), "400".into());
+    ri_q.insert("py".into(), "250".into());
+    let ri_res = app.handle_get("/api/inspect", &ri_q);
+    assert_eq!(ri_res.status, 200);
+    let ri_json = String::from_utf8(ri_res.body).expect("utf8 reg inspect");
+    assert!(ri_json.contains("\"in_bounds\":true"), "reg_inspect={ri_json}");
+
+    // 4. Широкие физические ползунки (water_depth 1.9 vs 3.3, activity 0.55 vs 1.45) не зажимаются сервером и реально меняют мир
+    let mut shallow_q = HashMap::new();
+    shallow_q.insert("seed".into(), "e".into());
+    shallow_q.insert("w".into(), "180".into());
+    shallow_q.insert("water_depth".into(), "1.90".into());
+    shallow_q.insert("activity".into(), "0.55".into());
+    let shallow_world = String::from_utf8(app.handle_get("/api/world", &shallow_q).body).unwrap();
+    assert!(shallow_world.contains("water_depth=1.900"), "world={shallow_world}");
+    assert!(shallow_world.contains("activity=0.550"), "world={shallow_world}");
+
+    let mut deep_q = shallow_q.clone();
+    deep_q.insert("water_depth".into(), "3.30".into());
+    deep_q.insert("activity".into(), "1.45".into());
+    let deep_world = String::from_utf8(app.handle_get("/api/world", &deep_q).body).unwrap();
+    assert!(deep_world.contains("water_depth=3.300"), "world={deep_world}");
+    assert!(deep_world.contains("activity=1.450"), "world={deep_world}");
+
+    let mut ins_sh = shallow_q.clone();
+    ins_sh.insert("lat".into(), "10".into());
+    ins_sh.insert("lon".into(), "20".into());
+    let ins_sh_json = String::from_utf8(app.handle_get("/api/inspect", &ins_sh).body).unwrap();
+
+    let mut ins_dp = deep_q.clone();
+    ins_dp.insert("lat".into(), "10".into());
+    ins_dp.insert("lon".into(), "20".into());
+    let ins_dp_json = String::from_utf8(app.handle_get("/api/inspect", &ins_dp).body).unwrap();
+
+    let (elev_sh, _) = extract_pair(&ins_sh_json, "elevation_m").unwrap();
+    let (elev_dp, _) = extract_pair(&ins_dp_json, "elevation_m").unwrap();
+    assert!(
+        (elev_sh - elev_dp).abs() > 200.0,
+        "expected wide water_depth/activity range to change elevation: shallow={elev_sh}, deep={elev_dp}"
+    );
+}
