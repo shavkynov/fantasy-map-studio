@@ -1,0 +1,49 @@
+# Контекст ИИ-агентов: не индексировать и не искать (синтаксис .gitignore)
+
+# Сборка и артефакты компиляции
+target/
+dist/
+*.app/
+*.rlib
+*.rmeta
+*.o
+*.a
+*.d
+*.pdb
+*.exe
+*.dll
+*.so
+*.dylib
+**/*.rs.bk
+
+# Сгенерированные карты и атласы (в т.ч. файлы с префиксом в корне: out_atlas_world_sepia.png)
+out_atlas*
+atlas_out*
+*.png
+*.svg
+*.jpg
+*.jpeg
+*.ppm
+*.zip
+*.tar.gz
+
+# Бинарные ассеты рендерера
+*.rgba
+fms-render/assets/
+
+# Lock-файл и VCS
+Cargo.lock
+.git/
+
+# Временные файлы ОС и IDE
+.DS_Store
+Thumbs.db
+desktop.ini
+*.tmp
+*.swp
+*.swo
+*~
+*.log
+.idea/
+.vscode/
+.vs/
