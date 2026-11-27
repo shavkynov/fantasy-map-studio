@@ -1,5 +1,5 @@
 //! Экспорт карты мира и регионального зума 4× в PNG и многослойный SVG.
-//! Запуск: `cargo run --release -p fms-render --example atlas -- [seed] [prefix] [expedition|painted|all]`
+//! Запуск: `cargo run --release -p fms-render --example atlas -- [seed] [prefix] [sepia|ink|color|all]`
 
 use fms_core::planet;
 use fms_core::region;

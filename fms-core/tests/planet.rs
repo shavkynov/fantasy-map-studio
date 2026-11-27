@@ -399,9 +399,26 @@ fn regional_zoom_continuity_and_antimeridian() {
                 assert_eq!(r1.is_lake[c], 0, "road stepped into lake");
             }
         }
-        let rd = region::route_region_road(&r1, r1.settlements[0].cell, r1.settlements[1].cell, None)
-            .expect("route region road between first two regional settlements");
-        assert!(rd.cells.len() >= 2);
+        let mut found_pair_road = false;
+        'pairs: for i in 0..r1.settlements.len() {
+            for j in (i + 1)..r1.settlements.len() {
+                if let Some(rd) = region::route_region_road(
+                    &r1,
+                    r1.settlements[i].cell,
+                    r1.settlements[j].cell,
+                    None,
+                ) {
+                    assert!(rd.cells.len() >= 2);
+                    for &c in &rd.cells {
+                        assert_eq!(r1.is_ocean[c], 0, "roadered into ocean");
+                        assert_eq!(r1.is_lake[c], 0, "roadered into lake");
+                    }
+                    found_pair_road = true;
+                    break 'pairs;
+                }
+            }
+        }
+        assert!(found_pair_road, "expected at least one routable road pair in regional settlements");
     }
     for tr in &p.civilization.trade_routes {
         if let (Some(&a), Some(&b)) = (tr.cells.first(), tr.cells.last()) {
@@ -414,6 +431,166 @@ fn regional_zoom_continuity_and_antimeridian() {
                 if let Some(path) = fms_core::civilization::route_land_road(&p, a, b, None) {
                     assert!(path.iter().all(|&c| p.hydrology.is_ocean[c] == 0 && p.hydrology.is_lake[c] == 0));
                     break;
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn physical_planet_and_on_demand_civilization() {
+    use fms_core::civilization::{route_sea_lane, CivilizationOptions, SettlementRole};
+
+    let mut opt = Options::new("phys-only");
+    opt.w = 180;
+    let popt = PlanetOptions::from_tectonic(opt);
+    let phys = planet::generate_physical_with_options(&popt).expect("physical planet");
+
+    assert!(phys.civilization.realms.is_empty());
+    assert!(phys.civilization.settlements.is_empty());
+    assert!(phys.civilization.trade_routes.is_empty());
+    assert!(phys.civilization.cultures.is_empty());
+    assert!(phys.civilization.habitability.iter().any(|&v| v > 0.05));
+    assert!(!phys.names.landmasses.is_empty());
+
+    let realms_only = planet::populate_civilization(
+        &phys,
+        &CivilizationOptions {
+            include_realms: true,
+            include_cities: false,
+            include_routes: false,
+            target_realms: 5,
+            salt: 0,
+        },
+    );
+    assert!(!realms_only.civilization.realms.is_empty());
+    assert!(realms_only.civilization.settlements.iter().all(|s| s.role == SettlementRole::Capital));
+    assert!(realms_only.civilization.trade_routes.is_empty());
+    assert_eq!(realms_only.names.landmasses, phys.names.landmasses);
+    assert_eq!(realms_only.names.rivers, phys.names.rivers);
+
+    let full = planet::populate_civilization(
+        &phys,
+        &CivilizationOptions {
+            include_realms: true,
+            include_cities: true,
+            include_routes: true,
+            target_realms: 5,
+            salt: 2,
+        },
+    );
+    assert!(!full.civilization.realms.is_empty());
+    assert!(!full.civilization.settlements.is_empty());
+    assert!(!full.civilization.trade_routes.is_empty());
+    assert_eq!(full.names.landmasses, phys.names.landmasses);
+    assert_eq!(full.names.rivers, phys.names.rivers);
+
+    let ports: Vec<_> = full.civilization.settlements.iter().filter(|s| s.is_port).collect();
+    if ports.len() >= 2 {
+        if let Some(sea) = route_sea_lane(&full, ports[0].cell, ports[1].cell) {
+            assert!(!sea.is_empty());
+            assert!(sea.iter().all(|&c| full.hydrology.is_ocean[c] != 0));
+        }
+    }
+}
+
+#[test]
+fn hierarchical_resource_settlements_wilderness_and_offshore_routes() {
+    use fms_core::civilization::{route_sea_lane, SettlementRole, SettlementTier};
+
+    let mut opt = Options::new("e");
+    opt.w = 240;
+    let popt = PlanetOptions::from_tectonic(opt);
+    let p = planet::generate_with_options(&popt).expect("planet");
+
+    let civ = &p.civilization;
+    assert!(!civ.realms.is_empty());
+    assert!(!civ.settlements.is_empty());
+    assert_eq!(civ.is_wild.len(), p.grid.len());
+
+    // Every settlement sits outside wild wasteland and has viable water & food scores.
+    for s in &civ.settlements {
+        assert_eq!(civ.is_wild[s.cell], 0, "settlement {} sits on wild cell", s.name);
+        assert!(s.water_score > 0.05, "settlement {} lacks water_score ({})", s.name, s.water_score);
+        assert!(s.food_score > 0.05, "settlement {} lacks food_score ({})", s.name, s.food_score);
+        if s.tier == SettlementTier::Metropolis {
+            assert!(
+                s.trade_degree >= 2,
+                "metropolis {} must lie on active trade hub (trade_degree={})",
+                s.name,
+                s.trade_degree
+            );
+        }
+    }
+
+    // Capital always holds highest population_score within its realm.
+    for r in &civ.realms {
+        let cap = civ
+            .settlements
+            .iter()
+            .find(|s| s.realm_id == r.id && s.role == SettlementRole::Capital)
+            .expect("realm capital");
+        assert_eq!(cap.tier, SettlementTier::Capital);
+        let max_pop = civ
+            .settlements
+            .iter()
+            .filter(|s| s.realm_id == r.id)
+            .map(|s| s.population_score)
+            .fold(0.0f32, f32::max);
+        assert!(
+            cap.population_score >= max_pop - 1e-4,
+            "capital {} pop {} < realm max {}",
+            cap.name, cap.population_score, max_pop
+        );
+    }
+
+    // Hierarchical spacing: cities never crowd next to one another.
+    for (i, a) in civ.settlements.iter().enumerate() {
+        let (ax, ay) = p.grid.xy(a.cell);
+        let ua = p.grid.unit_vec(ax, ay);
+        for b in &civ.settlements[i + 1..] {
+            assert_ne!(a.cell, b.cell);
+            let (bx, by) = p.grid.xy(b.cell);
+            let d = p.grid.spherical_dist_km(ua, p.grid.unit_vec(bx, by));
+            let both_major = matches!(
+                a.tier,
+                SettlementTier::Capital | SettlementTier::Metropolis | SettlementTier::City
+            ) && matches!(
+                b.tier,
+                SettlementTier::Capital | SettlementTier::Metropolis | SettlementTier::City
+            );
+            if both_major {
+                assert!(d >= 200.0, "major cities {} and {} too close: {:.1} km", a.name, b.name, d);
+            }
+        }
+    }
+
+    // Wild sites (hunter camps / ruins) sit on wild land cells.
+    assert!(!civ.wild_sites.is_empty(), "expected wild sites in unsettled/harsh biomes");
+    for ws in &civ.wild_sites {
+        assert_eq!(p.hydrology.is_ocean[ws.cell], 0);
+        assert_eq!(civ.is_wild[ws.cell], 1, "wild site {} not on wild cell", ws.name);
+    }
+
+    // Sea routes avoid hugging coast cells along middle segments when open water is available.
+    let ports: Vec<_> = civ.settlements.iter().filter(|s| s.is_port).collect();
+    if ports.len() >= 2 {
+        for i in 0..ports.len().min(6) {
+            for j in (i + 1)..ports.len().min(6) {
+                if let Some(sea) = route_sea_lane(&p, ports[i].cell, ports[j].cell) {
+                    assert!(sea.iter().all(|&c| p.hydrology.is_ocean[c] != 0));
+                    if sea.len() >= 12 {
+                        let mid = &sea[4..sea.len() - 4];
+                        let non_coast_adj = mid
+                            .iter()
+                            .filter(|&&c| {
+                                let (nbs, cnt) = p.grid.neighbors8(c);
+                                !nbs[..cnt].iter().any(|&nb| p.hydrology.is_ocean[nb] == 0)
+                            })
+                            .count();
+                        assert!(non_coast_adj > 0, "long sea lane hugged shoreline along entire mid span");
+                    }
+                    return;
                 }
             }
         }

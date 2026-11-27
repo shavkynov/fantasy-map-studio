@@ -269,7 +269,7 @@ fn main() {
     for tr in &p.civilization.trade_routes {
         for &seg in &tr.segments {
             match seg {
-                RouteKind::Road => seg_road += 1,
+                RouteKind::Road | RouteKind::WildTrail => seg_road += 1,
                 RouteKind::Riverway => seg_river += 1,
                 RouteKind::SeaLane => seg_sea += 1,
             }

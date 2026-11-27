@@ -3,12 +3,18 @@ set -euo pipefail
 
 TARGET="${TARGET:-aarch64-apple-darwin}"
 export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-12.0}"
-VERSION="${VERSION:-0.1.0}"
-if [ "$TARGET" = "aarch64-apple-darwin" ]; then
-  ARCH_TAG="arm64"
-else
-  ARCH_TAG="${TARGET%%-*}"
-fi
+VERSION="${VERSION:-0.90.0}"
+case "$TARGET" in
+  aarch64-apple-darwin)
+    ARCH_TAG="arm64"
+    ;;
+  x86_64-apple-darwin)
+    ARCH_TAG="intel"
+    ;;
+  *)
+    ARCH_TAG="${TARGET%%-*}"
+    ;;
+esac
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 APP_NAME="Fantasy Map Studio.app"
@@ -143,7 +149,7 @@ sips -z 128 128   "$ICONSET_DIR/icon_512x512@2x.png" --out "$ICONSET_DIR/icon_12
 sips -z 256 256   "$ICONSET_DIR/icon_512x512@2x.png" --out "$ICONSET_DIR/icon_128x128@2x.png" >/dev/null
 sips -z 256 256   "$ICONSET_DIR/icon_512x512@2x.png" --out "$ICONSET_DIR/icon_256x256.png" >/dev/null
 sips -z 512 512   "$ICONSET_DIR/icon_512x512@2x.png" --out "$ICONSET_DIR/icon_256x256@2x.png" >/dev/null
-cp "$ICONSET_DIR/icon_512x512@2x.png" "$ICONSET_DIR/icon_512x512.png"
+sips -z 512 512   "$ICONSET_DIR/icon_512x512@2x.png" --out "$ICONSET_DIR/icon_512x512.png" >/dev/null
 
 iconutil -c icns "$ICONSET_DIR" -o "$RES_DIR/AppIcon.icns"
 rm -rf "$ICONSET_TMP"
@@ -161,10 +167,21 @@ ditto -c -k --sequesterRsrc --keepParent "$APP_DIR" "$ZIP_PATH"
 DMG_STAGE="$(mktemp -d /tmp/fms_dmg.XXXXXX)"
 ditto "$APP_DIR" "$DMG_STAGE/$APP_NAME"
 ln -s /Applications "$DMG_STAGE/Applications"
-hdiutil create -volname "Fantasy Map Studio" -srcfolder "$DMG_STAGE" -ov -format UDZO "$DMG_PATH" >/dev/null
+DMG_OK=0
+for attempt in 1 2 3; do
+  if hdiutil create -volname "Fantasy Map Studio" -srcfolder "$DMG_STAGE" -ov -format UDZO "$DMG_PATH" >/dev/null; then
+    DMG_OK=1
+    break
+  fi
+  sleep 2
+done
 rm -rf "$DMG_STAGE"
+if [ "$DMG_OK" -ne 1 ]; then
+  echo "hdiutil create failed after 3 attempts" >&2
+  exit 1
+fi
 
-(cd "$DIST_DIR" && shasum -a 256 "$(basename "$ZIP_PATH")" "$(basename "$DMG_PATH")" > SHA256SUMS.txt)
+(cd "$DIST_DIR" && shasum -a 256 "$(basename "$ZIP_PATH")" "$(basename "$DMG_PATH")" > "SHA256SUMS-${ARCH_TAG}.txt")
 
 echo "Готово:"
 echo "  App: $APP_DIR ($(du -sh "$APP_DIR" | awk '{print $1}'))"

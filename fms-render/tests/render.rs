@@ -1,4 +1,4 @@
-use fms_core::planet;
+use fms_core::planet::{self, PlanetOptions};
 use fms_core::region;
 use fms_core::tectonic::Options;
 use fms_render::{
@@ -31,12 +31,16 @@ fn render_world_and_region_both_styles_png_and_svg() {
         assert_eq!(&w_png[..8], &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]);
         let w_svg = w_out.to_svg_standalone(&pack);
         assert!(w_svg.contains("<svg "));
-        assert!(w_svg.contains("id=\"layer-labels\""));
-        assert!(w_svg.contains("id=\"layer-compass\""));
+        assert!(w_svg.contains("id=\"layer-water-detail\""));
+        assert!(w_svg.contains("id=\"layer-rivers\""));
+        assert!(w_svg.contains("id=\"layer-coast\""));
+        assert!(w_svg.contains("id=\"layer-relief\""));
+        assert!(w_svg.contains("id=\"layer-forests\""));
         assert!(w_svg.contains("id=\"layer-currents\""));
         assert!(w_svg.contains("id=\"layer-deposits\""));
+        assert!(w_svg.contains("id=\"layer-pois\""));
+        assert!(w_svg.contains("id=\"layer-labels\""));
         assert!(w_svg.contains("id=\"layer-legend\""));
-        assert!(w_svg.contains("oceanArc"));
 
         let r_out = render_region_with_options(
             &planet,
@@ -64,7 +68,7 @@ fn render_is_deterministic() {
     opt.w = 180;
     let p = planet::generate(&opt).expect("planet");
     let ro = RenderOptions {
-        style: Style::Expedition,
+        style: Style::Sepia,
         target_width: 520,
         title: None,
     };
@@ -98,7 +102,7 @@ fn six_continents_projection_frame_invertible() {
         "e",
         &pack,
         &RenderOptions {
-            style: Style::Expedition,
+            style: Style::Sepia,
             target_width: 900,
             title: None,
         },
@@ -108,46 +112,76 @@ fn six_continents_projection_frame_invertible() {
 }
 
 #[test]
-fn sketch_style_parchment_pencil_invariants() {
+fn classic_089_styles_invariants() {
     let pack = AssetPack::load_default().expect("assets must load");
     let mut opt = Options::new("smoke");
     opt.w = 180;
-    let planet = planet::generate(&opt).expect("planet");
-    let out = render_world_with_options(
-        &planet,
+    let phys = planet::generate_physical_with_options(&PlanetOptions::from_tectonic(opt)).expect("physical planet");
+
+    // Сепия на чистой физической планете (без границ и городов)
+    let sepia = render_world_with_options(
+        &phys,
         "smoke",
         &pack,
         &RenderOptions {
-            style: Style::Sketch,
-            target_width: 960,
+            style: Style::Sepia,
+            target_width: 800,
             title: None,
         },
     );
-
-    let mut warm_paper_px = 0usize;
-    let mut dark_pencil_px = 0usize;
-    for px in out.base_rgb.chunks_exact(3) {
-        let [r, g, b] = [px[0], px[1], px[2]];
-        assert!(
-            (r as i16 - b as i16).abs() <= 45,
-            "sketch pixel too saturated: rgb=({r},{g},{b})"
-        );
-        if r >= g && g >= b && r > 225 {
-            warm_paper_px += 1;
-        }
-        if r < 110 && g < 110 && b < 110 {
-            dark_pencil_px += 1;
+    let mut warm_paper = 0usize;
+    for px in sepia.base_rgb.chunks_exact(3) {
+        if px[0] >= px[1] && px[1] >= px[2] && px[0] > 180 {
+            warm_paper += 1;
         }
     }
-    assert!(warm_paper_px > 50_000, "expected warm parchment area, got {warm_paper_px}");
-    assert!(dark_pencil_px > 1_000, "expected crisp pencil strokes, got {dark_pencil_px}");
+    assert!(warm_paper > 40_000, "expected sepia paper, got {warm_paper}");
+    let sepia_svg = sepia.to_svg_standalone(&pack);
+    assert!(sepia_svg.contains("id=\"layer-water-detail\""));
+    assert!(sepia_svg.contains("<rect "));
+    let b_start = sepia_svg.find("id=\"layer-borders\"").unwrap();
+    let b_end = sepia_svg[b_start..].find("</g>").unwrap();
+    assert!(!sepia_svg[b_start..b_start + b_end].contains("<path "));
 
-    let svg = out.to_svg_standalone(&pack);
-    assert!(svg.contains("id=\"layer-legend\""));
-    let cur_start = svg.find("id=\"layer-currents\"").expect("currents group");
-    let cur_end = svg[cur_start..].find("</g>").expect("currents group close");
-    assert!(
-        !svg[cur_start..cur_start + cur_end].contains("<line "),
-        "sketch style must omit ocean current arrows"
+    // Ч/Б: монохром, ореолы и отсутствие рамки
+    let ink = render_world_with_options(
+        &phys,
+        "smoke",
+        &pack,
+        &RenderOptions {
+            style: Style::Ink,
+            target_width: 800,
+            title: None,
+        },
     );
+    for px in ink.flat_rgb.chunks_exact(3) {
+        assert!((px[0] as i16 - px[2] as i16).abs() <= 14, "ink pixel not bw: {:?}", px);
+    }
+    let ink_svg = ink.to_svg_standalone(&pack);
+    let fr_start = ink_svg.find("id=\"layer-frame\"").unwrap();
+    let fr_end = ink_svg[fr_start..].find("</g>").unwrap();
+    assert!(!ink_svg[fr_start..fr_start + fr_end].contains("<rect "), "Ink theme must omit frame");
+
+    // Цветной: голубая вода и зелёно-охристая суша
+    let color = render_world_with_options(
+        &phys,
+        "smoke",
+        &pack,
+        &RenderOptions {
+            style: Style::Color,
+            target_width: 800,
+            title: None,
+        },
+    );
+    let mut blue_ocean = 0usize;
+    let mut green_land = 0usize;
+    for px in color.base_rgb.chunks_exact(3) {
+        if px[2] > px[0].saturating_add(25) {
+            blue_ocean += 1;
+        }
+        if px[1] > px[2].saturating_add(15) {
+            green_land += 1;
+        }
+    }
+    assert!(blue_ocean > 20_000 && green_land > 10_000, "expected ocean {blue_ocean} and land {green_land}");
 }

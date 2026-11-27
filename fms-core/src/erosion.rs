@@ -213,7 +213,8 @@ pub fn erode_with_params(
                         sum_nb += h[nb].max(0.0);
                     }
                     let avg_nb = sum_nb / cnt as f64;
-                    h_next[c] = (h[c] + params.hillslope_diff * (avg_nb - h[c])).max(0.001);
+                    let coast_keep = 0.22 + 0.78 * ((h[c] - 0.05) / 0.35).clamp(0.0, 1.0);
+                    h_next[c] = (h[c] + params.hillslope_diff * coast_keep * (avg_nb - h[c])).max(0.001);
                 }
             }
             h.copy_from_slice(&h_next);

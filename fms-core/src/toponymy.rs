@@ -2,7 +2,7 @@
 //! лингвистической изоляции и типов географических объектов.
 
 use crate::biomes::{Biome, Biomes};
-use crate::civilization::{Civilization, CultureEthos, Livelihood, SettlementRole};
+use crate::civilization::{Civilization, CultureEthos, Livelihood, SettlementRole, WildSiteKind};
 use crate::geography::Geography;
 use crate::grid::Grid;
 use crate::hydrology::Hydrology;
@@ -232,6 +232,32 @@ pub fn settlement_name(
         }
     }
     generate_proper_name(profile, rng, 2, 3, used)
+}
+
+/// Генерирует атмосферное название стоянки охотников или древних руин в диких землях.
+pub fn wild_site_name(
+    profile: u8,
+    kind: WildSiteKind,
+    rng: &mut Rng,
+    used: &mut HashSet<String>,
+) -> String {
+    let camp_prefixes = ["Стан", "Зимовье", "Заимка", "Стоянка"];
+    let ruin_prefixes = ["Руины", "Городище", "Курган", "Святилище"];
+    let pool = match kind {
+        WildSiteKind::HunterCamp => &camp_prefixes[..],
+        WildSiteKind::Ruins => &ruin_prefixes[..],
+    };
+    for _ in 0..24 {
+        let stem = build_stem(profile, rng, 2, 2);
+        let pref = pick_str(pool, rng);
+        let cand = format!("{pref} {stem}");
+        if !used.contains(&cand) {
+            used.insert(cand.clone());
+            return cand;
+        }
+    }
+    let stem = generate_proper_name(profile, rng, 2, 3, used);
+    format!("{} {}", pool[0], stem)
 }
 
 /// Формирует название государства по его культурному укладу и экономике.

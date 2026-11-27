@@ -3,7 +3,7 @@
 //! притока глобальных рек, локальная эрозия FastScape, детальная гидрология и местные поселения.
 
 use crate::biomes::{classify_land_biome, Biome};
-use crate::civilization::SettlementRole;
+use crate::civilization::{SettlementRole, SettlementTier};
 use crate::grid::slope_field;
 use crate::hydrology::{evap_rate_m_yr, meander_smooth_river, FlowRegime, MouthKind, River, Waterfall};
 use crate::planet::Planet;
@@ -105,6 +105,7 @@ pub struct RegionSettlement {
     pub x: usize,
     pub y: usize,
     pub role: SettlementRole,
+    pub tier: SettlementTier,
     pub is_port: bool,
     pub river_access: bool,
 }
@@ -2207,6 +2208,7 @@ pub fn generate_region(planet: &Planet, opt: &RegionOptions) -> Result<Region, S
                 x: c % w,
                 y: c / w,
                 role: s.role,
+                tier: s.tier,
                 is_port: s.is_port,
                 river_access: s.river_access || river_mask[c] != 0,
             });

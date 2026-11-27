@@ -1,0 +1,197 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v0.90.0)'
+        required: true
+        default: 'v0.90.0'
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    name: macOS (${{ matrix.arch }})
+    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            arch: arm64
+            run_tests: true
+          - target: x86_64-apple-darwin
+            arch: intel
+            run_tests: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Determine release version
+        shell: bash
+        run: |
+          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
+      - name: Run release test suite (macOS arm64)
+        if: matrix.run_tests
+        run: RUSTFLAGS="-D warnings" cargo test --release
+      - name: Build & package macOS bundle (${{ matrix.arch }})
+        run: TARGET="${{ matrix.target }}" VERSION="$VERSION" ./fms-studio/scripts/bundle_macos.sh
+      - name: Verify Mach-O architecture
+        run: |
+          file "Fantasy Map Studio.app/Contents/MacOS/fms-studio"
+          ls -lh dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-macos-${{ matrix.arch }}
+          path: |
+            dist/FantasyMapStudio-${{ env.VERSION }}-macos-${{ matrix.arch }}.dmg
+            dist/FantasyMapStudio-${{ env.VERSION }}-macos-${{ matrix.arch }}.zip
+          if-no-files-found: error
+
+  build-windows:
+    name: Windows (x64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Determine release version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          "VERSION=$($tag.TrimStart('v'))" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Test and build Windows x64 binary
+        shell: pwsh
+        run: |
+          $env:RUSTFLAGS = "-D warnings"
+          cargo test --release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo build --release -p fms-studio
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Package Windows x64 zip
+        shell: pwsh
+        run: |
+          $ver = $env:VERSION
+          $pkgName = "FantasyMapStudio-$ver-windows-x64"
+          $stage = Join-Path "dist/stage" $pkgName
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item "target/release/fms-studio.exe" (Join-Path $stage "fms-studio.exe")
+          Copy-Item -Recurse "fms-render/assets" (Join-Path $stage "assets")
+          @"
+          Fantasy Map Studio v$ver (Windows x64)
+
+          Launch:
+            Double-click fms-studio.exe to start the local studio and open your browser.
+
+          CLI options:
+            fms-studio.exe --web --port 7878
+            fms-studio.exe --no-browser
+          "@ | Set-Content -Path (Join-Path $stage "README.txt") -Encoding UTF8
+          $zipPath = "dist/$pkgName.zip"
+          Compress-Archive -Path $stage -DestinationPath $zipPath -Force
+          Get-ChildItem dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-windows-x64
+          path: dist/FantasyMapStudio-${{ env.VERSION }}-windows-x64.zip
+          if-no-files-found: error
+
+  build-linux:
+    name: Linux (x64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Determine release version
+        shell: bash
+        run: |
+          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
+      - name: Test and build Linux x64 binary
+        run: |
+          RUSTFLAGS="-D warnings" cargo test --release
+          RUSTFLAGS="-D warnings" cargo build --release -p fms-studio
+          strip target/release/fms-studio
+      - name: Package Linux x64 tar.gz
+        run: |
+          PKG="FantasyMapStudio-${VERSION}-linux-x64"
+          STAGE="dist/stage/${PKG}"
+          mkdir -p "$STAGE"
+          cp target/release/fms-studio "$STAGE/fms-studio"
+          chmod +x "$STAGE/fms-studio"
+          cp -R fms-render/assets "$STAGE/assets"
+          cat > "$STAGE/run-studio.sh" << 'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          exec "$(cd "$(dirname "$0")" && pwd)/fms-studio" "$@"
+          SH
+          chmod +x "$STAGE/run-studio.sh"
+          cat > "$STAGE/README.txt" << TXT
+          Fantasy Map Studio v${VERSION} (Linux x64)
+
+          Launch:
+            ./run-studio.sh   (starts studio and opens default browser)
+
+          CLI options:
+            ./fms-studio --web --port 7878
+            ./fms-studio --no-browser
+          TXT
+          tar -C dist/stage -czf "dist/${PKG}.tar.gz" "${PKG}"
+          ls -lh dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-linux-x64
+          path: dist/FantasyMapStudio-${{ env.VERSION }}-linux-x64.tar.gz
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [build-macos, build-windows, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: true
+      - name: Generate SHA256SUMS & Release notes
+        shell: bash
+        run: |
+          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          VERSION="${TAG#v}"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          (cd release-artifacts && sha256sum * > SHA256SUMS.txt)
+          ls -lh release-artifacts/
+          cat > release-notes.md << EOF
+          # Fantasy Map Studio ${TAG}
+
+          ## Основные изменения
+          - **Классическое оформление «от руки» (линейка 0.89.0):** три стиля (`Сепия`, `Ч/Б`, `Цветной`), деликатная северо-западная светотень, прерывистые горизонтали рельефа и увалы на внутренних равнинах без визуального шума.
+          - **Минималистичный интерфейс и управление:** генерация стран, городов и торговых путей по команде пользователя, кликабельные иконки поселений без цветных кругов, карточка поселения с ресурсной корзиной и переходом в окрестности (`4×`).
+          - **Ресурсная география и дикие земли:** ресурсно-торговая иерархия поселений (`Столица`, `Крупный торговый город`, `Город`, `Посёлок`, `Село`), дистанционная фильтрация, стоянки охотников и древние руины в диких биомах.
+          - **Навигация и маршруты:** морские пути с офшорным отводом от берега и конструктор пользовательских дорог «от точки до точки».
+
+          ## Сборки по платформам
+          - **macOS (Apple Silicon arm64):** \`FantasyMapStudio-${VERSION}-macos-arm64.dmg\` / \`.zip\`
+          - **macOS (Intel x86_64):** \`FantasyMapStudio-${VERSION}-macos-intel.dmg\` / \`.zip\`
+          - **Windows (x64):** \`FantasyMapStudio-${VERSION}-windows-x64.zip\` (распаковать и запустить \`fms-studio.exe\`)
+          - **Linux (x64):** \`FantasyMapStudio-${VERSION}-linux-x64.tar.gz\` (распаковать и запустить \`./run-studio.sh\`)
+          EOF
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release-artifacts/* --clobber
+            gh release edit "$TAG" --title "Fantasy Map Studio ${TAG}" --notes-file release-notes.md --draft=false --latest
+          else
+            gh release create "$TAG" release-artifacts/* --title "Fantasy Map Studio ${TAG}" --notes-file release-notes.md --latest
+          fi

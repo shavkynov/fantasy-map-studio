@@ -1,4 +1,4 @@
-use fms_studio::server::{serve, StudioConfig};
+use fms_studio::server::StudioConfig;
 
 fn main() {
     let mut port: u16 = 7878;
@@ -8,7 +8,7 @@ fn main() {
     let mut i = 1usize;
     while i < args.len() {
         match args[i].as_str() {
-            "--web" => {
+            "--web" | "--no-browser" => {
                 force_web = true;
                 i += 1;
             }
@@ -31,18 +31,27 @@ fn main() {
     }
 
     #[cfg(target_os = "macos")]
-    if !force_web {
-        if let Err(e) = fms_studio::desktop::run() {
-            eprintln!("fms-studio desktop error: {e}");
+    {
+        if !force_web {
+            if let Err(e) = fms_studio::desktop::run() {
+                eprintln!("fms-studio desktop error: {e}");
+                std::process::exit(1);
+            }
+            return;
+        }
+        let cfg = StudioConfig { host, port };
+        if let Err(e) = fms_studio::server::serve(cfg) {
+            eprintln!("fms-studio error: {e}");
             std::process::exit(1);
         }
-        return;
     }
 
-    let _ = force_web;
-    let cfg = StudioConfig { host, port };
-    if let Err(e) = serve(cfg) {
-        eprintln!("fms-studio error: {e}");
-        std::process::exit(1);
+    #[cfg(not(target_os = "macos"))]
+    {
+        let cfg = StudioConfig { host, port };
+        if let Err(e) = fms_studio::server::serve_with_browser(cfg, !force_web) {
+            eprintln!("fms-studio error: {e}");
+            std::process::exit(1);
+        }
     }
 }

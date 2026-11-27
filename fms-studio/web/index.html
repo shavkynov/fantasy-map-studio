@@ -1,537 +1,648 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Fantasy Map Studio — Картографическая мастерская</title>
-  <style>
-    :root {
-      --bg: #12100d;
-      --panel: #1b1712;
-      --panel-alt: #241e17;
-      --border: #3a3024;
-      --border-gold: #8a6d3b;
-      --ink: #efe6d4;
-      --muted: #a69982;
-      --accent: #d4a656;
-      --accent-hover: #e5bb70;
-      --danger: #d96b52;
-      --ok: #7fb069;
-    }
-    * { box-sizing: border-box; }
-    html, body {
-      margin: 0;
-      padding: 0;
-      height: 100%;
-      background: var(--bg);
-      color: var(--ink);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-      font-size: 13px;
-      overflow: hidden;
-    }
-    .app {
-      display: grid;
-      grid-template-columns: 310px 1fr 310px;
-      grid-template-rows: 48px 1fr;
-      height: 100vh;
-    }
-    header {
-      grid-column: 1 / -1;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0 16px;
-      background: linear-gradient(180deg, #211c15, #17130e);
-      border-bottom: 1px solid var(--border);
-    }
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-family: Palatino, "Palatino Linotype", Georgia, serif;
-      font-size: 16px;
-      font-weight: 700;
-      letter-spacing: 0.4px;
-      color: var(--accent);
-    }
-    .brand small {
-      font-family: inherit;
-      font-size: 11px;
-      font-weight: 400;
-      color: var(--muted);
-    }
-    .top-actions {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .pill {
-      padding: 4px 10px;
-      border-radius: 999px;
-      background: var(--panel-alt);
-      border: 1px solid var(--border);
-      color: var(--muted);
-      font-size: 11.5px;
-    }
-    .pill strong { color: var(--ink); }
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fantasy Map Studio</title>
+<style>
+  :root {
+    --bg: #161513;
+    --glass: rgba(24, 23, 21, 0.84);
+    --glass-strong: rgba(22, 21, 19, 0.94);
+    --border: rgba(255, 245, 228, 0.12);
+    --border-strong: rgba(255, 245, 228, 0.22);
+    --text: #efe9dc;
+    --muted: #a69d8e;
+    --accent: #d39c4e;
+    --accent-soft: rgba(211, 156, 78, 0.18);
+    --danger: #d96b5b;
+    --shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+  }
 
-    aside {
-      background: var(--panel);
-      overflow-y: auto;
-      padding: 12px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-    aside.left { border-right: 1px solid var(--border); }
-    aside.right { border-left: 1px solid var(--border); }
+  /* Full-bleed viewport */
+  #viewport {
+    position: fixed; inset: 0;
+    overflow: hidden;
+    cursor: grab;
+    background: radial-gradient(circle at 50% 45%, #23211e 0%, #141311 100%);
+  }
+  #viewport.tool-road, #viewport.tool-marker { cursor: crosshair; }
+  #viewport.panning { cursor: grabbing !important; }
+  #panzoom {
+    position: absolute; left: 0; top: 0;
+    transform-origin: 0 0;
+    will-change: transform;
+  }
+  #map-stage {
+    position: relative;
+    line-height: 0;
+    filter: drop-shadow(0 20px 56px rgba(0, 0, 0, 0.65));
+  }
+  #map-stage svg { display: block; }
 
-    .card {
-      background: var(--panel-alt);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 10px 11px;
-    }
-    .card h3 {
-      margin: 0 0 8px 0;
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.8px;
-      color: var(--accent);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-    label.field {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      margin-bottom: 8px;
-      color: var(--muted);
-      font-size: 11.5px;
-    }
-    label.field:last-child { margin-bottom: 0; }
-    .row {
-      display: flex;
-      gap: 6px;
-      align-items: center;
-    }
-    .row-between {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    input[type="text"], input[type="number"], select {
-      width: 100%;
-      background: #14110d;
-      color: var(--ink);
-      border: 1px solid var(--border);
-      border-radius: 5px;
-      padding: 6px 8px;
-      font-size: 12.5px;
-      outline: none;
-    }
-    input[type="text"]:focus, select:focus {
-      border-color: var(--border-gold);
-    }
-    input[type="range"] {
-      width: 100%;
-      accent-color: var(--accent);
-      cursor: pointer;
-    }
-    button {
-      background: #2c241b;
-      color: var(--ink);
-      border: 1px solid var(--border-gold);
-      border-radius: 6px;
-      padding: 7px 10px;
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.12s, border-color 0.12s, transform 0.05s;
-    }
-    button:hover { background: #382e22; border-color: var(--accent); }
-    button:active { transform: translateY(1px); }
-    button.primary {
-      background: linear-gradient(180deg, #b88a44, #8f672b);
-      color: #15110b;
-      border-color: #e0b86b;
-    }
-    button.primary:hover {
-      background: linear-gradient(180deg, #cba058, #9f7535);
-    }
-    button.ghost {
-      background: transparent;
-      border-color: var(--border);
-      color: var(--muted);
-      font-weight: 500;
-    }
-    button.ghost:hover { color: var(--ink); border-color: var(--border-gold); }
-    button.active-tab {
-      background: #3d3020;
-      border-color: var(--accent);
-      color: var(--accent);
-    }
-    button:disabled { opacity: 0.45; cursor: not-allowed; }
+  /* Common floating glass surfaces */
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--glass);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 5px 8px;
+    box-shadow: var(--shadow);
+  }
+  .popover, .modal-card, .float-card {
+    background: var(--glass-strong);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    border: 1px solid var(--border-strong);
+    border-radius: 14px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+  }
 
-    .style-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 6px;
-    }
-    .style-grid button {
-      padding: 6px 4px;
-      font-size: 11.5px;
-    }
-    .layer-list {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 6px;
-    }
-    .chk {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 12px;
-      color: var(--ink);
-      cursor: pointer;
-      user-select: none;
-    }
-    .chk input { accent-color: var(--accent); }
+  button {
+    font: inherit;
+    color: var(--text);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    padding: 5px 11px;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    white-space: nowrap;
+  }
+  button:hover { background: rgba(255, 255, 255, 0.08); }
+  button.active {
+    background: var(--accent-soft);
+    color: #f6dcb0;
+    border-color: rgba(211, 156, 78, 0.45);
+  }
+  button.primary {
+    background: var(--accent);
+    color: #1a140b;
+    font-weight: 600;
+  }
+  button.primary:hover { background: #dfab60; }
+  button.subtle {
+    border-color: var(--border);
+    background: rgba(255, 255, 255, 0.04);
+  }
+  button.subtle:hover { background: rgba(255, 255, 255, 0.1); }
+  button.icon-btn {
+    padding: 5px 8px;
+    min-width: 28px;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .sep {
+    width: 1px; height: 18px;
+    background: var(--border);
+    margin: 0 2px;
+  }
+  .seed-badge {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    color: #e6dcc8;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.05);
+  }
+  .civ-badge {
+    font-size: 11.5px;
+    color: var(--muted);
+    margin-left: 4px;
+  }
+  .civ-badge.has-civ { color: #e8be7d; }
 
-    main.viewport {
-      position: relative;
-      background: radial-gradient(circle at center, #1e1913 0%, #0e0c09 100%);
-      overflow: hidden;
-      cursor: crosshair;
-      user-select: none;
-    }
-    #panzoom {
-      position: absolute;
-      top: 0;
-      left: 0;
-      transform-origin: 0 0;
-      will-change: transform;
-    }
-    #map-stage svg {
-      display: block;
-      width: 100%;
-      height: auto;
-      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.72);
-    }
-    .hud-bottom {
-      position: absolute;
-      left: 12px;
-      right: 12px;
-      bottom: 12px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      pointer-events: none;
-    }
-    .hud-group {
-      display: flex;
-      gap: 6px;
-      align-items: center;
-      background: rgba(20, 16, 12, 0.88);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 5px 8px;
-      backdrop-filter: blur(6px);
-      pointer-events: auto;
-      font-size: 11.5px;
-      color: var(--muted);
-    }
-    .hud-group strong { color: var(--ink); }
+  /* Floating Top Bar */
+  #topbar {
+    position: fixed;
+    top: 14px; left: 16px; right: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    pointer-events: none;
+    z-index: 30;
+  }
+  #topbar > * { pointer-events: auto; }
+  .bar-group {
+    position: relative;
+    display: flex; align-items: center; gap: 8px;
+  }
 
-    #loading-banner {
-      position: absolute;
-      top: 14px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: rgba(22, 18, 13, 0.94);
-      border: 1px solid var(--border-gold);
-      color: var(--accent);
-      padding: 7px 14px;
-      border-radius: 999px;
-      font-size: 12px;
-      font-weight: 600;
-      display: none;
-      align-items: center;
-      gap: 8px;
-      box-shadow: 0 6px 24px rgba(0,0,0,0.6);
-      z-index: 20;
-    }
-    #loading-banner.show { display: flex; }
-    .spinner {
-      width: 12px; height: 12px;
-      border: 2px solid rgba(212,166,86,0.3);
-      border-top-color: var(--accent);
-      border-radius: 50%;
-      animation: spin 0.7s linear infinite;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
+  /* Popovers */
+  .popover {
+    position: absolute;
+    top: calc(100% + 10px);
+    width: 290px;
+    padding: 14px;
+    display: none;
+    z-index: 40;
+  }
+  .popover.open { display: block; }
+  .popover.right { right: 0; }
+  .popover.center { left: 50%; transform: translateX(-50%); width: 320px; }
+  .pop-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin: 0 0 10px 0;
+  }
+  .pop-sub {
+    font-size: 12px;
+    color: var(--muted);
+    margin: -4px 0 10px 0;
+  }
+  .grid-2 {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 7px;
+  }
+  .chips {
+    display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px;
+  }
+  .chips button {
+    padding: 4px 9px; font-size: 12px;
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.03);
+  }
+  .chips button.active {
+    background: var(--accent-soft);
+    border-color: rgba(211, 156, 78, 0.55);
+  }
+  .btn-rect {
+    border-radius: 9px;
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.04);
+    text-align: center;
+    font-size: 12.5px;
+  }
+  .btn-rect:hover { background: rgba(255, 255, 255, 0.1); }
+  .btn-rect.primary-soft {
+    background: var(--accent-soft);
+    border-color: rgba(211, 156, 78, 0.45);
+    color: #f6dcb0;
+    font-weight: 600;
+  }
+  .btn-rect.primary-soft:hover { background: rgba(211, 156, 78, 0.28); }
+  .realms-list {
+    margin-top: 10px;
+    max-height: 175px;
+    overflow-y: auto;
+    border-top: 1px solid var(--border);
+    padding-top: 8px;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .realm-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 5px 8px; border-radius: 8px;
+    cursor: pointer; font-size: 12px;
+  }
+  .realm-item:hover { background: rgba(255, 255, 255, 0.07); }
+  .swatch {
+    display: inline-block; width: 9px; height: 9px; border-radius: 50%;
+    margin-right: 7px; border: 1px solid rgba(255,255,255,0.25);
+  }
 
-    .kv {
-      display: grid;
-      grid-template-columns: 118px 1fr;
-      gap: 4px 8px;
-      font-size: 12px;
-    }
-    .kv .k { color: var(--muted); }
-    .kv .v { color: var(--ink); font-weight: 500; text-align: right; word-break: break-word; }
+  /* Layer checkboxes */
+  .layers-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px;
+  }
+  label.chk {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 12.5px; color: var(--text); cursor: pointer;
+    padding: 2px 0;
+  }
+  label.chk input { accent-color: var(--accent); cursor: pointer; }
 
-    .res-bar {
-      display: grid;
-      grid-template-columns: 105px 1fr 34px;
-      align-items: center;
-      gap: 6px;
-      font-size: 11.5px;
-      margin-bottom: 4px;
-    }
-    .bar-track {
-      height: 6px;
-      background: #14110d;
-      border-radius: 4px;
-      overflow: hidden;
-      border: 1px solid #2b2319;
-    }
-    .bar-fill {
-      height: 100%;
-      background: linear-gradient(90deg, #8f6d3b, #d4a656);
-    }
+  /* Floating Bottom Dock */
+  #dock-wrap {
+    position: fixed;
+    bottom: 16px; left: 50%;
+    transform: translateX(-50%);
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    z-index: 30;
+    pointer-events: none;
+  }
+  #dock-wrap > * { pointer-events: auto; }
+  #tool-subbar {
+    display: none;
+    align-items: center; gap: 8px;
+    padding: 5px 10px;
+    font-size: 12px;
+  }
+  #tool-subbar.show { display: inline-flex; }
+  #tool-subbar input[type="text"] {
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text);
+    padding: 4px 10px;
+    font: inherit;
+    font-size: 12px;
+    width: 150px;
+    outline: none;
+  }
+  #tool-subbar input[type="text"]:focus { border-color: var(--accent); }
+  .road-status {
+    color: #e8be7d;
+    max-width: 280px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 
-    .realm-item {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 4px 6px;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 11.5px;
-    }
-    .realm-item:hover { background: #2d251c; }
-    .swatch {
-      width: 10px;
-      height: 10px;
-      border-radius: 2px;
-      display: inline-block;
-      margin-right: 6px;
-      border: 1px solid rgba(255,255,255,0.2);
-    }
-    details.phys-accordion {
-      margin-top: 6px;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 6px 8px;
-      background: #17130e;
-    }
-    details.phys-accordion summary {
-      cursor: pointer;
-      color: var(--muted);
-      font-size: 11.5px;
-      font-weight: 600;
-      user-select: none;
-      list-style: none;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    details.phys-accordion summary::-webkit-details-marker { display: none; }
-    details.phys-accordion summary::after { content: "▾"; color: var(--accent); }
-    details.phys-accordion[open] summary::after { content: "▴"; }
-    details.phys-accordion .acc-body {
-      margin-top: 8px;
-      padding-top: 8px;
-      border-top: 1px solid var(--border);
-    }
-    .pin {
-      position: absolute;
-      width: 14px;
-      height: 14px;
-      border: 2px solid #f5d380;
-      border-radius: 50%;
-      background: rgba(212, 166, 86, 0.25);
-      box-shadow: 0 0 0 2px rgba(20,16,12,0.85);
-      transform: translate(-50%, -50%);
-      pointer-events: none;
-      display: none;
-    }
-  </style>
+  /* Bottom-Right Zoom & Legend Pill */
+  #corner-controls {
+    position: fixed;
+    bottom: 16px; right: 16px;
+    z-index: 30;
+  }
+  #zoom-pct {
+    font-variant-numeric: tabular-nums;
+    font-size: 12px;
+    color: var(--muted);
+    min-width: 40px;
+    text-align: center;
+  }
+
+  /* Bottom-Left Floating Inspector Card */
+  #inspect-card {
+    position: fixed;
+    bottom: 16px; left: 16px;
+    width: 310px;
+    max-height: calc(100vh - 96px);
+    overflow-y: auto;
+    padding: 14px;
+    display: none;
+    z-index: 30;
+  }
+  #inspect-card.open { display: block; }
+  .card-head {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 8px;
+    margin-bottom: 10px;
+  }
+  .card-title { font-weight: 600; font-size: 14px; line-height: 1.3; }
+  .card-coords { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+  .kv {
+    display: grid; grid-template-columns: 112px 1fr; gap: 4px 8px;
+    font-size: 12px;
+  }
+  .kv .k { color: var(--muted); }
+  .kv .v { color: var(--text); text-align: right; }
+  details.res-details {
+    margin-top: 10px;
+    border-top: 1px solid var(--border);
+    padding-top: 8px;
+  }
+  details.res-details summary {
+    cursor: pointer; color: var(--muted); font-size: 12px; outline: none;
+  }
+  .res-bar {
+    display: grid; grid-template-columns: 92px 1fr 34px; gap: 6px;
+    align-items: center; margin-top: 6px; font-size: 11.5px;
+  }
+  .bar-track {
+    height: 5px; border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+  }
+  .bar-fill {
+    height: 100%; background: var(--accent); border-radius: 999px;
+  }
+
+  /* New World Modal */
+  #modal-backdrop {
+    position: fixed; inset: 0;
+    background: rgba(10, 9, 8, 0.56);
+    backdrop-filter: blur(4px);
+    display: none;
+    align-items: center; justify-content: center;
+    z-index: 50;
+  }
+  #modal-backdrop.open { display: flex; }
+  .modal-card {
+    width: 390px; max-width: calc(100vw - 32px);
+    padding: 18px 20px;
+  }
+  .modal-head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .modal-head h2 { margin: 0; font-size: 16px; font-weight: 600; }
+  .field { margin-bottom: 11px; }
+  .field label {
+    display: flex; justify-content: space-between;
+    font-size: 12px; color: var(--muted); margin-bottom: 5px;
+  }
+  .field input[type="text"], .field select {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--border-strong);
+    border-radius: 9px;
+    color: var(--text);
+    padding: 7px 10px;
+    font: inherit;
+    outline: none;
+  }
+  .field input[type="text"]:focus, .field select:focus { border-color: var(--accent); }
+  .field input[type="range"] { width: 100%; accent-color: var(--accent); }
+  details.phys-details {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px 10px;
+    margin-bottom: 14px;
+    background: rgba(255, 255, 255, 0.02);
+  }
+  details.phys-details summary {
+    cursor: pointer; font-size: 12.5px; color: var(--muted);
+  }
+  .modal-actions {
+    display: flex; justify-content: flex-end; gap: 8px;
+  }
+
+  /* Loading Banner */
+  #loading-banner {
+    position: fixed;
+    top: 66px; left: 50%;
+    transform: translateX(-50%);
+    background: var(--glass-strong);
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-size: 12px;
+    color: var(--text);
+    display: none; align-items: center; gap: 8px;
+    box-shadow: var(--shadow);
+    z-index: 60;
+    pointer-events: none;
+  }
+  #loading-banner.show { display: inline-flex; }
+  .spinner {
+    width: 12px; height: 12px; border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    border-top-color: var(--accent);
+    animation: spin 0.75s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Interactive SVG target animations */
+  .wp-ring { cursor: pointer; transition: transform 0.12s ease, opacity 0.12s ease; transform-box: fill-box; transform-origin: center; }
+  .wp-ring:hover { transform: scale(1.18); }
+  .settlement-icon { cursor: pointer; transition: transform 0.12s ease, opacity 0.12s ease; transform-box: fill-box; transform-origin: center; }
+  .settlement-icon:hover { transform: scale(1.22); }
+  .card-actions { display: flex; gap: 6px; margin-top: 10px; }
+  .card-actions button { flex: 1; font-size: 11.5px; padding: 6px 8px; }
+  .wild-pill {
+    display: inline-block; margin-top: 4px; padding: 2px 7px; border-radius: 6px;
+    font-size: 10.5px; background: rgba(196, 118, 60, 0.18); border: 1px solid rgba(212, 146, 86, 0.35); color: #efb982;
+  }
+</style>
 </head>
 <body>
-<div class="app">
-  <header>
-    <div class="brand">
-      <span>FANTASY MAP STUDIO</span>
-      <small>Физический генератор планет и иллюстрированный атлас</small>
-    </div>
-    <div class="top-actions">
-      <div class="pill" id="world-stats-pill">Загрузка...</div>
-      <button id="tool-inspect" class="active-tab" title="Клик по карте показывает параметры точки">Инспектор</button>
-      <button id="tool-place-city" title="Клик на суше ставит город и строит дорогу по рельефу">Поставить город</button>
-      <span style="width:1px;height:20px;background:var(--border);margin:0 2px;"></span>
-      <button id="btn-view-world" class="active-tab">Карта мира</button>
-      <button id="btn-dl-png" class="ghost">Скачать PNG</button>
-      <button id="btn-dl-svg" class="ghost">Скачать SVG</button>
-    </div>
-  </header>
 
-  <aside class="left">
-    <div class="card">
-      <h3>
-        <span>Генерация мира</span>
-        <button id="btn-rand-seed" class="ghost" style="padding:2px 7px;font-size:11px;">Случайный сид</button>
-      </h3>
-      <label class="field">
-        <span>Сид (Seed)</span>
-        <div class="row">
-          <input id="inp-seed" type="text" value="e" />
+<div id="viewport">
+  <div id="panzoom">
+    <div id="map-stage"></div>
+  </div>
+</div>
+
+<div id="loading-banner"><span class="spinner"></span><span id="loading-text">Генерация планеты...</span></div>
+
+<!-- Floating Top Bar -->
+<header id="topbar">
+  <!-- Left Pill: World -->
+  <div class="bar-group pill">
+    <button id="badge-seed" class="seed-badge" title="Параметры мира">seed: e</button>
+    <button id="btn-rand-seed" class="icon-btn" title="Случайный мир">🎲</button>
+    <button id="btn-new-world" class="subtle">Новый мир…</button>
+    <button id="btn-view-world" class="subtle" style="display:none;">Весь мир</button>
+  </div>
+
+  <!-- Center Pill: Style + Civilization -->
+  <div class="bar-group pill">
+    <button id="btn-style-sepia" data-style="sepia" class="active">Сепия</button>
+    <button id="btn-style-ink" data-style="ink">Ч/Б</button>
+    <button id="btn-style-color" data-style="color">Цветной</button>
+    <span class="sep"></span>
+    <button id="btn-civ-menu">Цивилизация <span id="civ-badge" class="civ-badge">Природа</span></button>
+
+    <div id="pop-civ" class="popover center">
+      <div class="pop-title">Цивилизация и пути</div>
+      <div id="civ-stats" class="pop-sub">Природный мир без государств</div>
+      <div class="pop-title" style="margin-bottom:6px;">Количество держав</div>
+      <div class="chips" id="realms-chips">
+        <button data-realms="0" class="active">Авто</button>
+        <button data-realms="4">4</button>
+        <button data-realms="6">6</button>
+        <button data-realms="8">8</button>
+        <button data-realms="10">10</button>
+        <button data-realms="12">12</button>
+      </div>
+      <div class="grid-2" style="margin-bottom:8px;">
+        <button id="btn-civ-realms" class="btn-rect">Создать страны</button>
+        <button id="btn-civ-cities" class="btn-rect">Создать города</button>
+        <button id="btn-civ-routes" class="btn-rect">Дороги и моря</button>
+        <button id="btn-civ-all" class="btn-rect primary-soft">Заселить всё</button>
+      </div>
+      <div class="grid-2">
+        <button id="btn-civ-reroll" class="btn-rect">Перемешать</button>
+        <button id="btn-civ-clear" class="btn-rect">Очистить</button>
+      </div>
+      <div id="realms-list" class="realms-list" style="display:none;"></div>
+    </div>
+  </div>
+
+  <!-- Right Pill: Layers + Export -->
+  <div class="bar-group pill">
+    <button id="btn-layers-menu">Слои</button>
+    <button id="btn-export-menu">Экспорт</button>
+
+    <div id="pop-layers" class="popover right" style="width:310px;">
+      <div class="pop-title">Видимые слои карты</div>
+      <div class="layers-grid">
+        <label class="chk"><input type="checkbox" data-layer="layer-rivers" checked />Реки и озёра</label>
+        <label class="chk"><input type="checkbox" data-layer="layer-water-detail" checked />Штрихи воды</label>
+        <label class="chk"><input type="checkbox" data-layer="layer-relief" checked />Горы и рельеф</label>
+        <label class="chk"><input type="checkbox" data-layer="layer-forests" checked />Леса</label>
+        <label class="chk"><input type="checkbox" data-layer="layer-ice" checked />Льды</label>
+        <label class="chk"><input type="checkbox" data-layer="layer-borders" checked />Границы стран</label>
+        <label class="chk"><input type="checkbox" data-layer="layer-roads" checked />Дороги</label>
+        <label class="chk"><input type="checkbox" data-layer="layer-routes" checked />Морские пути</label>
+        <label class="chk"><input type="checkbox" data-layer="layer-settlements" checked />Поселения</label>
+        <label class="chk"><input type="checkbox" data-layer="layer-wildsites" checked />Дикие места</label>
+        <label class="chk"><input type="checkbox" data-layer="layer-pois" />Важные места</label>
+        <label class="chk"><input type="checkbox" data-layer="layer-deposits" />Месторождения</label>
+        <label class="chk"><input type="checkbox" data-layer="layer-currents" />Течения</label>
+        <label class="chk"><input type="checkbox" data-layer="layer-labels" checked />Названия</label>
+        <label class="chk"><input type="checkbox" data-layer="layer-frame" checked />Рамка</label>
+        <label class="chk"><input type="checkbox" data-layer="layer-legend" id="chk-legend" />Легенда</label>
+        <label class="chk"><input type="checkbox" data-layer="layer-custom-roads" checked />Свои дороги</label>
+      </div>
+    </div>
+
+    <div id="pop-export" class="popover right" style="width:210px;">
+      <div class="pop-title">Сохранить карту</div>
+      <div style="display:flex;flex-direction:column;gap:7px;">
+        <button id="btn-dl-png" class="btn-rect primary-soft">Экспорт PNG</button>
+        <button id="btn-dl-svg" class="btn-rect">Экспорт SVG</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- Floating Bottom-Left Inspector -->
+<aside id="inspect-card" class="float-card">
+  <div class="card-head">
+    <div>
+      <div class="card-title" id="inspect-title">Точка на карте</div>
+      <div class="card-coords" id="inspect-coords">0.00°, 0.00°</div>
+    </div>
+    <button id="btn-inspect-close" class="icon-btn" title="Закрыть">✕</button>
+  </div>
+  <div class="kv" id="inspect-kv"></div>
+  <div class="card-actions" id="inspect-actions" style="display:none;"></div>
+  <details class="res-details">
+    <summary id="inspect-res-summary">Ресурсы и полезные ископаемые</summary>
+    <div id="inspect-resources"></div>
+  </details>
+</aside>
+
+<!-- Floating Bottom Center Dock -->
+<div id="dock-wrap">
+  <div id="tool-subbar" class="pill"></div>
+  <div class="pill">
+    <button id="tool-inspect" class="active">Обзор</button>
+    <button id="tool-road">Дорога</button>
+    <button id="tool-marker">Метка</button>
+  </div>
+</div>
+
+<!-- Floating Bottom-Right Zoom & Legend -->
+<div id="corner-controls" class="pill">
+  <button id="btn-legend-quick" title="Показать/скрыть легенду">Легенда</button>
+  <span class="sep"></span>
+  <button id="btn-zoom-out" class="icon-btn" title="Отдалить">−</button>
+  <span id="zoom-pct">100%</span>
+  <button id="btn-zoom-in" class="icon-btn" title="Приблизить">+</button>
+  <button id="btn-fit" class="icon-btn" title="Вписать карту">⤢</button>
+</div>
+
+<!-- New World Modal -->
+<div id="modal-backdrop">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2>Новый мир</h2>
+      <button id="btn-modal-close" class="icon-btn">✕</button>
+    </div>
+    <div class="field">
+      <label><span>Сид (Seed)</span></label>
+      <div style="display:flex;gap:6px;">
+        <input type="text" id="inp-seed" value="e" />
+        <button id="btn-modal-rand" class="subtle" title="Случайный сид">🎲</button>
+      </div>
+    </div>
+    <div class="grid-2" style="margin-bottom:11px;">
+      <div class="field" style="margin:0;">
+        <label><span>Материки</span></label>
+        <select id="inp-continents">
+          <option value="0" selected>Авто (2–5)</option>
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+          <option value="4">4</option>
+          <option value="5">5</option>
+          <option value="6">6</option>
+        </select>
+      </div>
+      <div class="field" style="margin:0;">
+        <label><span>Разрешение сетки</span></label>
+        <select id="inp-w">
+          <option value="360">360×180 (быстро)</option>
+          <option value="540">540×270 (средне)</option>
+          <option value="720" selected>720×360 (чётко)</option>
+        </select>
+      </div>
+    </div>
+
+    <details class="phys-details">
+      <summary>Физика планеты (земная группа)</summary>
+      <div style="margin-top:10px;">
+        <div class="field">
+          <label><span>Тектоническая активность</span><span id="val-activity">1.00</span></label>
+          <input type="range" id="inp-activity" min="0.5" max="1.6" step="0.05" value="1.00" />
         </div>
-      </label>
-      <div class="row" style="gap:8px;">
-        <label class="field" style="flex:1;">
-          <span>Сетка (ширина)</span>
-          <select id="inp-w">
-            <option value="180">180 (быстро)</option>
-            <option value="360">360 (стандарт)</option>
-            <option value="540">540 (детально)</option>
-            <option value="720" selected>720 (макс.)</option>
-          </select>
-        </label>
-        <label class="field" style="flex:1;">
-          <span>Материки</span>
-          <select id="inp-continents">
-            <option value="0" selected>Авто</option>
-            <option value="1">1 (Пангея)</option>
-            <option value="2">2 материка</option>
-            <option value="3">3 материка</option>
-            <option value="4">4 материка</option>
-            <option value="5">5 материков</option>
-            <option value="6">6 материков</option>
-          </select>
-        </label>
-      </div>
-      <details class="phys-accordion">
-        <summary>Физика планеты (земная группа)</summary>
-        <div class="acc-body">
-          <label class="field">
-            <div class="row-between"><span>Тектоническая активность</span><strong id="val-activity">1.00</strong></div>
-            <input id="inp-activity" type="range" min="0.75" max="1.35" step="0.05" value="1.00" />
-          </label>
-          <label class="field">
-            <div class="row-between"><span>Глубина океана (км)</span><strong id="val-water">2.62</strong></div>
-            <input id="inp-water" type="range" min="2.20" max="3.05" step="0.02" value="2.62" />
-          </label>
-          <label class="field">
-            <div class="row-between"><span>Наклон оси (°)</span><strong id="val-tilt">23.4°</strong></div>
-            <input id="inp-tilt" type="range" min="15.0" max="30.0" step="0.2" value="23.4" />
-          </label>
-          <label class="field">
-            <div class="row-between"><span>Сдвиг климата (°C)</span><strong id="val-solar">0.0°C</strong></div>
-            <input id="inp-solar" type="range" min="-3.5" max="3.5" step="0.5" value="0.0" />
-          </label>
-          <label class="field">
-            <div class="row-between"><span>Скорость вращения</span><strong id="val-rot">1.00×</strong></div>
-            <input id="inp-rot" type="range" min="0.70" max="1.40" step="0.05" value="1.00" />
-          </label>
-          <button id="btn-reset-earth" class="ghost" style="width:100%;padding:5px;font-size:11px;">Сбросить к Земле</button>
+        <div class="field">
+          <label><span>Объём воды (глубина океана)</span><span id="val-water">2.62</span></label>
+          <input type="range" id="inp-water" min="1.8" max="3.4" step="0.04" value="2.62" />
         </div>
-      </details>
-      <button id="btn-generate" class="primary" style="width:100%;margin-top:8px;">Сгенерировать мир</button>
-    </div>
-
-    <div class="card">
-      <h3>Стиль атласа</h3>
-      <div class="style-grid">
-        <button id="btn-style-expedition" class="active-tab">Экспедиционный</button>
-        <button id="btn-style-painted">Живописный</button>
-        <button id="btn-style-sketch">От руки</button>
+        <div class="field">
+          <label><span>Наклон оси</span><span id="val-tilt">23.4°</span></label>
+          <input type="range" id="inp-tilt" min="10" max="35" step="0.2" value="23.4" />
+        </div>
+        <div class="field">
+          <label><span>Сдвиг климата (инсоляция)</span><span id="val-solar">0.0°C</span></label>
+          <input type="range" id="inp-solar" min="-6" max="6" step="0.5" value="0.0" />
+        </div>
+        <div class="field">
+          <label><span>Скорость вращения</span><span id="val-rot">1.00×</span></label>
+          <input type="range" id="inp-rot" min="0.6" max="1.6" step="0.05" value="1.00" />
+        </div>
+        <button id="btn-reset-earth" class="subtle" style="width:100%;font-size:12px;">Сбросить к Земле</button>
       </div>
-    </div>
+    </details>
 
-    <div class="card">
-      <h3>Слои SVG</h3>
-      <div class="layer-list">
-        <label class="chk"><input type="checkbox" data-layer="layer-labels" checked /> Названия</label>
-        <label class="chk"><input type="checkbox" data-layer="layer-routes" checked /> Дороги и пути</label>
-        <label class="chk"><input type="checkbox" data-layer="layer-deposits" checked /> Месторождения</label>
-        <label class="chk"><input type="checkbox" data-layer="layer-currents" checked /> Течения</label>
-        <label class="chk"><input type="checkbox" data-layer="layer-graticule" checked /> Сетка</label>
-        <label class="chk"><input type="checkbox" data-layer="layer-compass" checked /> Компас</label>
-        <label class="chk"><input type="checkbox" data-layer="layer-legend" checked /> Легенда</label>
-        <label class="chk"><input type="checkbox" data-layer="layer-frame" checked /> Рамка</label>
-      </div>
+    <div class="modal-actions">
+      <button id="btn-modal-cancel" class="subtle">Отмена</button>
+      <button id="btn-generate" class="primary">Создать мир</button>
     </div>
-
-    <div class="card">
-      <h3>Державы на карте</h3>
-      <div id="realms-list" style="color:var(--muted);">—</div>
-    </div>
-  </aside>
-
-  <main class="viewport" id="viewport">
-    <div id="loading-banner"><div class="spinner"></div><span id="loading-text">Расчёт планеты...</span></div>
-    <div id="panzoom">
-      <div id="map-stage"></div>
-      <div id="inspect-pin" class="pin"></div>
-    </div>
-    <div class="hud-bottom">
-      <div class="hud-group">
-        <span>ЛКМ — инспектор точки • Колёсико — зум • ПКМ / Средняя / Пробел+ЛКМ — панорама</span>
-      </div>
-      <div class="hud-group">
-        <span id="hud-coords">—</span>
-        <button id="btn-fit" class="ghost" style="padding:2px 7px;font-size:11px;">Сбросить вид</button>
-      </div>
-    </div>
-  </main>
-
-  <aside class="right">
-    <div class="card">
-      <h3>Инспектор точки</h3>
-      <div id="inspect-empty" style="color:var(--muted);line-height:1.45;">
-        Нажмите на любую точку карты, чтобы увидеть географию, породу, климат, речной сток, государство, культуру и полезные ископаемые.
-      </div>
-      <div id="inspect-body" style="display:none;">
-        <div class="kv" id="inspect-kv"></div>
-      </div>
-    </div>
-
-    <div class="card" id="res-card" style="display:none;">
-      <h3>Ресурсы ячейки</h3>
-      <div id="inspect-resources"></div>
-    </div>
-
-    <div class="card" id="city-card">
-      <h3>Поселения и дороги по рельефу</h3>
-      <div id="custom-road-info" style="color:var(--muted);font-size:11.5px;line-height:1.45;margin-bottom:8px;">
-        Выберите «Поставить город» в шапке и кликните на сушу — дорога автоматически проложится в обход гор по долинам и перевалам.
-      </div>
-      <button id="btn-clear-custom" class="ghost" style="width:100%;font-size:11.5px;">Очистить свои метки</button>
-    </div>
-  </aside>
+  </div>
 </div>
 
 <script>
 const state = {
   mode: 'world',
-  tool: 'inspect',
-  style: 'expedition',
+  tool: 'inspect',      // 'inspect' | 'road' | 'marker'
+  style: 'sepia',       // 'sepia' | 'ink' | 'color'
   world: null,
   region: null,
   regionReq: null,
-  inspectLat: null,
-  inspectLon: null,
-  customCount: 0,
+  civ: {
+    realms: false,
+    cities: false,
+    routes: false,
+    targetRealms: 0,
+    salt: 0,
+  },
+  roadTier: 2,          // 1 = Тропа, 2 = Дорога, 3 = Тракт
+  roadFrom: null,       // { id, kind, subkind, name, subtitle, lat, lon }
+  roadHint: 'Выберите точку А на карте',
+  markerKind: 'settlement', // 'settlement' | 'landmark' | 'geo'
+  customMarkers: [],    // [{ id, kind, subkind, name, subtitle, lat, lon }]
+  customRoads: [],      // [{ id, cls, is_sea, fromName, toName, lengthKm, maxElevM, geo_pts }]
+  markerSeq: 0,
+  inspectPoint: null,   // { lat, lon }
   scale: 1,
   tx: 0,
   ty: 0,
+  panCandidate: false,
   dragging: false,
-  dragMoved: false,
   spaceDown: false,
   lastX: 0,
   lastY: 0,
+  downX: 0,
+  downY: 0,
   loading: false,
 };
 
@@ -544,7 +655,7 @@ function setLoading(on, text = 'Обновление...') {
 }
 
 function worldParams() {
-  const p = new URLSearchParams({
+  return new URLSearchParams({
     seed: $('inp-seed').value.trim() || 'e',
     w: $('inp-w').value,
     continents: $('inp-continents').value,
@@ -554,36 +665,38 @@ function worldParams() {
     solar: $('inp-solar').value,
     rotation: $('inp-rot').value,
     style: state.style,
+    civ_realms: state.civ.realms ? '1' : '0',
+    civ_cities: state.civ.cities ? '1' : '0',
+    civ_routes: state.civ.routes ? '1' : '0',
+    target_realms: String(state.civ.targetRealms),
+    civ_salt: String(state.civ.salt),
   });
-  return p;
 }
 
 function applyTransform() {
   $('panzoom').style.transform = `translate(${state.tx}px, ${state.ty}px) scale(${state.scale})`;
+  $('zoom-pct').textContent = Math.round(state.scale * 100) + '%';
 }
 
-// ==== LOD MATH (чистые функции; проверяются tests/lod.test.mjs) ====
+// ==== LOD MATH ====
 const LOD = {
-  SPAN_MIN: 6,        // минимальный охват региона по долготе, °
-  SPAN_MAX: 100,      // максимальный охват региона, °; шире показываем карту мира
-  COVER: 1.35,        // запас охвата региона относительно видимой области
-  REFINE_MAG: 1.3,    // пикселей устройства на пиксель растра, выше которого картинка уже размыта
-  CELLS_WIDE: 224,    // ширина сетки региона в ячейках, с которой регион считается быстро
-  TARGET_W: 2000,     // ширина растра региона, px
+  SPAN_MIN: 6,
+  SPAN_MAX: 100,
+  COVER: 1.35,
+  REFINE_MAG: 1.3,
+  CELLS_WIDE: 224,
+  TARGET_W: 2000,
 };
 function lodClamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
 function lodWrapLon(l) { return ((l + 180) % 360 + 360) % 360 - 180; }
 function lodRegionScale(spanLon, cellDeg) {
   return lodClamp(Math.round(LOD.CELLS_WIDE * cellDeg / spanLon), 2, 16);
 }
-// Охват региона по долготе, достаточный, чтобы закрыть видимую область с запасом
 function lodNeededSpan(visLonDeg, vpW, vpH, latDeg) {
   const cosLat = Math.max(0.25, Math.cos(latDeg * Math.PI / 180));
   const visLatDeg = (vpH / vpW) * visLonDeg * cosLat;
   return LOD.COVER * Math.max(visLonDeg, visLatDeg / 0.68);
 }
-// Что показывать для текущего вида: оставить, перейти к миру или построить регион.
-// v: {layer, visLon, cLat, cLon, vpW, vpH, dpr, cssScale, cellDeg, outside, cur:{lat,lon,span}}
 function lodDecide(v) {
   const need = lodNeededSpan(v.visLon, v.vpW, v.vpH, v.cLat);
   const mag = v.cssScale * v.dpr;
@@ -606,14 +719,12 @@ function lodDecide(v) {
   const wantFiner = mag > LOD.REFINE_MAG && need < v.cur.span * 0.9;
   if (!wantWider && !wantFiner) return { kind: 'keep' };
   const t = make();
-  // защита от бесконечного уточнения: цель совпала с уже показанным окном
   const centerTol = (v.outside ? 0.02 : 0.1) * v.cur.span;
   const same = Math.abs(t.span - v.cur.span) < 0.08 * v.cur.span
     && Math.abs(lodWrapLon(t.lon - v.cur.lon)) < centerTol
     && Math.abs(t.lat - v.cur.lat) < centerTol;
   return same ? { kind: 'keep' } : t;
 }
-// Широта/долгота <-> пиксели SVG региона (равнопромежуточная проекция)
 function lodRegionToSvg(reg, lat, lon) {
   const [fx, fy, fw, fh] = reg.frame;
   const dlon = lodWrapLon(lon - reg.center_lon_deg);
@@ -629,14 +740,36 @@ function lodSvgToRegion(reg, sx, sy) {
     lodWrapLon(reg.lon_min_deg + (sx - fx) / fw * reg.span_lon_deg),
   ];
 }
-// Масштаб и сдвиг, при которых точка (x, y) растра лежит в центре окна, а по ширине видно visLon градусов
 function lodViewAt(pxPerDegLon, vpW, vpH, x, y, visLon) {
   const scale = (vpW / visLon) / pxPerDegLon;
   return { scale, tx: vpW / 2 - x * scale, ty: vpH / 2 - y * scale };
 }
 // ==== /LOD MATH ====
 
-let lodVersion = 0;   // растёт при каждом жесте и смене мира: устаревшие ответы сервера отбрасываются
+function pattersonY(phi) {
+  const p2 = phi * phi, p4 = p2 * p2, p6 = p4 * p2, p8 = p4 * p4;
+  return phi * (1.0148 + p4 * 0.23185 + p6 * (-0.14499) + p8 * 0.02406);
+}
+function worldGeoToSvg(proj, latDeg, lonDeg) {
+  const dlon = lodWrapLon(lonDeg - proj.center_lon) * Math.PI / 180;
+  const yp = pattersonY(latDeg * Math.PI / 180);
+  const [fx, fy, fw, fh] = proj.frame;
+  return [
+    fx + fw * 0.5 + (dlon - proj.origin_x_rad) * proj.px_per_unit,
+    fy + fh * 0.5 - (yp - proj.origin_y_pat) * proj.px_per_unit,
+  ];
+}
+function projectGeoToCurrentSvg(latDeg, lonDeg) {
+  if (state.mode === 'region' && state.region && state.region.frame) {
+    return lodRegionToSvg(state.region, latDeg, lonDeg);
+  }
+  if (state.world && state.world.proj) {
+    return worldGeoToSvg(state.world.proj, latDeg, lonDeg);
+  }
+  return null;
+}
+
+let lodVersion = 0;
 let lodTimer = null;
 let lodBusy = false;
 
@@ -645,7 +778,7 @@ function sizeSvg() {
   if (!svg) return null;
   const vb = svg.viewBox.baseVal;
   const w = vb && vb.width ? vb.width : (state.mode === 'world' ? 2200 : 1680);
-  const h = vb && vb.height ? vb.height : (state.mode === 'world' ? 1308 : 1274);
+  const h = vb && vb.height ? vb.height : (state.mode === 'world' ? 1175 : 1274);
   svg.style.width = w + 'px';
   svg.style.height = h + 'px';
   return { svg, w, h };
@@ -656,10 +789,10 @@ function fitToViewport() {
   if (!sz) return;
   const { w, h } = sz;
   const vp = $('viewport').getBoundingClientRect();
-  const s = Math.min((vp.width - 28) / w, (vp.height - 48) / h);
+  const s = Math.min((vp.width - 48) / w, (vp.height - 96) / h);
   state.scale = Math.max(0.15, Math.min(2.5, s));
   state.tx = (vp.width - w * state.scale) * 0.5;
-  state.ty = (vp.height - h * state.scale) * 0.5 - 8;
+  state.ty = (vp.height - h * state.scale) * 0.5 + 4;
   applyTransform();
 }
 
@@ -670,31 +803,371 @@ function applyLayerToggles() {
     const el = svg.getElementById(cb.dataset.layer);
     if (el) el.style.display = cb.checked ? '' : 'none';
   });
+  $('btn-legend-quick').classList.toggle('active', $('chk-legend').checked);
 }
 
-// opts.ver: отбросить ответ, если вид успел измениться; opts.view: () => {scale, tx, ty} вместо вписывания в окно
-async function renderSvgOverlay(url, opts = {}) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(await res.text());
-  const text = await res.text();
-  if (opts.ver !== undefined && opts.ver !== lodVersion) return false;
-  const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
-  const svg = doc.documentElement;
-  const stage = $('map-stage');
-  stage.innerHTML = '';
-  stage.appendChild(document.importNode(svg, true));
-  applyLayerToggles();
-  if (opts.view) {
-    sizeSvg();
-    const v = opts.view();
-    state.scale = v.scale;
-    state.tx = v.tx;
-    state.ty = v.ty;
-    applyTransform();
-  } else {
-    fitToViewport();
+function activeWaypoints() {
+  const src = state.mode === 'region' && state.region ? state.region : state.world;
+  const base = (src && src.waypoints) ? src.waypoints : [];
+  return [...base, ...state.customMarkers];
+}
+
+function activeData() {
+  return state.mode === 'region' && state.region ? state.region : state.world;
+}
+
+function roadPalette() {
+  if (state.style === 'ink') {
+    return {
+      casing: '#f7f7f5', ink: '#151515', fill: '#e8e8e6',
+      highway: '#151515', sea: '#151515', text: '#151515', halo: '#f7f7f5',
+      markerCity: '#151515', markerLandmark: '#3a3a3a', markerGeo: '#525252',
+    };
   }
-  return true;
+  if (state.style === 'color') {
+    return {
+      casing: '#ffffff', ink: '#2d2a26', fill: '#f3ebd8',
+      highway: 'rgb(178, 40, 34)', sea: '#285278', text: '#24201b', halo: '#f5efe1',
+      markerCity: '#b22822', markerLandmark: '#2c6b53', markerGeo: '#345d82',
+    };
+  }
+  return {
+    casing: '#dfd6c5', ink: '#3b3229', fill: '#f0e6d2',
+    highway: '#543521', sea: '#42372c', text: '#362d24', halo: '#e4dac9',
+    markerCity: '#47301e', markerLandmark: '#4b5a34', markerGeo: '#3d4f5c',
+  };
+}
+
+function ensureOverlayLayer(svg, id, beforeLabels = true) {
+  let g = svg.getElementById(id);
+  if (!g) {
+    const ns = 'http://www.w3.org/2000/svg';
+    g = document.createElementNS(ns, 'g');
+    g.setAttribute('id', id);
+    g.setAttribute('clip-path', 'url(#fmsFrameClip)');
+    const labels = beforeLabels ? svg.getElementById('layer-labels') : null;
+    if (labels && labels.parentNode === svg) svg.insertBefore(g, labels);
+    else svg.appendChild(g);
+  }
+  return g;
+}
+
+function splitSegmentsByAntimeridian(pts, vbWidth) {
+  if (!pts || pts.length < 2) return [];
+  const jumpThr = (vbWidth || 2200) * 0.45;
+  const out = [];
+  let cur = [pts[0]];
+  for (let i = 1; i < pts.length; i++) {
+    if (Math.abs(pts[i][0] - pts[i - 1][0]) > jumpThr) {
+      if (cur.length >= 2) out.push(cur);
+      cur = [pts[i]];
+    } else {
+      cur.push(pts[i]);
+    }
+  }
+  if (cur.length >= 2) out.push(cur);
+  return out;
+}
+
+function renderCustomOverlays() {
+  const svg = $('map-stage').querySelector('svg');
+  if (!svg) return;
+  const ns = 'http://www.w3.org/2000/svg';
+  const vb = svg.viewBox.baseVal;
+  const vbw = vb && vb.width ? vb.width : 2200;
+  const us = vbw / 2200 * 1.15;
+  const pal = roadPalette();
+
+  // 1. Custom roads & markers group (persists across tools/styles/LOD)
+  const gCustom = ensureOverlayLayer(svg, 'layer-custom-roads', true);
+  gCustom.innerHTML = '';
+
+  for (const r of state.customRoads) {
+    const projected = [];
+    for (const [lat, lon] of r.geo_pts) {
+      const p = projectGeoToCurrentSvg(lat, lon);
+      if (p) projected.push(p);
+    }
+    const segs = splitSegmentsByAntimeridian(projected, vbw);
+    for (const seg of segs) {
+      const d = 'M' + seg.map((pt) => `${pt[0].toFixed(1)},${pt[1].toFixed(1)}`).join(' L');
+      if (r.is_sea) {
+        const seaHalo = document.createElementNS(ns, 'path');
+        seaHalo.setAttribute('d', d);
+        seaHalo.setAttribute('fill', 'none');
+        seaHalo.setAttribute('stroke', pal.halo);
+        seaHalo.setAttribute('stroke-width', (3.0 * us).toFixed(2));
+        seaHalo.setAttribute('opacity', '0.45');
+        gCustom.appendChild(seaHalo);
+
+        const seaLine = document.createElementNS(ns, 'path');
+        seaLine.setAttribute('d', d);
+        seaLine.setAttribute('fill', 'none');
+        seaLine.setAttribute('stroke', pal.sea);
+        seaLine.setAttribute('stroke-width', (1.7 * us).toFixed(2));
+        seaLine.setAttribute('stroke-dasharray', `${(6 * us).toFixed(1)},${(5 * us).toFixed(1)}`);
+        seaLine.setAttribute('stroke-linecap', 'round');
+        seaLine.setAttribute('opacity', '0.88');
+        gCustom.appendChild(seaLine);
+      } else if (r.cls === 1) {
+        const trail = document.createElementNS(ns, 'path');
+        trail.setAttribute('d', d);
+        trail.setAttribute('fill', 'none');
+        trail.setAttribute('stroke', pal.ink);
+        trail.setAttribute('stroke-width', (1.6 * us).toFixed(2));
+        trail.setAttribute('stroke-dasharray', `${(4.2 * us).toFixed(1)},${(3.8 * us).toFixed(1)}`);
+        trail.setAttribute('stroke-linecap', 'round');
+        trail.setAttribute('opacity', '0.86');
+        gCustom.appendChild(trail);
+      } else if (r.cls === 3) {
+        const casePath = document.createElementNS(ns, 'path');
+        casePath.setAttribute('d', d);
+        casePath.setAttribute('fill', 'none');
+        casePath.setAttribute('stroke', pal.casing);
+        casePath.setAttribute('stroke-width', (4.8 * us).toFixed(2));
+        casePath.setAttribute('stroke-linecap', 'round');
+        casePath.setAttribute('stroke-linejoin', 'round');
+        casePath.setAttribute('opacity', '0.92');
+        gCustom.appendChild(casePath);
+
+        const core = document.createElementNS(ns, 'path');
+        core.setAttribute('d', d);
+        core.setAttribute('fill', 'none');
+        core.setAttribute('stroke', pal.highway);
+        core.setAttribute('stroke-width', (2.3 * us).toFixed(2));
+        core.setAttribute('stroke-linecap', 'round');
+        core.setAttribute('stroke-linejoin', 'round');
+        gCustom.appendChild(core);
+      } else {
+        const casePath = document.createElementNS(ns, 'path');
+        casePath.setAttribute('d', d);
+        casePath.setAttribute('fill', 'none');
+        casePath.setAttribute('stroke', pal.ink);
+        casePath.setAttribute('stroke-width', (3.4 * us).toFixed(2));
+        casePath.setAttribute('stroke-linecap', 'round');
+        casePath.setAttribute('stroke-linejoin', 'round');
+        casePath.setAttribute('opacity', '0.85');
+        gCustom.appendChild(casePath);
+
+        const inner = document.createElementNS(ns, 'path');
+        inner.setAttribute('d', d);
+        inner.setAttribute('fill', 'none');
+        inner.setAttribute('stroke', pal.fill);
+        inner.setAttribute('stroke-width', (1.45 * us).toFixed(2));
+        inner.setAttribute('stroke-linecap', 'round');
+        inner.setAttribute('stroke-linejoin', 'round');
+        gCustom.appendChild(inner);
+      }
+    }
+  }
+
+  for (const m of state.customMarkers) {
+    const p = projectGeoToCurrentSvg(m.lat, m.lon);
+    if (!p) continue;
+    const [mx, my] = p;
+    if (m.kind === 'settlement') {
+      const s = 4.6 * us;
+      const d = document.createElementNS(ns, 'polygon');
+      d.setAttribute('points', `${mx},${my - s} ${mx + s},${my} ${mx},${my + s} ${mx - s},${my}`);
+      d.setAttribute('fill', pal.fill);
+      d.setAttribute('stroke', pal.ink);
+      d.setAttribute('stroke-width', (1.6 * us).toFixed(2));
+      gCustom.appendChild(d);
+
+      const dot = document.createElementNS(ns, 'circle');
+      dot.setAttribute('cx', mx.toFixed(1));
+      dot.setAttribute('cy', my.toFixed(1));
+      dot.setAttribute('r', (1.5 * us).toFixed(2));
+      dot.setAttribute('fill', pal.ink);
+      gCustom.appendChild(dot);
+    } else if (m.kind === 'landmark') {
+      const s = 4.8 * us;
+      const poly = document.createElementNS(ns, 'polygon');
+      poly.setAttribute('points', `${mx},${my - s} ${mx + s},${my} ${mx},${my + s} ${mx - s},${my}`);
+      poly.setAttribute('fill', pal.ink);
+      poly.setAttribute('stroke', pal.halo);
+      poly.setAttribute('stroke-width', (1.3 * us).toFixed(2));
+      gCustom.appendChild(poly);
+    } else {
+      const s = 5.0 * us;
+      const tri = document.createElementNS(ns, 'polygon');
+      tri.setAttribute('points', `${mx},${my - s} ${mx + s * 0.9},${my + s * 0.75} ${mx - s * 0.9},${my + s * 0.75}`);
+      tri.setAttribute('fill', 'none');
+      tri.setAttribute('stroke', pal.ink);
+      tri.setAttribute('stroke-width', (1.5 * us).toFixed(2));
+      gCustom.appendChild(tri);
+    }
+    const lbl = document.createElementNS(ns, 'text');
+    lbl.setAttribute('x', (mx + 8 * us).toFixed(1));
+    lbl.setAttribute('y', (my + 3.5 * us).toFixed(1));
+    lbl.setAttribute('fill', pal.text);
+    lbl.setAttribute('stroke', pal.halo);
+    lbl.setAttribute('stroke-width', (3.0 * us).toFixed(2));
+    lbl.setAttribute('paint-order', 'stroke');
+    lbl.setAttribute('font-family', 'Georgia, "Times New Roman", serif');
+    lbl.setAttribute('font-size', (11.5 * us).toFixed(1));
+    if (m.kind === 'geo') lbl.setAttribute('font-style', 'italic');
+    else lbl.setAttribute('font-weight', '600');
+    lbl.textContent = m.name;
+    gCustom.appendChild(lbl);
+  }
+
+  // 2. Waypoint hit targets (no colored circles over native settlement icons)
+  const gTargets = ensureOverlayLayer(svg, 'layer-waypoint-targets', false);
+  gTargets.innerHTML = '';
+  gTargets.style.display = state.tool === 'road' ? '' : 'none';
+  if (state.tool === 'road') {
+    const wps = activeWaypoints();
+    for (const w of wps) {
+      const p = projectGeoToCurrentSvg(w.lat, w.lon);
+      if (!p) continue;
+      const [wx, wy] = p;
+      const isSelected = state.roadFrom && state.roadFrom.id === w.id;
+
+      const grp = document.createElementNS(ns, 'g');
+      grp.setAttribute('class', 'wp-ring');
+      const title = document.createElementNS(ns, 'title');
+      title.textContent = `${w.name} (${w.subtitle})`;
+      grp.appendChild(title);
+
+      if (isSelected) {
+        const s = 10.5 * us;
+        const sel = document.createElementNS(ns, 'polygon');
+        sel.setAttribute('points', `${wx},${wy - s} ${wx + s},${wy} ${wx},${wy + s} ${wx - s},${wy}`);
+        sel.setAttribute('fill', 'rgba(242, 184, 75, 0.22)');
+        sel.setAttribute('stroke', '#d99b38');
+        sel.setAttribute('stroke-width', (1.9 * us).toFixed(2));
+        grp.appendChild(sel);
+      } else if (w.kind !== 'settlement' && w.kind !== 'wild') {
+        const s = 4.2 * us;
+        const mark = document.createElementNS(ns, 'polygon');
+        if (w.kind === 'geo') {
+          mark.setAttribute('points', `${wx},${wy - s} ${wx + s * 0.85},${wy + s * 0.75} ${wx - s * 0.85},${wy + s * 0.75}`);
+        } else {
+          mark.setAttribute('points', `${wx},${wy - s} ${wx + s},${wy} ${wx},${wy + s} ${wx - s},${wy}`);
+        }
+        mark.setAttribute('fill', pal.fill);
+        mark.setAttribute('stroke', pal.ink);
+        mark.setAttribute('stroke-width', (1.25 * us).toFixed(2));
+        mark.setAttribute('opacity', '0.88');
+        grp.appendChild(mark);
+      }
+
+      const hit = document.createElementNS(ns, 'circle');
+      hit.setAttribute('cx', wx.toFixed(1));
+      hit.setAttribute('cy', wy.toFixed(1));
+      hit.setAttribute('r', (14 * us).toFixed(2));
+      hit.setAttribute('fill', 'transparent');
+      grp.appendChild(hit);
+
+      gTargets.appendChild(grp);
+    }
+  }
+
+  // 3. Inspection pin (when inspectPoint exists)
+  const gPin = ensureOverlayLayer(svg, 'layer-inspect-pin', false);
+  gPin.innerHTML = '';
+  if (state.inspectPoint) {
+    const p = projectGeoToCurrentSvg(state.inspectPoint.lat, state.inspectPoint.lon);
+    if (p) {
+      const [ix, iy] = p;
+      const outer = document.createElementNS(ns, 'circle');
+      outer.setAttribute('cx', ix.toFixed(1));
+      outer.setAttribute('cy', iy.toFixed(1));
+      outer.setAttribute('r', (7.5 * us).toFixed(2));
+      outer.setAttribute('fill', 'rgba(227, 179, 98, 0.28)');
+      outer.setAttribute('stroke', '#f5d28a');
+      outer.setAttribute('stroke-width', (2.0 * us).toFixed(2));
+      gPin.appendChild(outer);
+
+      const inner = document.createElementNS(ns, 'circle');
+      inner.setAttribute('cx', ix.toFixed(1));
+      inner.setAttribute('cy', iy.toFixed(1));
+      inner.setAttribute('r', (2.6 * us).toFixed(2));
+      inner.setAttribute('fill', '#e3b362');
+      gPin.appendChild(inner);
+    }
+  }
+
+  applyLayerToggles();
+}
+
+function updateToolSubbar() {
+  const bar = $('tool-subbar');
+  if (state.tool === 'inspect') {
+    bar.classList.remove('show');
+    bar.innerHTML = '';
+    return;
+  }
+  bar.classList.add('show');
+  if (state.tool === 'road') {
+    bar.innerHTML = `
+      <button data-tier="1" class="${state.roadTier === 1 ? 'active' : ''}">Тропа</button>
+      <button data-tier="2" class="${state.roadTier === 2 ? 'active' : ''}">Дорога</button>
+      <button data-tier="3" class="${state.roadTier === 3 ? 'active' : ''}">Тракт</button>
+      <span class="sep"></span>
+      <span class="road-status" id="road-status">${state.roadHint}</span>
+      ${state.roadFrom ? '<button id="btn-road-cancel" class="subtle">Отмена</button>' : ''}
+      ${state.customRoads.length > 0 || state.customMarkers.length > 0 ? '<button id="btn-clear-custom" class="subtle">Очистить</button>' : ''}
+    `;
+    bar.querySelectorAll('button[data-tier]').forEach((b) => {
+      b.onclick = () => {
+        state.roadTier = parseInt(b.dataset.tier, 10);
+        updateToolSubbar();
+      };
+    });
+    const cancel = $('btn-road-cancel');
+    if (cancel) cancel.onclick = () => {
+      state.roadFrom = null;
+      state.roadHint = 'Выберите точку А на карте';
+      updateToolSubbar();
+      renderCustomOverlays();
+    };
+    const clearBtn = $('btn-clear-custom');
+    if (clearBtn) clearBtn.onclick = clearCustomItems;
+  } else if (state.tool === 'marker') {
+    bar.innerHTML = `
+      <button data-mkind="settlement" class="${state.markerKind === 'settlement' ? 'active' : ''}">Поселение</button>
+      <button data-mkind="landmark" class="${state.markerKind === 'landmark' ? 'active' : ''}">Важное место</button>
+      <button data-mkind="geo" class="${state.markerKind === 'geo' ? 'active' : ''}">Геометка</button>
+      <span class="sep"></span>
+      <input type="text" id="inp-marker-name" placeholder="Название (необяз.)" />
+      ${state.customMarkers.length > 0 || state.customRoads.length > 0 ? '<button id="btn-clear-custom" class="subtle">Очистить</button>' : ''}
+    `;
+    bar.querySelectorAll('button[data-mkind]').forEach((b) => {
+      b.onclick = () => {
+        state.markerKind = b.dataset.mkind;
+        updateToolSubbar();
+      };
+    });
+    const clearBtn = $('btn-clear-custom');
+    if (clearBtn) clearBtn.onclick = clearCustomItems;
+  }
+}
+
+function clearCustomItems() {
+  state.customMarkers = [];
+  state.customRoads = [];
+  state.roadFrom = null;
+  state.roadHint = 'Выберите точку А на карте';
+  updateToolSubbar();
+  renderCustomOverlays();
+}
+
+function setTool(nextTool) {
+  state.tool = nextTool;
+  if (nextTool !== 'road') {
+    state.roadFrom = null;
+    state.roadHint = 'Выберите точку А на карте';
+  }
+  const vp = $('viewport');
+  vp.classList.toggle('tool-road', nextTool === 'road');
+  vp.classList.toggle('tool-marker', nextTool === 'marker');
+  $('tool-inspect').classList.toggle('active', nextTool === 'inspect');
+  $('tool-road').classList.toggle('active', nextTool === 'road');
+  $('tool-marker').classList.toggle('active', nextTool === 'marker');
+  updateToolSubbar();
+  renderCustomOverlays();
 }
 
 function triggerDownload(url, filename) {
@@ -704,7 +1177,6 @@ function triggerDownload(url, filename) {
     window.open(url, '_blank');
   }
 }
-
 function saveBase64(dataBase64, mime, filename) {
   if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.fmsSave) {
     window.webkit.messageHandlers.fmsSave.postMessage({ dataBase64, filename });
@@ -717,7 +1189,6 @@ function saveBase64(dataBase64, mime, filename) {
     a.remove();
   }
 }
-
 async function blobToDataUrl(blob) {
   return new Promise((resolve, reject) => {
     const fr = new FileReader();
@@ -726,11 +1197,14 @@ async function blobToDataUrl(blob) {
     fr.readAsDataURL(blob);
   });
 }
-
 async function buildSelfContainedSvgXml(active) {
   const liveSvg = $('map-stage').querySelector('svg');
   if (!liveSvg) return null;
   const clone = liveSvg.cloneNode(true);
+  const tgt = clone.querySelector('#layer-waypoint-targets');
+  if (tgt) tgt.remove();
+  const pin = clone.querySelector('#layer-inspect-pin');
+  if (pin) pin.remove();
   clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
   clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
   const vb = liveSvg.viewBox.baseVal;
@@ -751,49 +1225,32 @@ async function buildSelfContainedSvgXml(active) {
   }
   return { xml: new XMLSerializer().serializeToString(clone), w, h };
 }
-
 async function exportLivePng(active, filename) {
-  setLoading(true, 'Экспорт полного PNG с подписями...');
+  setLoading(true, 'Экспорт PNG...');
   try {
     const built = await buildSelfContainedSvgXml(active);
-    if (!built) {
-      triggerDownload(active.download_png_url, filename);
-      return;
-    }
+    if (!built) { triggerDownload(active.download_png_url, filename); return; }
     const svgDataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(built.xml);
     const img = new Image();
     await new Promise((resolve, reject) => {
-      img.onload = resolve;
-      img.onerror = reject;
-      img.src = svgDataUrl;
+      img.onload = resolve; img.onerror = reject; img.src = svgDataUrl;
     });
     const canvas = document.createElement('canvas');
-    canvas.width = built.w;
-    canvas.height = built.h;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(img, 0, 0, built.w, built.h);
+    canvas.width = built.w; canvas.height = built.h;
+    canvas.getContext('2d').drawImage(img, 0, 0, built.w, built.h);
     const pngUrl = canvas.toDataURL('image/png');
-    const comma = pngUrl.indexOf(',');
-    saveBase64(pngUrl.slice(comma + 1), 'image/png', filename);
+    saveBase64(pngUrl.slice(pngUrl.indexOf(',') + 1), 'image/png', filename);
   } catch (_) {
     triggerDownload(active.download_png_url, filename);
   } finally {
     setLoading(false);
   }
 }
-
 async function exportLiveSvg(active, filename) {
-  if (state.customCount === 0) {
-    triggerDownload(active.download_svg_url, filename);
-    return;
-  }
-  setLoading(true, 'Экспорт автономного SVG...');
+  setLoading(true, 'Экспорт SVG...');
   try {
     const built = await buildSelfContainedSvgXml(active);
-    if (!built) {
-      triggerDownload(active.download_svg_url, filename);
-      return;
-    }
+    if (!built) { triggerDownload(active.download_svg_url, filename); return; }
     const bytes = new TextEncoder().encode(built.xml);
     let bin = '';
     for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
@@ -806,28 +1263,50 @@ async function exportLiveSvg(active, filename) {
 }
 
 function updateDownloads() {
-  const active = state.mode === 'world' ? state.world : state.region;
+  const active = activeData();
   if (!active) return;
   const seed = ($('inp-seed').value.trim() || 'world').replace(/[^a-zA-Z0-9_-]/g, '_');
   const prefix = state.mode === 'world' ? 'atlas' : 'region';
-  $('btn-dl-png').onclick = () => exportLivePng(active, `${prefix}_${seed}_${state.style}.png`);
-  $('btn-dl-svg').onclick = () => exportLiveSvg(active, `${prefix}_${seed}_${state.style}.svg`);
+  $('btn-dl-png').onclick = () => { closePopovers(); exportLivePng(active, `${prefix}_${seed}_${state.style}.png`); };
+  $('btn-dl-svg').onclick = () => { closePopovers(); exportLiveSvg(active, `${prefix}_${seed}_${state.style}.svg`); };
 }
 
-function renderRealmsList(realms) {
+function updateCivUi(data) {
+  const w = data || state.world;
+  if (!w) return;
+  const badge = $('civ-badge');
+  const hasCiv = w.realms_count > 0 || w.settlements_count > 0 || state.civ.routes;
+  badge.classList.toggle('has-civ', hasCiv);
+  if (!hasCiv) {
+    badge.textContent = 'Природа';
+    $('civ-stats').textContent = `Материков: ${w.continents_count} · Рек: ${w.rivers_count} · Мест: ${(w.waypoints || []).length}`;
+  } else {
+    const parts = [];
+    if (w.realms_count > 0) parts.push(`${w.realms_count} стран`);
+    if (w.settlements_count > 0) parts.push(`${w.settlements_count} гор.`);
+    if (state.civ.routes) parts.push('пути');
+    badge.textContent = parts.join(' · ') || 'Цивилизация';
+    $('civ-stats').textContent = `Материков: ${w.continents_count} · Держав: ${w.realms_count} · Городов: ${w.settlements_count}`;
+  }
+
   const box = $('realms-list');
-  if (!realms || realms.length === 0) {
-    box.textContent = 'Нет выделенных держав';
+  if (!w.realms || w.realms.length === 0) {
+    box.style.display = 'none';
+    box.innerHTML = '';
     return;
   }
-  box.innerHTML = realms.map((r) => `
-    <div class="realm-item" data-lat="${r.lat}" data-lon="${r.lon}" title="Кликните, чтобы приблизиться к столице">
+  box.style.display = 'flex';
+  box.innerHTML = w.realms.map((r) => `
+    <div class="realm-item" data-lat="${r.lat}" data-lon="${r.lon}" title="Приблизиться к столице">
       <span><span class="swatch" style="background:rgb(${r.color[0]},${r.color[1]},${r.color[2]})"></span>${r.name}</span>
       <span style="color:var(--muted);">${r.capital}</span>
     </div>
   `).join('');
   box.querySelectorAll('.realm-item').forEach((el) => {
-    el.onclick = () => focusOn(parseFloat(el.dataset.lat), parseFloat(el.dataset.lon), 20);
+    el.onclick = () => {
+      closePopovers();
+      focusOn(parseFloat(el.dataset.lat), parseFloat(el.dataset.lon), 22);
+    };
   });
 }
 
@@ -841,7 +1320,6 @@ function regionParams(req) {
   return p;
 }
 
-// Параметры текущего регионального окна для запросов инспектора и дорог (ключи reg_*, чтобы не путать с географическим lat/lon)
 function addRegionWindow(p) {
   const r = state.regionReq;
   if (state.mode !== 'region' || !r) return;
@@ -852,10 +1330,63 @@ function addRegionWindow(p) {
   p.set('target_w', String(LOD.TARGET_W));
 }
 
-// o.view(data) => {scale, tx, ty} сохраняет текущий вид; o.ver отбрасывает устаревший ответ
+let activeBaseObjectUrl = null;
+
+async function renderSvgOverlay(url, opts = {}) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(await res.text());
+  const text = await res.text();
+  if (opts.ver !== undefined && opts.ver !== lodVersion) return false;
+  const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
+  const svg = doc.documentElement;
+  const baseImgEl = svg.querySelector('#layer-base');
+  const href = baseImgEl && (baseImgEl.getAttribute('href') || baseImgEl.getAttribute('xlink:href'));
+  let nextObjUrl = null;
+  if (href && !href.startsWith('data:')) {
+    const imgRes = await fetch(href);
+    if (opts.ver !== undefined && opts.ver !== lodVersion) return false;
+    if (imgRes.ok) {
+      const blob = await imgRes.blob();
+      nextObjUrl = URL.createObjectURL(blob);
+      await new Promise((resolve) => {
+        const pre = new Image();
+        pre.onload = () => {
+          if (pre.decode) pre.decode().catch(() => {}).finally(resolve);
+          else resolve();
+        };
+        pre.onerror = resolve;
+        pre.src = nextObjUrl;
+      });
+      if (opts.ver !== undefined && opts.ver !== lodVersion) {
+        URL.revokeObjectURL(nextObjUrl);
+        return false;
+      }
+      baseImgEl.setAttribute('href', nextObjUrl);
+      baseImgEl.removeAttribute('xlink:href');
+    }
+  }
+  const stage = $('map-stage');
+  stage.innerHTML = '';
+  stage.appendChild(document.importNode(svg, true));
+  if (activeBaseObjectUrl) URL.revokeObjectURL(activeBaseObjectUrl);
+  activeBaseObjectUrl = nextObjUrl;
+  if (opts.view) {
+    sizeSvg();
+    const v = opts.view();
+    state.scale = v.scale;
+    state.tx = v.tx;
+    state.ty = v.ty;
+    applyTransform();
+  } else {
+    fitToViewport();
+  }
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  return true;
+}
+
 async function loadWorld(o = {}) {
   if (o.ver === undefined) lodVersion++;
-  setLoading(true, o.ver === undefined ? 'Генерация и рендер планеты...' : 'Возвращаюсь к карте мира...');
+  setLoading(true, o.ver === undefined ? 'Генерация мира...' : 'Возвращаюсь к карте мира...');
   try {
     const p = worldParams();
     const res = await fetch('/api/world?' + p.toString());
@@ -870,10 +1401,10 @@ async function loadWorld(o = {}) {
     state.world = data;
     state.mode = 'world';
     state.regionReq = null;
-    $('btn-view-world').classList.add('active-tab');
-    $('world-stats-pill').innerHTML = `Материков: <strong>${data.continents_count}</strong> • Рек: <strong>${data.rivers_count}</strong> • Городов: <strong>${data.settlements_count}</strong> • Держав: <strong>${data.realms_count}</strong>`;
-    renderRealmsList(data.realms);
-    $('inspect-pin').style.display = 'none';
+    $('btn-view-world').style.display = 'none';
+    $('badge-seed').textContent = 'seed: ' + data.seed;
+    updateCivUi(data);
+    renderCustomOverlays();
     updateDownloads();
     return true;
   } catch (err) {
@@ -901,8 +1432,9 @@ async function loadRegion(req, o = {}) {
     state.region = data;
     state.regionReq = req;
     state.mode = 'region';
-    $('btn-view-world').classList.remove('active-tab');
-    $('inspect-pin').style.display = 'none';
+    $('btn-view-world').style.display = '';
+    updateCivUi(state.world);
+    renderCustomOverlays();
     updateDownloads();
     return true;
   } catch (err) {
@@ -914,8 +1446,8 @@ async function loadRegion(req, o = {}) {
   }
 }
 
-// Приблизиться к точке (например, к столице): сразу строим регион нужного охвата
 function focusOn(lat, lon, spanLon) {
+  if (!state.world) return;
   const cellDeg = 360 / state.world.grid_w;
   return loadRegion({
     lat: lodClamp(lat, -(88 - 0.34 * spanLon), 88 - 0.34 * spanLon),
@@ -925,7 +1457,6 @@ function focusOn(lat, lon, spanLon) {
   });
 }
 
-// Перерисовать текущий слой (смена стиля с сохранением зума и панорамирования)
 function reloadCurrent() {
   const saved = { scale: state.scale, tx: state.tx, ty: state.ty };
   if (state.mode === 'region' && state.regionReq) {
@@ -934,7 +1465,6 @@ function reloadCurrent() {
   return loadWorld(state.world ? { view: () => saved } : {});
 }
 
-// Что сейчас видно в окне: центр, охват по долготе, выходит ли видимая область за границы региона
 async function currentGeoView() {
   const vp = $('viewport').getBoundingClientRect();
   const sxc = (vp.width / 2 - state.tx) / state.scale;
@@ -961,7 +1491,6 @@ async function currentGeoView() {
   return null;
 }
 
-// Автодетализация: после паузы в жестах подменяем картинку на ту, что считается под видимую область
 function noteViewChanged() {
   lodVersion++;
   clearTimeout(lodTimer);
@@ -1016,57 +1545,86 @@ async function runLod() {
   }
 }
 
-async function inspectPixel(px, py) {
-  const p = worldParams();
-  p.set('mode', state.mode);
-  p.set('px', px.toFixed(2));
-  p.set('py', py.toFixed(2));
-  addRegionWindow(p);
-  const res = await fetch('/api/inspect?' + p.toString());
-  if (!res.ok) return;
-  const info = await res.json();
-  if (!info.in_bounds) return;
+function openSettlementMapStub(settlement) {
+  showBanner(`План поселения «${settlement.name}» (${settlement.tier}): режим градостроительной карты готовится к следующему обновлению`);
+  setTimeout(hideBanner, 3200);
+}
 
-  state.inspectLat = info.lat;
-  state.inspectLon = info.lon;
-  $('inspect-pin').style.left = px + 'px';
-  $('inspect-pin').style.top = py + 'px';
-  $('inspect-pin').style.display = 'block';
-  $('hud-coords').textContent = `${info.lat.toFixed(2)}°, ${info.lon.toFixed(2)}° • ${info.biome}`;
+async function renderInspectCard(info) {
+  if (!info || !info.in_bounds) return;
 
-  $('inspect-empty').style.display = 'none';
-  $('inspect-body').style.display = 'block';
-  $('res-card').style.display = 'block';
+  state.inspectPoint = { lat: info.lat, lon: info.lon };
+  renderCustomOverlays();
+
+  const card = $('inspect-card');
+  card.classList.add('open');
+  const st = info.settlement || null;
+
+  $('inspect-title').textContent = st
+    ? st.name
+    : (info.is_ocean ? info.marine_zone : (info.landmass_name || info.biome));
+  $('inspect-coords').innerHTML = st
+    ? `${st.tier} · ${st.role} · ${st.lat.toFixed(2)}°, ${st.lon.toFixed(2)}°`
+    : `${info.lat.toFixed(2)}°, ${info.lon.toFixed(2)}° · ${info.biome}` +
+      (info.is_wild ? `<br><span class="wild-pill">Дикие земли: ${info.wild_reason || 'необжитая зона'}</span>` : '');
 
   let hydroNote = info.discharge_m3s > 1 ? `${Math.round(info.discharge_m3s)} м³/с (пор. ${info.river_order})` : 'нет';
-  if (info.is_delta) hydroNote += ' • дельта';
-  else if (info.is_oasis) hydroNote = hydroNote === 'нет' ? 'пустынный оазис' : `${hydroNote} • оазис`;
-  else if (info.is_wadi) hydroNote = 'вади (сезонное русло)';
+  if (info.is_delta) hydroNote += ' · дельта';
+  else if (info.is_oasis) hydroNote = hydroNote === 'нет' ? 'оазис' : `${hydroNote} · оазис`;
+  else if (info.is_wadi) hydroNote = 'вади';
   if (info.nearest_waterfall_drop_m > 0 && info.nearest_waterfall_dist_km <= 140) {
-    hydroNote += ` • водопад ${Math.round(info.nearest_waterfall_drop_m)} м`;
+    hydroNote += ` · водопад ${Math.round(info.nearest_waterfall_drop_m)} м`;
   }
 
-  const rows = [
-    ['Координаты', `${info.lat.toFixed(2)}°, ${info.lon.toFixed(2)}°`],
-    ['Среда', info.is_ocean ? info.marine_zone : 'Суша'],
+  const rows = st ? [
+    ...(st.realm ? [['Держава', st.realm]] : []),
+    ['Статус', `${st.tier} (инд. ${Math.round(st.population_score)})`],
+    ['Специализация', st.role],
+    ['Торговые пути', `${st.trade_degree} маршр.`],
+    ['Биом и высота', `${info.biome}, ${Math.round(info.elevation_m)} м`],
+    ['Сток реки', hydroNote],
+  ] : [
+    ['Статус земель', info.is_ocean ? 'Акватория' : (info.is_wild ? 'Дикие / опасные' : 'Обжитые земли')],
     ['Высота', `${info.elevation_m > 0 ? '+' : ''}${Math.round(info.elevation_m)} м`],
-    ['Биом', info.biome],
     ['Порода', info.bedrock],
-    ['Климат (ср.)', `${info.temp_c.toFixed(1)} °C (янв ${info.temp_jan_c.toFixed(0)}° / июл ${info.temp_jul_c.toFixed(0)}°)`],
-    ['Осадки / арид.', `${Math.round(info.precip_mm)} мм/год (ИУ ${info.aridity_index.toFixed(2)})`],
-    ...(info.permafrost > 0.02 ? [['Вечная мерзлота', `${Math.round(info.permafrost * 100)}%`]] : []),
+    ['Климат (ср.)', `${info.temp_c.toFixed(1)} °C (${info.temp_jan_c.toFixed(0)}°/${info.temp_jul_c.toFixed(0)}°)`],
+    ['Осадки / ИУ', `${Math.round(info.precip_mm)} мм · ${info.aridity_index.toFixed(2)}`],
+    ...(info.permafrost > 0.02 ? [['Мерзлота', `${Math.round(info.permafrost * 100)}%`]] : []),
     ['Сток реки', hydroNote],
     ['Плодородие', `${Math.round(info.soil_fertility * 100)}%`],
-    ['Материк / край', info.landmass_name || '—'],
-    ['Держава', info.realm_name || 'Вне границ'],
-    ['Культура', info.culture_name || '—'],
-    ['Хоз. уклад', info.livelihood],
-    ['Ближ. город', info.nearest_settlement ? `${info.nearest_settlement} (${Math.round(info.nearest_dist_km)} км)` : '—'],
-    ['Ближ. месторожд.', info.nearest_deposit ? `${info.nearest_deposit} ${Math.round(info.nearest_deposit_richness * 100)}% (${Math.round(info.nearest_deposit_dist_km)} км)` : '—'],
+    ...(info.realm_name ? [['Держава', info.realm_name]] : []),
+    ...(info.nearest_settlement ? [['Ближ. город', `${info.nearest_settlement} (${Math.round(info.nearest_dist_km)} км)`]] : []),
+    ...(info.nearest_wild_site ? [['Дикая метка', `${info.nearest_wild_site} (${Math.round(info.nearest_wild_dist_km)} км)`]] : []),
+    ...(info.nearest_deposit ? [['Месторожд.', `${info.nearest_deposit} (${Math.round(info.nearest_deposit_dist_km)} км)`]] : []),
   ];
   $('inspect-kv').innerHTML = rows.map(([k, v]) => `<div class="k">${k}</div><div class="v">${v}</div>`).join('');
 
-  const rList = [
+  const acts = $('inspect-actions');
+  if (st) {
+    acts.style.display = 'flex';
+    acts.innerHTML = `
+      <button id="btn-open-settlement" class="btn-rect primary-soft">Открыть карту поселения</button>
+      <button id="btn-zoom-settlement" class="btn-rect">Окрестности (4×)</button>
+    `;
+    $('btn-open-settlement').addEventListener('click', () => openSettlementMapStub(st));
+    $('btn-zoom-settlement').addEventListener('click', async () => {
+      const regData = await loadRegion({ lat: st.lat, lon: st.lon, span: 12 });
+      if (regData) fitToViewport();
+    });
+    $('inspect-res-summary').textContent = 'Ресурсная корзина поселения';
+  } else {
+    acts.style.display = 'none';
+    acts.innerHTML = '';
+    $('inspect-res-summary').textContent = 'Ресурсы и полезные ископаемые';
+  }
+
+  const rList = st ? [
+    ['Пища', st.food_score],
+    ['Вода', st.water_score],
+    ['Строевой лес', st.timber_score],
+    ['Руды / соль', st.mineral_score],
+    ['Итого база', st.resource_score],
+  ] : [
     ['Железо', info.resources.iron],
     ['Медь/золото', info.resources.copper_gold],
     ['Самоцветы', info.resources.gems_rare],
@@ -1082,102 +1640,200 @@ async function inspectPixel(px, py) {
   }).join('');
 }
 
-async function placeCityAndRoad(px, py) {
+async function inspectSettlement(idAttr, latAttr, lonAttr) {
+  const p = worldParams();
+  if (idAttr !== '' && idAttr != null) {
+    p.set('settlement_id', String(idAttr));
+  } else {
+    p.set('lat', String(latAttr));
+    p.set('lon', String(lonAttr));
+  }
+  const res = await fetch('/api/inspect?' + p.toString());
+  if (!res.ok) return;
+  const info = await res.json();
+  await renderInspectCard(info);
+}
+
+async function inspectPixel(px, py) {
   const p = worldParams();
   p.set('mode', state.mode);
-  p.set('from_px', px.toFixed(2));
-  p.set('from_py', py.toFixed(2));
+  p.set('px', px.toFixed(2));
+  p.set('py', py.toFixed(2));
   addRegionWindow(p);
-  setLoading(true, 'Прокладка дороги по рельефу...');
+  const res = await fetch('/api/inspect?' + p.toString());
+  if (!res.ok) return;
+  const info = await res.json();
+  await renderInspectCard(info);
+}
+
+function findNearestWaypoint(px, py) {
+  const svg = $('map-stage').querySelector('svg');
+  const vb = svg && svg.viewBox.baseVal;
+  const us = (vb && vb.width ? vb.width : 2200) / 2200;
+  const maxDist = 28 * us;
+  let best = null;
+  let bestDist = maxDist * maxDist;
+  for (const w of activeWaypoints()) {
+    const pos = projectGeoToCurrentSvg(w.lat, w.lon);
+    if (!pos) continue;
+    const dx = pos[0] - px;
+    const dy = pos[1] - py;
+    const d2 = dx * dx + dy * dy;
+    if (d2 <= bestDist) {
+      bestDist = d2;
+      best = w;
+    }
+  }
+  return best;
+}
+
+async function handleRoadClick(px, py) {
+  const wp = findNearestWaypoint(px, py);
+  if (!wp) {
+    state.roadHint = state.roadFrom
+      ? `От «${state.roadFrom.name}» → выберите подсвеченную точку Б`
+      : 'Нажмите на одну из подсвеченных точек на карте';
+    updateToolSubbar();
+    return;
+  }
+  if (!state.roadFrom) {
+    state.roadFrom = wp;
+    state.roadHint = `От «${wp.name}» → выберите точку Б`;
+    updateToolSubbar();
+    renderCustomOverlays();
+    return;
+  }
+  if (state.roadFrom.id === wp.id) {
+    state.roadFrom = null;
+    state.roadHint = 'Выберите точку А на карте';
+    updateToolSubbar();
+    renderCustomOverlays();
+    return;
+  }
+  const from = state.roadFrom;
+  const p = worldParams();
+  p.set('mode', state.mode);
+  p.set('from_lat', from.lat.toFixed(5));
+  p.set('from_lon', from.lon.toFixed(5));
+  p.set('to_lat', wp.lat.toFixed(5));
+  p.set('to_lon', wp.lon.toFixed(5));
+  p.set('target_name', wp.name);
+  p.set('allow_sea', '1');
+  addRegionWindow(p);
+
+  setLoading(true, 'Прокладка маршрута...');
   try {
     const res = await fetch('/api/route_road?' + p.toString());
     if (!res.ok) return;
     const data = await res.json();
-    if (!data.ok) {
-      $('custom-road-info').textContent = data.error || 'Не удалось разместить поселение в этой точке.';
+    if (!data.ok || !data.geo_pts || data.geo_pts.length < 2) {
+      state.roadHint = data.error || 'Маршрут не найден';
+      updateToolSubbar();
       return;
     }
-    const svg = $('map-stage').querySelector('svg');
-    if (!svg) return;
-    const ns = 'http://www.w3.org/2000/svg';
-    let g = svg.getElementById('layer-custom-roads');
-    if (!g) {
-      g = document.createElementNS(ns, 'g');
-      g.setAttribute('id', 'layer-custom-roads');
-      g.setAttribute('clip-path', 'url(#fmsFrameClip)');
-      svg.appendChild(g);
-    }
-    const vb = svg.viewBox.baseVal;
-    const us = (vb && vb.width ? vb.width : 1680) / 1680;
-    if (data.pts && data.pts.length >= 2) {
-      const segments = [];
-      let cur = [data.pts[0]];
-      const jumpThr = (vb && vb.width ? vb.width : 2200) * 0.45;
-      for (let i = 1; i < data.pts.length; i++) {
-        const a = data.pts[i - 1];
-        const b = data.pts[i];
-        if (Math.abs(a[0] - b[0]) > jumpThr) {
-          if (cur.length >= 2) segments.push(cur);
-          cur = [b];
-        } else {
-          cur.push(b);
-        }
-      }
-      if (cur.length >= 2) segments.push(cur);
-      for (const seg of segments) {
-        const d = 'M' + seg.map((pt) => `${pt[0].toFixed(1)},${pt[1].toFixed(1)}`).join(' L');
-        const under = document.createElementNS(ns, 'path');
-        under.setAttribute('d', d);
-        under.setAttribute('fill', 'none');
-        under.setAttribute('stroke', '#332414');
-        under.setAttribute('stroke-width', (5.0 * us).toFixed(2));
-        under.setAttribute('stroke-linecap', 'round');
-        under.setAttribute('stroke-linejoin', 'round');
-        under.setAttribute('opacity', '0.82');
-        g.appendChild(under);
-
-        const road = document.createElementNS(ns, 'path');
-        road.setAttribute('d', d);
-        road.setAttribute('fill', 'none');
-        road.setAttribute('stroke', '#f0cf82');
-        road.setAttribute('stroke-width', (2.6 * us).toFixed(2));
-        road.setAttribute('stroke-linecap', 'round');
-        road.setAttribute('stroke-linejoin', 'round');
-        g.appendChild(road);
-      }
-    }
-    state.customCount += 1;
-    const [cx, cy] = data.placed;
-    const mark = document.createElementNS(ns, 'circle');
-    mark.setAttribute('cx', cx.toFixed(1));
-    mark.setAttribute('cy', cy.toFixed(1));
-    mark.setAttribute('r', (6.5 * us).toFixed(2));
-    mark.setAttribute('fill', '#e0a94c');
-    mark.setAttribute('stroke', '#22180e');
-    mark.setAttribute('stroke-width', (2.0 * us).toFixed(2));
-    g.appendChild(mark);
-
-    const lbl = document.createElementNS(ns, 'text');
-    lbl.setAttribute('x', (cx + 9 * us).toFixed(1));
-    lbl.setAttribute('y', (cy - 7 * us).toFixed(1));
-    lbl.setAttribute('fill', '#fff3d6');
-    lbl.setAttribute('stroke', '#1d140c');
-    lbl.setAttribute('stroke-width', (3.2 * us).toFixed(2));
-    lbl.setAttribute('paint-order', 'stroke');
-    lbl.setAttribute('font-family', 'Palatino, Georgia, serif');
-    lbl.setAttribute('font-size', (13 * us).toFixed(1));
-    lbl.setAttribute('font-weight', '700');
-    lbl.textContent = `Форпост #${state.customCount}`;
-    g.appendChild(lbl);
-
-    if (data.pts && data.pts.length >= 2) {
-      $('custom-road-info').innerHTML = `Поставлен <strong>Форпост #${state.customCount}</strong> → тракт до <strong>${data.target_name}</strong>: <strong>${Math.round(data.length_km)} км</strong> (макс. высота <strong>${data.max_elev_m} м</strong>).`;
-    } else {
-      $('custom-road-info').innerHTML = `Поставлен <strong>Форпост #${state.customCount}</strong> (островная точка без сухопутного соседа).`;
-    }
+    state.customRoads.push({
+      id: 'cr-' + (state.customRoads.length + 1),
+      cls: state.roadTier,
+      is_sea: !!data.is_sea,
+      fromName: from.name,
+      toName: wp.name,
+      lengthKm: Math.round(data.length_km),
+      maxElevM: data.max_elev_m,
+      geo_pts: data.geo_pts,
+    });
+    const modeName = data.is_sea ? 'Морской путь' : (state.roadTier === 1 ? 'Тропа' : state.roadTier === 3 ? 'Тракт' : 'Дорога');
+    state.roadFrom = wp; // удобно продолжать маршрут цепочкой; Esc отменяет
+    state.roadHint = `${modeName}: ${from.name} → ${wp.name} (${Math.round(data.length_km)} км) · дальше?`;
+    updateToolSubbar();
+    renderCustomOverlays();
   } finally {
     setLoading(false);
   }
+}
+
+async function handleMarkerClick(px, py) {
+  const p = worldParams();
+  p.set('mode', state.mode);
+  p.set('px', px.toFixed(2));
+  p.set('py', py.toFixed(2));
+  addRegionWindow(p);
+  const res = await fetch('/api/inspect?' + p.toString());
+  if (!res.ok) return;
+  const info = await res.json();
+  if (!info.in_bounds) return;
+  if (info.is_ocean && state.markerKind !== 'geo') {
+    alert('Поселение или важное место можно поставить только на суше.');
+    return;
+  }
+  state.markerSeq += 1;
+  const typedName = ($('inp-marker-name')?.value || '').trim();
+  const defaultTitle = state.markerKind === 'settlement'
+    ? `Застава #${state.markerSeq}`
+    : (state.markerKind === 'landmark' ? `Урочище #${state.markerSeq}` : `Ориентир #${state.markerSeq}`);
+  const subtitle = state.markerKind === 'settlement'
+    ? 'Пользовательское поселение'
+    : (state.markerKind === 'landmark' ? 'Важное место' : 'Географическая метка');
+  state.customMarkers.push({
+    id: 'um-' + state.markerSeq,
+    kind: state.markerKind,
+    subkind: state.markerKind,
+    name: typedName || defaultTitle,
+    subtitle,
+    lat: info.lat,
+    lon: info.lon,
+  });
+  if ($('inp-marker-name')) $('inp-marker-name').value = '';
+  updateToolSubbar();
+  renderCustomOverlays();
+}
+
+function closePopovers() {
+  document.querySelectorAll('.popover.open').forEach((el) => el.classList.remove('open'));
+}
+function togglePopover(id) {
+  const target = $(id);
+  const willOpen = !target.classList.contains('open');
+  closePopovers();
+  if (willOpen) target.classList.add('open');
+}
+
+function openWorldModal() {
+  closePopovers();
+  $('modal-backdrop').classList.add('open');
+}
+function closeWorldModal() {
+  $('modal-backdrop').classList.remove('open');
+}
+
+function resetCivForNewWorld() {
+  state.civ.realms = false;
+  state.civ.cities = false;
+  state.civ.routes = false;
+  state.civ.salt = 0;
+  state.customMarkers = [];
+  state.customRoads = [];
+  state.roadFrom = null;
+  state.roadHint = 'Выберите точку А на карте';
+  state.inspectPoint = null;
+  $('inspect-card').classList.remove('open');
+}
+
+function randomSeedName() {
+  const words = ['aethel', 'valinor', 'hyperborea', 'roshar', 'talos', 'krynn', 'solaris', 'nordheim', 'vesper', 'thalassa', 'eldor', 'arkadia'];
+  return words[Math.floor(Math.random() * words.length)] + '-' + (100 + Math.floor(Math.random() * 900));
+}
+
+function zoomStep(factor) {
+  const vp = $('viewport').getBoundingClientRect();
+  const mx = vp.width * 0.5;
+  const my = vp.height * 0.5;
+  const next = Math.max(0.15, Math.min(8.0, state.scale * factor));
+  const ratio = next / state.scale;
+  state.tx = mx - (mx - state.tx) * ratio;
+  state.ty = my - (my - state.ty) * ratio;
+  state.scale = next;
+  applyTransform();
+  noteViewChanged();
 }
 
 function wireEvents() {
@@ -1192,110 +1848,176 @@ function wireEvents() {
     $(inp).addEventListener('input', () => { $(out).textContent = fmt($(inp).value); });
   });
 
-  $('btn-rand-seed').onclick = () => {
-    const words = ['aethel', 'valinor', 'hyperborea', 'roshar', 'talos', 'krynn', 'solaris', 'nordheim', 'vesper', 'thalassa'];
-    $('inp-seed').value = words[Math.floor(Math.random() * words.length)] + '-' + (100 + Math.floor(Math.random() * 900));
-    loadWorld();
+  $('btn-reset-earth').onclick = () => {
+    $('inp-activity').value = '1.00'; $('val-activity').textContent = '1.00';
+    $('inp-water').value = '2.62'; $('val-water').textContent = '2.62';
+    $('inp-tilt').value = '23.4'; $('val-tilt').textContent = '23.4°';
+    $('inp-solar').value = '0.0'; $('val-solar').textContent = '0.0°C';
+    $('inp-rot').value = '1.00'; $('val-rot').textContent = '1.00×';
   };
 
-  $('btn-generate').onclick = () => loadWorld();
-  $('btn-view-world').onclick = () => loadWorld();
-  $('btn-fit').onclick = () => fitToViewport();
+  $('badge-seed').onclick = openWorldModal;
+  $('btn-new-world').onclick = openWorldModal;
+  $('btn-modal-close').onclick = closeWorldModal;
+  $('btn-modal-cancel').onclick = closeWorldModal;
+  $('modal-backdrop').onclick = (e) => { if (e.target === $('modal-backdrop')) closeWorldModal(); };
+  $('btn-modal-rand').onclick = () => { $('inp-seed').value = randomSeedName(); };
 
-  for (const s of ['expedition', 'painted', 'sketch']) {
+  $('btn-rand-seed').onclick = () => {
+    $('inp-seed').value = randomSeedName();
+    resetCivForNewWorld();
+    loadWorld();
+  };
+  $('btn-generate').onclick = () => {
+    closeWorldModal();
+    resetCivForNewWorld();
+    loadWorld();
+  };
+  $('btn-view-world').onclick = () => loadWorld();
+
+  // Styles
+  for (const s of ['sepia', 'ink', 'color']) {
     $('btn-style-' + s).onclick = () => {
       if (state.style === s) return;
       state.style = s;
-      for (const id of ['expedition', 'painted', 'sketch']) {
-        $('btn-style-' + id).classList.toggle('active-tab', id === s);
+      for (const id of ['sepia', 'ink', 'color']) {
+        $('btn-style-' + id).classList.toggle('active', id === s);
       }
       reloadCurrent();
     };
   }
 
+  // Popovers
+  $('btn-civ-menu').onclick = (e) => { e.stopPropagation(); togglePopover('pop-civ'); };
+  $('btn-layers-menu').onclick = (e) => { e.stopPropagation(); togglePopover('pop-layers'); };
+  $('btn-export-menu').onclick = (e) => { e.stopPropagation(); togglePopover('pop-export'); };
+  document.querySelectorAll('.popover').forEach((el) => el.addEventListener('click', (e) => e.stopPropagation()));
+  window.addEventListener('click', closePopovers);
+
+  // Civilization commands
+  $('realms-chips').querySelectorAll('button[data-realms]').forEach((b) => {
+    b.onclick = () => {
+      state.civ.targetRealms = parseInt(b.dataset.realms, 10);
+      $('realms-chips').querySelectorAll('button').forEach((x) => x.classList.toggle('active', x === b));
+    };
+  });
+  $('btn-civ-realms').onclick = () => {
+    state.civ.realms = true;
+    reloadCurrent();
+  };
+  $('btn-civ-cities').onclick = () => {
+    state.civ.cities = true;
+    reloadCurrent();
+  };
+  $('btn-civ-routes').onclick = () => {
+    state.civ.cities = true;
+    state.civ.routes = true;
+    reloadCurrent();
+  };
+  $('btn-civ-all').onclick = () => {
+    state.civ.realms = true;
+    state.civ.cities = true;
+    state.civ.routes = true;
+    reloadCurrent();
+  };
+  $('btn-civ-reroll').onclick = () => {
+    if (!state.civ.realms && !state.civ.cities && !state.civ.routes) {
+      state.civ.realms = true;
+      state.civ.cities = true;
+      state.civ.routes = true;
+    }
+    state.civ.salt += 1;
+    reloadCurrent();
+  };
+  $('btn-civ-clear').onclick = () => {
+    state.civ.realms = false;
+    state.civ.cities = false;
+    state.civ.routes = false;
+    reloadCurrent();
+  };
+
+  // Layers & Legend quick toggle
   document.querySelectorAll('input[data-layer]').forEach((cb) => {
     cb.addEventListener('change', applyLayerToggles);
   });
-
-  $('btn-reset-earth').onclick = () => {
-    $('inp-activity').value = '1.00';
-    $('val-activity').textContent = '1.00';
-    $('inp-water').value = '2.62';
-    $('val-water').textContent = '2.62';
-    $('inp-tilt').value = '23.4';
-    $('val-tilt').textContent = '23.4°';
-    $('inp-solar').value = '0.0';
-    $('val-solar').textContent = '0.0°C';
-    $('inp-rot').value = '1.00';
-    $('val-rot').textContent = '1.00×';
+  $('btn-legend-quick').onclick = () => {
+    $('chk-legend').checked = !$('chk-legend').checked;
+    applyLayerToggles();
   };
 
-  $('tool-inspect').onclick = () => {
-    state.tool = 'inspect';
-    $('tool-inspect').classList.add('active-tab');
-    $('tool-place-city').classList.remove('active-tab');
-  };
-  $('tool-place-city').onclick = () => {
-    state.tool = 'place-city';
-    $('tool-place-city').classList.add('active-tab');
-    $('tool-inspect').classList.remove('active-tab');
-  };
-  $('btn-clear-custom').onclick = () => {
-    const svg = $('map-stage').querySelector('svg');
-    const g = svg && svg.getElementById('layer-custom-roads');
-    if (g) g.innerHTML = '';
-    state.customCount = 0;
-    $('custom-road-info').textContent = 'Пользовательские метки очищены.';
+  // Dock tools
+  $('tool-inspect').onclick = () => setTool('inspect');
+  $('tool-road').onclick = () => setTool('road');
+  $('tool-marker').onclick = () => setTool('marker');
+  $('btn-inspect-close').onclick = () => {
+    $('inspect-card').classList.remove('open');
+    state.inspectPoint = null;
+    renderCustomOverlays();
   };
 
+  // Zoom controls
+  $('btn-zoom-in').onclick = () => zoomStep(1.25);
+  $('btn-zoom-out').onclick = () => zoomStep(1 / 1.25);
+  $('btn-fit').onclick = () => { fitToViewport(); noteViewChanged(); };
+
+  // Pan & Click on viewport
   const vp = $('viewport');
   vp.addEventListener('contextmenu', (e) => e.preventDefault());
 
   window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      closePopovers();
+      closeWorldModal();
+      if (state.tool === 'road' && state.roadFrom) {
+        state.roadFrom = null;
+        state.roadHint = 'Выберите точку А на карте';
+        updateToolSubbar();
+        renderCustomOverlays();
+      }
+    }
     if (e.code === 'Space' && document.activeElement.tagName !== 'INPUT') {
       state.spaceDown = true;
-      vp.style.cursor = 'grab';
     }
   });
   window.addEventListener('keyup', (e) => {
-    if (e.code === 'Space') {
-      state.spaceDown = false;
-      vp.style.cursor = 'crosshair';
-    }
+    if (e.code === 'Space') state.spaceDown = false;
   });
 
   vp.addEventListener('mousedown', (e) => {
-    if (e.button === 1 || e.button === 2 || state.spaceDown) {
-      state.dragging = true;
-      state.dragMoved = false;
-      state.lastX = e.clientX;
-      state.lastY = e.clientY;
-      vp.style.cursor = 'grabbing';
-    } else if (e.button === 0) {
-      state.lastX = e.clientX;
-      state.lastY = e.clientY;
-      state.dragMoved = false;
+    if (e.button === 0 || e.button === 1 || e.button === 2) {
+      state.panCandidate = true;
+      state.dragging = (e.button === 1 || e.button === 2 || state.spaceDown);
+      if (state.dragging) vp.classList.add('panning');
+      state.downX = state.lastX = e.clientX;
+      state.downY = state.lastY = e.clientY;
     }
   });
 
   window.addEventListener('mousemove', (e) => {
+    if (!state.panCandidate) return;
+    const dx = e.clientX - state.lastX;
+    const dy = e.clientY - state.lastY;
+    if (!state.dragging && Math.hypot(e.clientX - state.downX, e.clientY - state.downY) > 4) {
+      state.dragging = true;
+      vp.classList.add('panning');
+    }
     if (state.dragging) {
-      const dx = e.clientX - state.lastX;
-      const dy = e.clientY - state.lastY;
-      if (Math.abs(dx) + Math.abs(dy) > 2) state.dragMoved = true;
       state.tx += dx;
       state.ty += dy;
-      state.lastX = e.clientX;
-      state.lastY = e.clientY;
       applyTransform();
     }
+    state.lastX = e.clientX;
+    state.lastY = e.clientY;
   });
 
   window.addEventListener('mouseup', (e) => {
-    if (state.dragging) {
-      state.dragging = false;
-      vp.style.cursor = state.spaceDown ? 'grab' : 'crosshair';
-      if (state.dragMoved) noteViewChanged();
+    if (!state.panCandidate) return;
+    const wasDragging = state.dragging;
+    state.panCandidate = false;
+    state.dragging = false;
+    vp.classList.remove('panning');
+    if (wasDragging) {
+      noteViewChanged();
       return;
     }
     if (e.button === 0 && e.target.closest('#map-stage')) {
@@ -1307,10 +2029,17 @@ function wireEvents() {
       const h = vb && vb.height ? vb.height : rect.height;
       const px = ((e.clientX - rect.left) / rect.width) * w;
       const py = ((e.clientY - rect.top) / rect.height) * h;
-      if (state.tool === 'place-city') {
-        placeCityAndRoad(px, py);
+      if (state.tool === 'road') {
+        handleRoadClick(px, py);
+      } else if (state.tool === 'marker') {
+        handleMarkerClick(px, py);
       } else {
-        inspectPixel(px, py);
+        const icon = e.target.closest('.settlement-icon');
+        if (icon) {
+          inspectSettlement(icon.dataset.id, icon.dataset.lat, icon.dataset.lon);
+        } else {
+          inspectPixel(px, py);
+        }
       }
     }
   });

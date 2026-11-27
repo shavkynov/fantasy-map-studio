@@ -3,7 +3,7 @@
 //! гидрология -> биомы и почвы -> геоморфология -> ресурсы -> цивилизации и торговые пути.
 
 use crate::biomes::{self, Biomes};
-use crate::civilization::{self, Civilization};
+use crate::civilization::{self, Civilization, CivilizationOptions};
 use crate::climate::{self, Climate, ClimateParams};
 use crate::currents::{self, Currents};
 use crate::erosion::{self, ErosionParams, ErosionResult};
@@ -61,13 +61,23 @@ pub struct Planet {
     pub names: WorldNames,
 }
 
-/// Генерирует планету с настройками Земли по умолчанию поверх параметров тектоники `opt`.
-pub fn generate(opt: &Options) -> Result<Planet, String> {
-    generate_with_options(&PlanetOptions::from_tectonic(opt.clone()))
-}
-
-/// Генерирует планету с полным набором параметров климата, эрозии и цивилизаций.
-pub fn generate_with_options(opt: &PlanetOptions) -> Result<Planet, String> {
+#[allow(clippy::type_complexity)]
+fn generate_physical_core(
+    opt: &PlanetOptions,
+) -> Result<
+    (
+        Grid,
+        World,
+        Currents,
+        Climate,
+        ErosionResult,
+        Hydrology,
+        Biomes,
+        Geography,
+        Resources,
+    ),
+    String,
+> {
     let tectonic = tectonic::generate(&opt.tectonic)?;
     let grid = Grid::new(tectonic.w, tectonic.h, opt.tectonic.radius_km);
     let seed = &opt.tectonic.seed;
@@ -99,6 +109,63 @@ pub fn generate_with_options(opt: &PlanetOptions) -> Result<Planet, String> {
         &biomes,
         seed,
     );
+    Ok((grid, tectonic, currents, climate, erosion, hydrology, biomes, geography, resources))
+}
+
+/// Генерирует физическую планету с природными названиями без стран, городов и дорог.
+pub fn generate_physical_with_options(opt: &PlanetOptions) -> Result<Planet, String> {
+    let (grid, tectonic, currents, climate, erosion, hydrology, biomes, geography, resources) =
+        generate_physical_core(opt)?;
+    let seed = opt.tectonic.seed.clone();
+    let civilization = Civilization::physical_only(
+        &grid, &erosion, &climate, &hydrology, &biomes, &geography, &resources,
+    );
+    let names = toponymy::name_world(&grid, &hydrology, &biomes, &geography, &civilization, &seed);
+    Ok(Planet {
+        seed,
+        grid,
+        tectonic,
+        currents,
+        climate,
+        erosion,
+        hydrology,
+        biomes,
+        geography,
+        resources,
+        civilization,
+        names,
+    })
+}
+
+/// Населяет уже сгенерированную физическую планету странами, городами и торговыми путями,
+/// сохраняя стабильными исходные географические названия.
+pub fn populate_civilization(base: &Planet, civ_opt: &CivilizationOptions) -> Planet {
+    let mut planet = base.clone();
+    planet.civilization = civilization::simulate_with_options(
+        &planet.grid,
+        &planet.erosion,
+        &planet.currents,
+        &planet.climate,
+        &planet.hydrology,
+        &planet.biomes,
+        &planet.geography,
+        &planet.resources,
+        civ_opt,
+        &planet.seed,
+    );
+    planet
+}
+
+/// Генерирует планету с настройками Земли по умолчанию поверх параметров тектоники `opt`.
+pub fn generate(opt: &Options) -> Result<Planet, String> {
+    generate_with_options(&PlanetOptions::from_tectonic(opt.clone()))
+}
+
+/// Генерирует планету с полным набором параметров климата, эрозии и цивилизаций.
+pub fn generate_with_options(opt: &PlanetOptions) -> Result<Planet, String> {
+    let (grid, tectonic, currents, climate, erosion, hydrology, biomes, geography, resources) =
+        generate_physical_core(opt)?;
+    let seed = &opt.tectonic.seed;
     let civilization = civilization::simulate(
         &grid,
         &erosion,
