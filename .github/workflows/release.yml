@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag (e.g. v0.90.1)'
+        description: 'Release tag (e.g. v0.91.0)'
         required: true
-        default: 'v0.90.1'
+        default: 'v0.91.0'
         type: string
 
 permissions:
@@ -67,7 +67,7 @@ jobs:
         run: |
           $tag = "${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
           "VERSION=$($tag.TrimStart('v'))" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-      - name: Test and build Windows x64 binary
+      - name: Test and build Windows x64 native WebView2 binary
         shell: pwsh
         run: |
           $env:RUSTFLAGS = "-D warnings"
@@ -75,24 +75,52 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo build --release -p fms-studio
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Package Windows x64 zip
+      - name: Smoke-test standalone .exe without assets directory
+        shell: pwsh
+        run: |
+          $smokeDir = Join-Path "dist" "smoke"
+          New-Item -ItemType Directory -Force -Path $smokeDir | Out-Null
+          $smokeExe = Join-Path $smokeDir "FantasyMapStudio.exe"
+          Copy-Item "target/release/fms-studio.exe" $smokeExe -Force
+          $proc = Start-Process -FilePath $smokeExe -ArgumentList "--web","--port","17878" -WorkingDirectory $smokeDir -PassThru
+          try {
+            $ok = $false
+            for ($i = 0; $i -lt 30; $i++) {
+              Start-Sleep -Milliseconds 300
+              try {
+                $r = Invoke-WebRequest -Uri "http://127.0.0.1:17878/" -UseBasicParsing -TimeoutSec 3
+                if ($r.StatusCode -eq 200) { $ok = $true; break }
+              } catch {}
+            }
+            if (-not $ok) { throw "Standalone Windows exe failed to serve / without assets directory" }
+            $api = Invoke-WebRequest -Uri "http://127.0.0.1:17878/api/world?w=180" -UseBasicParsing -TimeoutSec 30
+            if ($api.StatusCode -ne 200 -or $api.Content -notmatch '"seed"') {
+              throw "Standalone Windows exe failed /api/world check"
+            }
+            Write-Host "Standalone Windows smoke test passed (HTTP 200 + world JSON OK)"
+          } finally {
+            if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
+          }
+      - name: Package standalone Windows x64 .exe and .zip
         shell: pwsh
         run: |
           $ver = $env:VERSION
           $pkgName = "FantasyMapStudio-$ver-windows-x64"
+          $exeDist = "dist/$pkgName.exe"
+          Copy-Item "target/release/fms-studio.exe" $exeDist -Force
+
           $stage = Join-Path "dist/stage" $pkgName
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
-          Copy-Item "target/release/fms-studio.exe" (Join-Path $stage "fms-studio.exe")
-          Copy-Item -Recurse "fms-render/assets" (Join-Path $stage "assets")
+          Copy-Item "target/release/fms-studio.exe" (Join-Path $stage "FantasyMapStudio.exe") -Force
           @"
           Fantasy Map Studio v$ver (Windows x64)
 
           Launch:
-            Double-click fms-studio.exe to start the local studio and open your browser.
+            Run FantasyMapStudio.exe — opens as a native Windows desktop window (WebView2, no browser tab or console window).
+            Requires Microsoft Edge WebView2 Runtime (preinstalled on Windows 11 and modern Windows 10).
 
-          CLI options:
-            fms-studio.exe --web --port 7878
-            fms-studio.exe --no-browser
+          Optional CLI / headless web server mode:
+            FantasyMapStudio.exe --web --port 7878
           "@ | Set-Content -Path (Join-Path $stage "README.txt") -Encoding UTF8
           $zipPath = "dist/$pkgName.zip"
           Compress-Archive -Path $stage -DestinationPath $zipPath -Force
@@ -100,7 +128,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: dist-windows-x64
-          path: dist/FantasyMapStudio-${{ env.VERSION }}-windows-x64.zip
+          path: |
+            dist/FantasyMapStudio-${{ env.VERSION }}-windows-x64.exe
+            dist/FantasyMapStudio-${{ env.VERSION }}-windows-x64.zip
           if-no-files-found: error
 
   build-linux:
@@ -126,7 +156,6 @@ jobs:
           mkdir -p "$STAGE"
           cp target/release/fms-studio "$STAGE/fms-studio"
           chmod +x "$STAGE/fms-studio"
-          cp -R fms-render/assets "$STAGE/assets"
           cat > "$STAGE/run-studio.sh" << 'SH'
           #!/usr/bin/env bash
           set -euo pipefail
@@ -137,7 +166,7 @@ jobs:
           Fantasy Map Studio v${VERSION} (Linux x64)
 
           Launch:
-            ./run-studio.sh   (starts studio and opens default browser)
+            ./run-studio.sh   (starts local studio and opens default browser)
 
           CLI options:
             ./fms-studio --web --port 7878
@@ -173,20 +202,21 @@ jobs:
           cat > release-notes.md << EOF
           # Fantasy Map Studio ${TAG}
 
-          ## Исправления в ${TAG}
-          - **macOS crash fix (`EXC_BAD_ACCESS` на запуске):** перенесён 512 КБ буфер зерна бумаги из стека в кучу (`classic.rs`) и увеличен стек рабочих потоков `fms://` в нативном macOS-раннере (`macos.m`) и HTTP-сервере (`server.rs`) до 8 МБ, устранив переполнение 512 КБ стека потоков GCD (`com.apple.root.user-initiated-qos`).
+          ## Исправления и улучшения в ${TAG}
+          - **Нативное приложение Windows (\`WebView2\`):** на Windows теперь открывается отдельное тёмное окно приложения без браузера и консоли (через протокол \`fms\` и встроенный системный диалог сохранения PNG/SVG).
+          - **Полная автономность без внешней папки \`assets/\`:** бинарник больше не падает при запуске напрямую (из архива, с рабочего стола или в виде одиночного \`.exe\`), когда папка \`assets/\` отсутствует рядом.
+          - **macOS crash fix (из 0.90.1):** 512 КБ буфер зерна перенесён в кучу, стек рабочих потоков увеличен до 8 МБ.
 
-          ## Основные изменения
-          - **Классическое оформление «от руки» (линейка 0.89.0):** три стиля (`Сепия`, `Ч/Б`, `Цветной`), деликатная северо-западная светотень, прерывистые горизонтали рельефа и увалы на внутренних равнинах без визуального шума.
-          - **Минималистичный интерфейс и управление:** генерация стран, городов и торговых путей по команде пользователя, кликабельные иконки поселений без цветных кругов, карточка поселения с ресурсной корзиной и переходом в окрестности (`4×`).
-          - **Ресурсная география и дикие земли:** ресурсно-торговая иерархия поселений (`Столица`, `Крупный торговый город`, `Город`, `Посёлок`, `Село`), дистанционная фильтрация, стоянки охотников и древние руины в диких биомах.
-          - **Навигация и маршруты:** морские пути с офшорным отводом от берега и конструктор пользовательских дорог «от точки до точки».
+          ## Основные возможности
+          - **Классическое оформление «от руки» (линейка 0.89.0):** три стиля (\`Сепия\`, \`Ч/Б\`, \`Цветной\`), северо-западная светотень, деликатные горизонтали рельефа и увалы на внутренних равнинах без визуального шума.
+          - **Минималистичный интерфейс:** генерация стран, городов и торговых путей по команде, кликабельные иконки поселений без цветных кругов, карточка поселения и зум в окрестности (\`4×\`).
+          - **Ресурсная география и маршруты:** иерархия поселений, стоянки охотников и руины в диких биомах, офшорные морские трассы и конструктор дорог «от точки до точки».
 
           ## Сборки по платформам
           - **macOS (Apple Silicon arm64):** \`FantasyMapStudio-${VERSION}-macos-arm64.dmg\` / \`.zip\`
           - **macOS (Intel x86_64):** \`FantasyMapStudio-${VERSION}-macos-intel.dmg\` / \`.zip\`
-          - **Windows (x64):** \`FantasyMapStudio-${VERSION}-windows-x64.zip\` (распаковать и запустить \`fms-studio.exe\`)
-          - **Linux (x64):** \`FantasyMapStudio-${VERSION}-linux-x64.tar.gz\` (распаковать и запустить \`./run-studio.sh\`)
+          - **Windows (x64):** \`FantasyMapStudio-${VERSION}-windows-x64.exe\` (единый файл) или \`FantasyMapStudio-${VERSION}-windows-x64.zip\` (отдельное окно WebView2, требует WebView2 Runtime — встроен в Windows 10/11)
+          - **Linux (x64):** \`FantasyMapStudio-${VERSION}-linux-x64.tar.gz\` (\`./run-studio.sh\`)
           EOF
       - name: Create or update GitHub Release
         env:

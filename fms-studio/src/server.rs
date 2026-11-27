@@ -264,7 +264,7 @@ pub struct StudioApp {
 
 impl StudioApp {
     pub fn new() -> Result<Self, String> {
-        let pack = AssetPack::load_default()?;
+        let pack = AssetPack::load_default_or_empty();
         Ok(Self {
             pack,
             cache: Mutex::new(StudioCache::new()),

@@ -82,6 +82,37 @@ fn resolve_default_assets_dir() -> Result<PathBuf, String> {
 }
 
 impl AssetPack {
+    /// Возвращает пустой набор ассетов (для автономного запуска классического векторно-растрового рендерера без внешнего каталога `assets/`).
+    pub fn empty() -> Self {
+        let dummy = Sprite {
+            w: 1,
+            h: 1,
+            anchor_x: 0.0,
+            anchor_y: 0.0,
+            rgba: vec![0, 0, 0, 0],
+        };
+        Self {
+            mountains: Vec::new(),
+            broadleaf: Vec::new(),
+            pines: Vec::new(),
+            autumn: Vec::new(),
+            capital: dummy.clone(),
+            town: dummy.clone(),
+            port: dummy.clone(),
+            fortress: dummy.clone(),
+            watchtower: dummy.clone(),
+            bridge: dummy.clone(),
+            hill: dummy.clone(),
+            compass: dummy,
+            paper_tex: vec![128; 512 * 512],
+        }
+    }
+
+    /// Загружает штатный пакет ассетов или возвращает пустой `AssetPack::empty()`, если папка `assets/` отсутствует рядом с бинарником.
+    pub fn load_default_or_empty() -> Self {
+        Self::load_default().unwrap_or_else(|_| Self::empty())
+    }
+
     /// Загружает штатный пакет ассетов из каталога `fms-render/assets`.
     pub fn load_default() -> Result<Self, String> {
         let dir = resolve_default_assets_dir()?;

@@ -66,7 +66,7 @@ impl RenderOutput {
 
 /// Рендерит карту мира с настройками по умолчанию (`Style::Sepia`, ширина 2200 px).
 pub fn render_world(planet: &Planet, seed: &str, style: Style) -> Result<RenderOutput, String> {
-    let pack = AssetPack::load_default()?;
+    let pack = AssetPack::load_default_or_empty();
     let opt = RenderOptions {
         style,
         ..Default::default()
@@ -92,7 +92,7 @@ pub fn render_region(
     seed: &str,
     style: Style,
 ) -> Result<RenderOutput, String> {
-    let pack = AssetPack::load_default()?;
+    let pack = AssetPack::load_default_or_empty();
     let opt = RenderOptions {
         style,
         target_width: 1680,

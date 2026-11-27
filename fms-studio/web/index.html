@@ -1173,6 +1173,8 @@ function setTool(nextTool) {
 function triggerDownload(url, filename) {
   if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.fmsSave) {
     window.webkit.messageHandlers.fmsSave.postMessage({ url, filename });
+  } else if (window.ipc && typeof window.ipc.postMessage === 'function') {
+    window.ipc.postMessage('SAVE_URL\n' + filename + '\n' + url);
   } else {
     window.open(url, '_blank');
   }
@@ -1180,6 +1182,8 @@ function triggerDownload(url, filename) {
 function saveBase64(dataBase64, mime, filename) {
   if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.fmsSave) {
     window.webkit.messageHandlers.fmsSave.postMessage({ dataBase64, filename });
+  } else if (window.ipc && typeof window.ipc.postMessage === 'function') {
+    window.ipc.postMessage('SAVE_B64\n' + filename + '\n' + dataBase64);
   } else {
     const a = document.createElement('a');
     a.href = `data:${mime};base64,${dataBase64}`;

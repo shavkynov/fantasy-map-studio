@@ -1,3 +1,5 @@
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+
 use fms_studio::server::StudioConfig;
 
 fn main() {
@@ -46,7 +48,23 @@ fn main() {
         }
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        if !force_web {
+            if let Err(e) = fms_studio::windows_app::run() {
+                eprintln!("fms-studio desktop error: {e}");
+                std::process::exit(1);
+            }
+            return;
+        }
+        let cfg = StudioConfig { host, port };
+        if let Err(e) = fms_studio::server::serve(cfg) {
+            eprintln!("fms-studio error: {e}");
+            std::process::exit(1);
+        }
+    }
+
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
     {
         let cfg = StudioConfig { host, port };
         if let Err(e) = fms_studio::server::serve_with_browser(cfg, !force_web) {
