@@ -99,6 +99,8 @@ JS: `inspectSettlement`, `inspectPixel`, `renderInspectCard` (`#inspect-card`).
 Ответ (`build_road_json`): `{ok,is_sea,placed,from_placed,to_placed,length_km,max_elev_m,target_name,pts,geo_pts}` или `{ok:false,error}`.
 Дороги и метки пользователя живут только в JS (`state.customRoads`, `state.customMarkers`, `handleRoadClick`, `renderCustomOverlays`); класс дороги `roadTier` 1..3 на сервер не передаётся.
 
+Крупный план (JS `runLod` → `loadRegion`): поля и рамка листа региона скрыты CSS-маской на `#map-stage` (`maskRegionSheet`, в экспорт не попадает); под ним `canvas#backdrop` — растр мира, перепроецированный в координаты региона (`loadBackdrop`, `drawBackdrop`).
+
 Кэш (`StudioCache`, LRU): физические планеты 3, населённые 6, рендеры мира 6, регионов 8. Новый параметр генерации обязан попасть в ключ (`PhysWorldKey`/`CivKey`/`RenderKey`/`RegionKey`) и в `world_query_string`.
 
 ## Тесты, examples, CI

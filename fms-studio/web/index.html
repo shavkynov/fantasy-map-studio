@@ -50,6 +50,21 @@
     filter: drop-shadow(0 20px 56px rgba(0, 0, 0, 0.65));
   }
   #map-stage svg { display: block; }
+  /* Крупный план: под листом региона лежит карта мира, поля и рамка листа скрыты. */
+  #backdrop {
+    position: absolute; left: 0; top: 0; width: 100%; height: 100%;
+    pointer-events: none; display: none;
+  }
+  #viewport.lod-region #backdrop { display: block; }
+  #viewport.lod-region #map-stage {
+    filter: none;
+    -webkit-mask-image: linear-gradient(to right, transparent var(--l0), #000 var(--l1), #000 var(--r1), transparent var(--r0)),
+      linear-gradient(to bottom, transparent var(--t0), #000 var(--t1), #000 var(--b1), transparent var(--b0));
+    mask-image: linear-gradient(to right, transparent var(--l0), #000 var(--l1), #000 var(--r1), transparent var(--r0)),
+      linear-gradient(to bottom, transparent var(--t0), #000 var(--t1), #000 var(--b1), transparent var(--b0));
+    -webkit-mask-composite: source-in;
+    mask-composite: intersect;
+  }
 
   /* Common floating glass surfaces */
   .pill {
@@ -434,6 +449,7 @@
 <body>
 
 <div id="viewport">
+  <canvas id="backdrop"></canvas>
   <div id="panzoom">
     <div id="map-stage"></div>
   </div>
@@ -723,6 +739,93 @@ function worldParams() {
 function applyTransform() {
   $('panzoom').style.transform = `translate(${state.tx}px, ${state.ty}px) scale(${state.scale})`;
   $('zoom-pct').textContent = Math.round(state.scale * 100) + '%';
+  drawBackdrop();
+}
+
+// Подложка крупного плана: растр всего мира, перепроецированный в координаты листа региона.
+let backdrop = null; // { key, img, proj }
+
+async function loadBackdrop() {
+  const key = worldParams().toString();
+  if (backdrop && backdrop.key === key) return;
+  try {
+    const res = await fetch('/api/world/download.png?' + key);
+    if (!res.ok) return;
+    const url = URL.createObjectURL(await res.blob());
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    URL.revokeObjectURL(url);
+    backdrop = { key, img, proj: state.world.proj };
+  } catch (err) {
+    console.warn('backdrop:', err);
+  }
+}
+
+// Прячет поля и рамку листа региона (только на экране: в экспорт маска не попадает).
+function maskRegionSheet() {
+  const vp = $('viewport');
+  const reg = state.mode === 'region' ? state.region : null;
+  vp.classList.toggle('lod-region', !!(reg && reg.frame && backdrop));
+  if (!reg || !reg.frame) return;
+  const [fx, fy, fw, fh] = reg.frame;
+  const inset = fw * 0.006, fade = fw * 0.09;
+  const stops = {
+    l0: fx + inset, l1: fx + inset + fade, r1: fx + fw - inset - fade, r0: fx + fw - inset,
+    t0: fy + inset, t1: fy + inset + fade, b1: fy + fh - inset - fade, b0: fy + fh - inset,
+  };
+  for (const [k, v] of Object.entries(stops)) $('map-stage').style.setProperty('--' + k, v + 'px');
+  drawBackdrop();
+}
+
+function drawBackdrop() {
+  const reg = state.mode === 'region' ? state.region : null;
+  if (!reg || !reg.frame || !backdrop) return;
+  const cv = $('backdrop');
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const vw = cv.clientWidth, vh = cv.clientHeight;
+  if (!vw || !vh) return;
+  if (cv.width !== Math.round(vw * dpr) || cv.height !== Math.round(vh * dpr)) {
+    cv.width = Math.round(vw * dpr);
+    cv.height = Math.round(vh * dpr);
+  }
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, vw, vh);
+
+  const { img, proj } = backdrop;
+  const [wx, wy, ww, wh] = proj.frame;
+  const edge = ww * 0.006; // рамку мирового листа тоже не берём
+  const [fx, fy, fw, fh] = reg.frame;
+  const pxDeg = fw / reg.span_lon_deg;                    // ед. SVG региона на градус долготы
+  const rad = 180 / Math.PI;
+  // Долгота (от центрального меридиана мира) на левом крае мирового растра и его пикселей на градус.
+  const srcPxDeg = proj.px_per_unit / rad;
+  const lonAt = (x) => (x - wx - ww / 2) / srcPxDeg + proj.origin_x_rad * rad;
+  const lon0 = Math.max(-180, lonAt(wx + edge)), lon1 = Math.min(180, lonAt(wx + ww - edge));
+  const sx0 = wx + ww / 2 + (lon0 / rad - proj.origin_x_rad) * proj.px_per_unit;
+  const sw = (lon1 - lon0) * srcPxDeg;
+  const shift = lodWrapLon(proj.center_lon - reg.center_lon_deg);
+  const latOf = (screenY) => reg.lat_max_deg
+    - ((screenY - state.ty) / state.scale - fy) / fh * (reg.lat_max_deg - reg.lat_min_deg);
+  const srcY = (lat) => worldGeoToSvg(proj, lat, proj.center_lon)[1];
+
+  const STRIP = 4;
+  for (let y = 0; y < vh; y += STRIP) {
+    const latTop = latOf(y), latBot = latOf(y + STRIP);
+    if (latTop > 90 || latBot < -90) continue;
+    const top = srcY(latTop), bot = srcY(latBot);
+    if (top < wy + edge || bot > wy + wh - edge) continue;
+    for (const turn of [-360, 0, 360]) {
+      const dx = state.tx + state.scale * (fx + fw / 2 + (shift + turn + lon0) * pxDeg);
+      const dw = state.scale * (lon1 - lon0) * pxDeg;
+      if (dx > vw || dx + dw < 0) continue;
+      // Рисуем только видимую часть полосы: при большом увеличении dw намного шире экрана.
+      const a = Math.max(0, dx), b = Math.min(vw, dx + dw);
+      ctx.drawImage(img, sx0 + (a - dx) / dw * sw, top, (b - a) / dw * sw, bot - top,
+        a, y, b - a, STRIP + 0.5);
+    }
+  }
 }
 
 // ==== LOD MATH ====
@@ -1452,6 +1555,7 @@ async function loadWorld(o = {}) {
     state.world = data;
     state.mode = 'world';
     state.regionReq = null;
+    maskRegionSheet();
     $('btn-view-world').style.display = 'none';
     $('badge-seed').textContent = 'seed: ' + data.seed;
     updateCivUi(data);
@@ -1475,6 +1579,8 @@ async function loadRegion(req, o = {}) {
     if (!res.ok) throw new Error(await res.text());
     const data = await res.json();
     if (o.ver !== undefined && o.ver !== lodVersion) return false;
+    await loadBackdrop();
+    if (o.ver !== undefined && o.ver !== lodVersion) return false;
     const ok = await renderSvgOverlay(data.overlay_svg_url, {
       ver: o.ver,
       view: o.view ? () => o.view(data) : null,
@@ -1484,6 +1590,7 @@ async function loadRegion(req, o = {}) {
     state.regionReq = req;
     state.mode = 'region';
     $('btn-view-world').style.display = '';
+    maskRegionSheet();
     updateCivUi(state.world);
     renderCustomOverlays();
     updateDownloads();

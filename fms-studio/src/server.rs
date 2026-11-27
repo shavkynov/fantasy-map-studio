@@ -1832,7 +1832,9 @@ fn build_inspect_json(
     let mut matched_settlement: Option<&fms_core::civilization::Settlement> =
         settlement_id.and_then(|id| planet.civilization.settlements.get(id as usize));
     let mut matched_reg_settlement: Option<&fms_core::region::RegionSettlement> = None;
+    // Клик без `settlement_id` берёт ближайшее поселение, а не первое по списку в радиусе.
     if let Some((reg, rp, rx, ry, _)) = reg_sample {
+        let mut nearest = None;
         for rs in &reg.settlements {
             let ddx = (rs.x as f64 - rx as f64) * reg.dx_km_row[ry];
             let ddy = (rs.y as f64 - ry as f64) * reg.dy_km;
@@ -1840,27 +1842,30 @@ fn build_inspect_json(
             if d < nearest_dist {
                 nearest_dist = d;
                 nearest_label = format!("{} ({})", rs.name, rs.tier.name());
-                if matched_settlement.is_none() && d <= 28.0 {
-                    if let Some(gid) = rs.global_id {
-                        matched_settlement = planet.civilization.settlements.get(gid as usize);
-                    } else {
-                        matched_reg_settlement = Some(rs);
-                    }
-                }
+                nearest = Some(rs);
+            }
+        }
+        if let Some(rs) = nearest.filter(|_| matched_settlement.is_none() && nearest_dist <= 28.0) {
+            if let Some(gid) = rs.global_id {
+                matched_settlement = planet.civilization.settlements.get(gid as usize);
+            } else {
+                matched_reg_settlement = Some(rs);
             }
         }
         let _ = rp;
     } else {
+        let mut nearest = None;
         for st in &planet.civilization.settlements {
             let (sx, sy) = planet.grid.xy(st.cell);
             let d = planet.grid.spherical_dist_km(u_pt, planet.grid.unit_vec(sx, sy));
             if d < nearest_dist {
                 nearest_dist = d;
                 nearest_label = format!("{} ({})", st.name, st.tier.name());
-                if matched_settlement.is_none() && d <= 45.0 {
-                    matched_settlement = Some(st);
-                }
+                nearest = Some(st);
             }
+        }
+        if matched_settlement.is_none() && nearest_dist <= 45.0 {
+            matched_settlement = nearest;
         }
     }
     if !nearest_dist.is_finite() {
@@ -2163,4 +2168,60 @@ fn build_road_json(
     }
     out.push_str("]}");
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn populated() -> Planet {
+        let mut opt = PlanetOptions::new("e");
+        opt.tectonic.w = 180;
+        let base = planet::generate_physical_with_options(&opt).expect("planet");
+        let civ = CivilizationOptions {
+            include_realms: true,
+            include_cities: true,
+            include_routes: false,
+            target_realms: 0,
+            salt: 0,
+        };
+        planet::populate_civilization(&base, &civ)
+    }
+
+    #[test]
+    fn inspect_world_click_picks_nearest_settlement() {
+        let mut p = populated();
+        // У 80° широты соседние по долготе ячейки ближе 45 км: оба поселения в радиусе клика.
+        let y = (0..p.grid.h).find(|&y| p.grid.lat_deg(y) < 80.0).unwrap();
+        p.civilization.settlements[0].cell = p.grid.idx(10, y);
+        p.civilization.settlements[1].cell = p.grid.idx(11, y);
+        p.civilization.settlements[1].name = "Ближнее".into();
+        let json = build_inspect_json(&p, p.grid.lat_deg(y), p.grid.lon_deg(11), None, None);
+        assert!(json.contains("\"settlement\":{\"id\":1,"), "{json}");
+    }
+
+    #[test]
+    fn inspect_region_click_prefers_nearer_local_over_global() {
+        let p = populated();
+        let win = choose_region_window(&p);
+        // Узкое окно с максимальным масштабом: ячейки мельче радиуса клика.
+        let opt = RegionOptions::new(win.center_lat_deg, win.center_lon_deg, 8.0, 6.0, 16);
+        let mut reg = region::generate_region(&p, &opt).expect("region");
+        let rp = RegionProj::new(&reg, &opt, 1200);
+        let mut far = reg.settlements.first().expect("settlement").clone();
+        let (x, y) = (reg.w / 2, reg.h / 2);
+        // Соседние ячейки региона ближе 28 км друг к другу.
+        assert!(reg.dx_km_row[y] < 28.0);
+        far.global_id = Some(0);
+        (far.x, far.y, far.cell) = (x, y, reg.idx(x, y));
+        let mut near = far.clone();
+        near.global_id = None;
+        near.name = "Ближнее".into();
+        (near.x, near.cell) = (x + 1, reg.idx(x + 1, y));
+        let [lat, lon] = region_cell_latlon(&reg, rp.span_lon_deg, near.cell);
+        reg.settlements = vec![far, near];
+        let json = build_inspect_json(&p, lat, lon, None, Some((&reg, &rp)));
+        assert!(json.contains("\"settlement\":{\"id\":null,"), "{json}");
+        assert!(json.contains("\"name\":\"Ближнее\""), "{json}");
+    }
 }
