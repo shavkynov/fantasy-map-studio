@@ -766,19 +766,28 @@ function sizeSvg() {
 }
 
 const MAX_SCALE = 64;
+const FRAME_PAD = 10; // двойная линия рамки
+
+// Видимая часть карты: поле проекции без рамки атласа.
+function mapRect(proj) {
+  const [x, y, w, h] = proj.frame;
+  return [x + FRAME_PAD, y + FRAME_PAD, w - 2 * FRAME_PAD, h - 2 * FRAME_PAD];
+}
 
 // Наименьший масштаб: карта закрывает весь экран, поля и рамка атласа не видны.
 function minScale() {
   const vp = $('viewport').getBoundingClientRect();
   const proj = state.world && state.world.proj;
-  return proj ? Math.max(vp.width / proj.frame[2], vp.height / proj.frame[3]) : 0.15;
+  if (!proj) return 0.15;
+  const [, , fw, fh] = mapRect(proj);
+  return Math.max(vp.width / fw, vp.height / fh);
 }
 
 function clampView() {
   const proj = state.world && state.world.proj;
   if (!proj) return;
   const vp = $('viewport').getBoundingClientRect();
-  const [fx, fy, fw, fh] = proj.frame;
+  const [fx, fy, fw, fh] = mapRect(proj);
   state.scale = Math.max(minScale(), Math.min(MAX_SCALE, state.scale));
   const s = state.scale;
   state.tx = Math.min(-fx * s, Math.max(vp.width - (fx + fw) * s, state.tx));
@@ -988,10 +997,9 @@ function clipToMap() {
   const svg = $('map-stage').querySelector('svg');
   const proj = state.world && state.world.proj;
   if (!svg || !proj) return;
-  const [fx, fy, fw, fh] = proj.frame;
+  const [fx, fy, fw, fh] = mapRect(proj);
   const w = svg.viewBox.baseVal.width, h = svg.viewBox.baseVal.height;
-  const pad = 10; // двойная линия рамки
-  $('map-stage').style.clipPath = `inset(${fy + pad}px ${w - fx - fw + pad}px ${h - fy - fh + pad}px ${fx + pad}px)`;
+  $('map-stage').style.clipPath = `inset(${fy}px ${w - fx - fw}px ${h - fy - fh}px ${fx}px)`;
 }
 
 function applyLayerToggles() {
