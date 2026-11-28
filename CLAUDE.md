@@ -99,7 +99,7 @@ JS: `inspectSettlement`, `inspectPixel`, `renderInspectCard` (`#inspect-card`).
 Ответ (`build_road_json`): `{ok,is_sea,placed,from_placed,to_placed,length_km,max_elev_m,target_name,pts,geo_pts}` или `{ok:false,error}`.
 Дороги и метки пользователя живут только в JS (`state.customRoads`, `state.customMarkers`, `handleRoadClick`, `renderCustomOverlays`); класс дороги `roadTier` 1..3 на сервер не передаётся.
 
-Крупный план (JS `runLod` → `loadRegion`): поля и рамка листа региона скрыты CSS-маской на `#map-stage` (`maskRegionSheet`, в экспорт не попадает); под ним `canvas#backdrop` — растр мира, перепроецированный в координаты региона (`loadBackdrop`, `drawBackdrop`).
+Зум непрерывный, режима региона в UI нет (эндпоинты `/api/region*` остались в API). Крупный план — тайлы `/api/tile.png?level&x&y` (+параметры мира, `style`), `fms-render/src/tiles.rs::render_tile_png`: координаты мирового холста 2200, `2^level` px на единицу, всё считается от мировых координат (без швов). JS: `updateTiles` (слой `#layer-tiles`), `zoomAt`/`flyTo`, `clampView`, `clipToMap`, `keepSymbolSize`; тайлы и масштаб значков не входят в экспорт.
 
 Кэш (`StudioCache`, LRU): физические планеты 3, населённые 6, рендеры мира 6, регионов 8. Новый параметр генерации обязан попасть в ключ (`PhysWorldKey`/`CivKey`/`RenderKey`/`RegionKey`) и в `world_query_string`.
 

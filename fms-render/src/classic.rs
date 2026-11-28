@@ -26,34 +26,34 @@ use std::fmt::Write as _;
 // ---------- Палитры и темы (точные константы релиза 0.89.0) ----------
 
 #[derive(Clone, Copy)]
-struct ClassicTheme {
-    paper: [f64; 3],
-    paper_var: f64,
-    grain: f64,
-    ink_hex: &'static str,
-    ink: [f64; 3],
-    water_far: [f64; 3],
-    water_near: [f64; 3],
-    hatch: bool,
-    halos: usize,
-    vignette: f64,
-    frame: bool,
-    is_color: bool,
-    sym_paper: [f64; 3],
-    sym_paper_hex: &'static str,
-    sym_ink: [f64; 3],
-    sym_ink_hex: &'static str,
-    veg_paper: [f64; 3],
-    veg_paper_hex: &'static str,
-    river_hex: &'static str,
-    river_rgb: [f64; 3],
-    coast_hex: &'static str,
-    coast_rgb: [f64; 3],
-    sea_name_hex: &'static str,
-    sea_route_hex: &'static str,
+pub(crate) struct ClassicTheme {
+    pub(crate) paper: [f64; 3],
+    pub(crate) paper_var: f64,
+    pub(crate) grain: f64,
+    pub(crate) ink_hex: &'static str,
+    pub(crate) ink: [f64; 3],
+    pub(crate) water_far: [f64; 3],
+    pub(crate) water_near: [f64; 3],
+    pub(crate) hatch: bool,
+    pub(crate) halos: usize,
+    pub(crate) vignette: f64,
+    pub(crate) frame: bool,
+    pub(crate) is_color: bool,
+    pub(crate) sym_paper: [f64; 3],
+    pub(crate) sym_paper_hex: &'static str,
+    pub(crate) sym_ink: [f64; 3],
+    pub(crate) sym_ink_hex: &'static str,
+    pub(crate) veg_paper: [f64; 3],
+    pub(crate) veg_paper_hex: &'static str,
+    pub(crate) river_hex: &'static str,
+    pub(crate) river_rgb: [f64; 3],
+    pub(crate) coast_hex: &'static str,
+    pub(crate) coast_rgb: [f64; 3],
+    pub(crate) sea_name_hex: &'static str,
+    pub(crate) sea_route_hex: &'static str,
 }
 
-fn theme_of(style: Style) -> ClassicTheme {
+pub(crate) fn theme_of(style: Style) -> ClassicTheme {
     match style {
         Style::Sepia => ClassicTheme {
             paper: [223.0, 215.0, 201.0],
@@ -262,7 +262,7 @@ fn xml_escape(s: &str) -> String {
     out
 }
 
-fn classic_biome_code(b: Biome) -> u8 {
+pub(crate) fn classic_biome_code(b: Biome) -> u8 {
     match b {
         Biome::IceSheet | Biome::PolarDesert => 1,
         Biome::Tundra => 2,
@@ -1481,7 +1481,7 @@ const HYPS: &[(f64, [f64; 3])] = &[
     (1.82, [224.0, 224.0, 220.0]),
 ];
 
-fn hyps_color(hv: f64) -> [f64; 3] {
+pub(crate) fn hyps_color(hv: f64) -> [f64; 3] {
     if hv <= HYPS[0].0 {
         return HYPS[0].1;
     }
@@ -1494,7 +1494,7 @@ fn hyps_color(hv: f64) -> [f64; 3] {
     HYPS[HYPS.len() - 1].1
 }
 
-fn biome_tint(code: u8) -> Option<([f64; 3], f64)> {
+pub(crate) fn biome_tint(code: u8) -> Option<([f64; 3], f64)> {
     match code {
         1 => Some(([224.0, 228.0, 232.0], 0.24)),
         2 => Some(([190.0, 196.0, 178.0], 0.30)),

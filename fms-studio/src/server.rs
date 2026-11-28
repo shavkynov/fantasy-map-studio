@@ -643,6 +643,7 @@ impl StudioApp {
                 }
                 Err(e) => StudioResponse::err(400, &e),
             },
+            "/api/tile.png" => self.handle_tile(q),
             "/api/region" => match self.get_or_render_region(q) {
                 Ok((_, planet, cached, qs)) => StudioResponse::json(build_region_json(&planet, &cached, &qs)),
                 Err(e) => StudioResponse::err(400, &e),
@@ -722,6 +723,22 @@ impl StudioApp {
                 let inside = x >= fx && x <= fx + fw && y >= fy && y <= fy + fh;
                 StudioResponse::json(format!("{{\"x\":{x:.3},\"y\":{y:.3},\"in_bounds\":{inside}}}"))
             }
+            Err(e) => StudioResponse::err(400, &e),
+        }
+    }
+
+    /// Тайл крупного плана: `level`, `x`, `y` плюс обычные параметры мира и стиль.
+    fn handle_tile(&self, q: &HashMap<String, String>) -> StudioResponse {
+        let num = |k: &str| q.get(k).and_then(|s| s.parse::<u32>().ok());
+        let (Some(level), Some(x), Some(y)) = (num("level"), num("x"), num("y")) else {
+            return StudioResponse::err(400, "Specify level/x/y");
+        };
+        let (wkey, popt) = Self::parse_world_opts(q);
+        let tile = self
+            .get_or_build_planet(&wkey, &popt)
+            .and_then(|p| fms_render::tiles::render_tile_png(&p, Self::parse_style(q), level, x, y));
+        match tile {
+            Ok(body) => StudioResponse { status: 200, content_type: "image/png", disposition: None, body },
             Err(e) => StudioResponse::err(400, &e),
         }
     }

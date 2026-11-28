@@ -8,6 +8,7 @@ pub mod png;
 pub mod proj;
 pub mod svg;
 pub mod terrain;
+pub mod tiles;
 
 pub use assets::AssetPack;
 pub use proj::{RegionProj, WorldProj};

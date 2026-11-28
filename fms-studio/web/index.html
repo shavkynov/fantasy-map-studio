@@ -42,29 +42,15 @@
   #panzoom {
     position: absolute; left: 0; top: 0;
     transform-origin: 0 0;
-    will-change: transform;
   }
   #map-stage {
     position: relative;
     line-height: 0;
-    filter: drop-shadow(0 20px 56px rgba(0, 0, 0, 0.65));
   }
   #map-stage svg { display: block; }
-  /* Крупный план: под листом региона лежит карта мира, поля и рамка листа скрыты. */
-  #backdrop {
-    position: absolute; left: 0; top: 0; width: 100%; height: 100%;
-    pointer-events: none; display: none;
-  }
-  #viewport.lod-region #backdrop { display: block; }
-  #viewport.lod-region #map-stage {
-    filter: none;
-    -webkit-mask-image: linear-gradient(to right, transparent var(--l0), #000 var(--l1), #000 var(--r1), transparent var(--r0)),
-      linear-gradient(to bottom, transparent var(--t0), #000 var(--t1), #000 var(--b1), transparent var(--b0));
-    mask-image: linear-gradient(to right, transparent var(--l0), #000 var(--l1), #000 var(--r1), transparent var(--r0)),
-      linear-gradient(to bottom, transparent var(--t0), #000 var(--t1), #000 var(--b1), transparent var(--b0));
-    -webkit-mask-composite: source-in;
-    mask-composite: intersect;
-  }
+  /* Под тайлами обзорный рисунок не виден — не тратим на него время. */
+  #map-stage svg.tiled > :is(#layer-water-detail, #layer-ice, #layer-rivers, #layer-coast, #layer-relief,
+    #layer-forests, #layer-currents, #layer-frame) { display: none; }
 
   /* Common floating glass surfaces */
   .pill {
@@ -434,10 +420,10 @@
   #toast-banner.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
   /* Interactive SVG target animations */
-  .wp-ring { cursor: pointer; transition: transform 0.12s ease, opacity 0.12s ease; transform-box: fill-box; transform-origin: center; }
-  .wp-ring:hover { transform: scale(1.18); }
-  .settlement-icon { cursor: pointer; transition: transform 0.12s ease, opacity 0.12s ease; transform-box: fill-box; transform-origin: center; }
-  .settlement-icon:hover { transform: scale(1.22); }
+  .wp-ring { cursor: pointer; transition: opacity 0.12s ease; }
+  .wp-ring:hover { filter: brightness(1.18); }
+  .settlement-icon { cursor: pointer; transition: opacity 0.12s ease; }
+  .settlement-icon:hover { filter: brightness(1.18) drop-shadow(0 0 2px rgba(224,164,88,0.9)); }
   .card-actions { display: flex; gap: 6px; margin-top: 10px; }
   .card-actions button { flex: 1; font-size: 11.5px; padding: 6px 8px; }
   .wild-pill {
@@ -449,7 +435,6 @@
 <body>
 
 <div id="viewport">
-  <canvas id="backdrop"></canvas>
   <div id="panzoom">
     <div id="map-stage"></div>
   </div>
@@ -465,7 +450,7 @@
     <button id="badge-seed" class="seed-badge" title="Параметры мира">seed: e</button>
     <button id="btn-rand-seed" class="icon-btn" title="Случайный мир">🎲</button>
     <button id="btn-new-world" class="subtle">Новый мир…</button>
-    <button id="btn-view-world" class="subtle" style="display:none;">Весь мир</button>
+    <button id="btn-view-world" class="subtle">Весь мир</button>
   </div>
 
   <!-- Center Pill: Style + Civilization -->
@@ -655,7 +640,6 @@ const state = {
   style: 'sepia',       // 'sepia' | 'ink' | 'color'
   world: null,
   region: null,
-  regionReq: null,
   civ: {
     realms: false,
     cities: false,
@@ -736,172 +720,24 @@ function worldParams() {
   });
 }
 
+let settleTimer = null;
 function applyTransform() {
+  clampView();
+  $('panzoom').style.willChange = 'transform';
+  clearTimeout(settleTimer);
+  settleTimer = setTimeout(() => { $('panzoom').style.willChange = ''; }, 200);
   $('panzoom').style.transform = `translate(${state.tx}px, ${state.ty}px) scale(${state.scale})`;
   $('zoom-pct').textContent = Math.round(state.scale * 100) + '%';
-  drawBackdrop();
+  keepSymbolSize();
+  scheduleTiles();
 }
-
-// Подложка крупного плана: растр всего мира, перепроецированный в координаты листа региона.
-let backdrop = null; // { key, img, proj }
-
-async function loadBackdrop() {
-  const key = worldParams().toString();
-  if (backdrop && backdrop.key === key) return;
-  try {
-    const res = await fetch('/api/world/download.png?' + key);
-    if (!res.ok) return;
-    const url = URL.createObjectURL(await res.blob());
-    const img = new Image();
-    img.src = url;
-    await img.decode();
-    URL.revokeObjectURL(url);
-    backdrop = { key, img, proj: state.world.proj };
-  } catch (err) {
-    console.warn('backdrop:', err);
-  }
-}
-
-// Прячет поля и рамку листа региона (только на экране: в экспорт маска не попадает).
-function maskRegionSheet() {
-  const vp = $('viewport');
-  const reg = state.mode === 'region' ? state.region : null;
-  vp.classList.toggle('lod-region', !!(reg && reg.frame && backdrop));
-  if (!reg || !reg.frame) return;
-  const [fx, fy, fw, fh] = reg.frame;
-  const inset = fw * 0.006, fade = fw * 0.09;
-  const stops = {
-    l0: fx + inset, l1: fx + inset + fade, r1: fx + fw - inset - fade, r0: fx + fw - inset,
-    t0: fy + inset, t1: fy + inset + fade, b1: fy + fh - inset - fade, b0: fy + fh - inset,
-  };
-  for (const [k, v] of Object.entries(stops)) $('map-stage').style.setProperty('--' + k, v + 'px');
-  drawBackdrop();
-}
-
-function drawBackdrop() {
-  const reg = state.mode === 'region' ? state.region : null;
-  if (!reg || !reg.frame || !backdrop) return;
-  const cv = $('backdrop');
-  const dpr = Math.min(2, window.devicePixelRatio || 1);
-  const vw = cv.clientWidth, vh = cv.clientHeight;
-  if (!vw || !vh) return;
-  if (cv.width !== Math.round(vw * dpr) || cv.height !== Math.round(vh * dpr)) {
-    cv.width = Math.round(vw * dpr);
-    cv.height = Math.round(vh * dpr);
-  }
-  const ctx = cv.getContext('2d');
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, vw, vh);
-
-  const { img, proj } = backdrop;
-  const [wx, wy, ww, wh] = proj.frame;
-  const edge = ww * 0.006; // рамку мирового листа тоже не берём
-  const [fx, fy, fw, fh] = reg.frame;
-  const pxDeg = fw / reg.span_lon_deg;                    // ед. SVG региона на градус долготы
-  const rad = 180 / Math.PI;
-  // Долгота (от центрального меридиана мира) на левом крае мирового растра и его пикселей на градус.
-  const srcPxDeg = proj.px_per_unit / rad;
-  const lonAt = (x) => (x - wx - ww / 2) / srcPxDeg + proj.origin_x_rad * rad;
-  const lon0 = Math.max(-180, lonAt(wx + edge)), lon1 = Math.min(180, lonAt(wx + ww - edge));
-  const sx0 = wx + ww / 2 + (lon0 / rad - proj.origin_x_rad) * proj.px_per_unit;
-  const sw = (lon1 - lon0) * srcPxDeg;
-  const shift = lodWrapLon(proj.center_lon - reg.center_lon_deg);
-  const latOf = (screenY) => reg.lat_max_deg
-    - ((screenY - state.ty) / state.scale - fy) / fh * (reg.lat_max_deg - reg.lat_min_deg);
-  const srcY = (lat) => worldGeoToSvg(proj, lat, proj.center_lon)[1];
-
-  const STRIP = 4;
-  for (let y = 0; y < vh; y += STRIP) {
-    const latTop = latOf(y), latBot = latOf(y + STRIP);
-    if (latTop > 90 || latBot < -90) continue;
-    const top = srcY(latTop), bot = srcY(latBot);
-    if (top < wy + edge || bot > wy + wh - edge) continue;
-    for (const turn of [-360, 0, 360]) {
-      const dx = state.tx + state.scale * (fx + fw / 2 + (shift + turn + lon0) * pxDeg);
-      const dw = state.scale * (lon1 - lon0) * pxDeg;
-      if (dx > vw || dx + dw < 0) continue;
-      // Рисуем только видимую часть полосы: при большом увеличении dw намного шире экрана.
-      const a = Math.max(0, dx), b = Math.min(vw, dx + dw);
-      ctx.drawImage(img, sx0 + (a - dx) / dw * sw, top, (b - a) / dw * sw, bot - top,
-        a, y, b - a, STRIP + 0.5);
-    }
-  }
-}
-
-// ==== LOD MATH ====
-const LOD = {
-  SPAN_MIN: 6,
-  SPAN_MAX: 100,
-  COVER: 1.35,
-  REFINE_MAG: 1.3,
-  CELLS_WIDE: 224,
-  TARGET_W: 2000,
-};
-function lodClamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
-function lodWrapLon(l) { return ((l + 180) % 360 + 360) % 360 - 180; }
-function lodRegionScale(spanLon, cellDeg) {
-  return lodClamp(Math.round(LOD.CELLS_WIDE * cellDeg / spanLon), 2, 16);
-}
-function lodNeededSpan(visLonDeg, vpW, vpH, latDeg) {
-  const cosLat = Math.max(0.25, Math.cos(latDeg * Math.PI / 180));
-  const visLatDeg = (vpH / vpW) * visLonDeg * cosLat;
-  return LOD.COVER * Math.max(visLonDeg, visLatDeg / 0.68);
-}
-function lodDecide(v) {
-  const need = lodNeededSpan(v.visLon, v.vpW, v.vpH, v.cLat);
-  const mag = v.cssScale * v.dpr;
-  const make = () => {
-    const span = lodClamp(need, LOD.SPAN_MIN, LOD.SPAN_MAX);
-    return {
-      kind: 'region',
-      lat: lodClamp(v.cLat, -(88 - 0.34 * span), 88 - 0.34 * span),
-      lon: lodWrapLon(v.cLon),
-      span: Math.round(span * 10) / 10,
-      scale: lodRegionScale(span, v.cellDeg),
-    };
-  };
-  if (v.layer === 'world') {
-    if (need > LOD.SPAN_MAX || mag <= LOD.REFINE_MAG) return { kind: 'keep' };
-    return make();
-  }
-  if (need > LOD.SPAN_MAX * 1.05) return { kind: 'world' };
-  const wantWider = v.outside || need > v.cur.span;
-  const wantFiner = mag > LOD.REFINE_MAG && need < v.cur.span * 0.9;
-  if (!wantWider && !wantFiner) return { kind: 'keep' };
-  const t = make();
-  const centerTol = (v.outside ? 0.02 : 0.1) * v.cur.span;
-  const same = Math.abs(t.span - v.cur.span) < 0.08 * v.cur.span
-    && Math.abs(lodWrapLon(t.lon - v.cur.lon)) < centerTol
-    && Math.abs(t.lat - v.cur.lat) < centerTol;
-  return same ? { kind: 'keep' } : t;
-}
-function lodRegionToSvg(reg, lat, lon) {
-  const [fx, fy, fw, fh] = reg.frame;
-  const dlon = lodWrapLon(lon - reg.center_lon_deg);
-  return [
-    fx + (dlon + reg.span_lon_deg / 2) / reg.span_lon_deg * fw,
-    fy + (reg.lat_max_deg - lat) / (reg.lat_max_deg - reg.lat_min_deg) * fh,
-  ];
-}
-function lodSvgToRegion(reg, sx, sy) {
-  const [fx, fy, fw, fh] = reg.frame;
-  return [
-    reg.lat_max_deg - (sy - fy) / fh * (reg.lat_max_deg - reg.lat_min_deg),
-    lodWrapLon(reg.lon_min_deg + (sx - fx) / fw * reg.span_lon_deg),
-  ];
-}
-function lodViewAt(pxPerDegLon, vpW, vpH, x, y, visLon) {
-  const scale = (vpW / visLon) / pxPerDegLon;
-  return { scale, tx: vpW / 2 - x * scale, ty: vpH / 2 - y * scale };
-}
-// ==== /LOD MATH ====
 
 function pattersonY(phi) {
   const p2 = phi * phi, p4 = p2 * p2, p6 = p4 * p2, p8 = p4 * p4;
   return phi * (1.0148 + p4 * 0.23185 + p6 * (-0.14499) + p8 * 0.02406);
 }
 function worldGeoToSvg(proj, latDeg, lonDeg) {
-  const dlon = lodWrapLon(lonDeg - proj.center_lon) * Math.PI / 180;
+  const dlon = ((((lonDeg - proj.center_lon + 180) % 360) + 360) % 360 - 180) * Math.PI / 180;
   const yp = pattersonY(latDeg * Math.PI / 180);
   const [fx, fy, fw, fh] = proj.frame;
   return [
@@ -910,9 +746,6 @@ function worldGeoToSvg(proj, latDeg, lonDeg) {
   ];
 }
 function projectGeoToCurrentSvg(latDeg, lonDeg) {
-  if (state.mode === 'region' && state.region && state.region.frame) {
-    return lodRegionToSvg(state.region, latDeg, lonDeg);
-  }
   if (state.world && state.world.proj) {
     return worldGeoToSvg(state.world.proj, latDeg, lonDeg);
   }
@@ -920,8 +753,6 @@ function projectGeoToCurrentSvg(latDeg, lonDeg) {
 }
 
 let lodVersion = 0;
-let lodTimer = null;
-let lodBusy = false;
 
 function sizeSvg() {
   const svg = $('map-stage').querySelector('svg');
@@ -934,16 +765,233 @@ function sizeSvg() {
   return { svg, w, h };
 }
 
+const MAX_SCALE = 64;
+
+// Наименьший масштаб: карта закрывает весь экран, поля и рамка атласа не видны.
+function minScale() {
+  const vp = $('viewport').getBoundingClientRect();
+  const proj = state.world && state.world.proj;
+  return proj ? Math.max(vp.width / proj.frame[2], vp.height / proj.frame[3]) : 0.15;
+}
+
+function clampView() {
+  const proj = state.world && state.world.proj;
+  if (!proj) return;
+  const vp = $('viewport').getBoundingClientRect();
+  const [fx, fy, fw, fh] = proj.frame;
+  state.scale = Math.max(minScale(), Math.min(MAX_SCALE, state.scale));
+  const s = state.scale;
+  state.tx = Math.min(-fx * s, Math.max(vp.width - (fx + fw) * s, state.tx));
+  state.ty = Math.min(-fy * s, Math.max(vp.height - (fy + fh) * s, state.ty));
+}
+
 function fitToViewport() {
   const sz = sizeSvg();
   if (!sz) return;
-  const { w, h } = sz;
   const vp = $('viewport').getBoundingClientRect();
-  const s = Math.min((vp.width - 48) / w, (vp.height - 96) / h);
-  state.scale = Math.max(0.15, Math.min(2.5, s));
-  state.tx = (vp.width - w * state.scale) * 0.5;
-  state.ty = (vp.height - h * state.scale) * 0.5 + 4;
+  state.scale = minScale();
+  state.tx = (vp.width - sz.w * state.scale) * 0.5;
+  state.ty = (vp.height - sz.h * state.scale) * 0.5;
   applyTransform();
+}
+
+// ---------- Плавный зум ----------
+let zoomAnim = null; // { scale, mx, my }
+
+function zoomAt(mx, my, factor) {
+  const from = zoomAnim ? zoomAnim.scale : state.scale;
+  const scale = Math.max(minScale(), Math.min(MAX_SCALE, from * factor));
+  const running = !!zoomAnim;
+  zoomAnim = { scale, mx, my };
+  if (!running) requestAnimationFrame(stepZoom);
+}
+
+function stepZoom() {
+  if (!zoomAnim) return;
+  const { scale, mx, my } = zoomAnim;
+  let next = state.scale * Math.pow(scale / state.scale, 0.28);
+  if (Math.abs(Math.log(scale / next)) < 0.004) next = scale;
+  const ratio = next / state.scale;
+  state.tx = mx - (mx - state.tx) * ratio;
+  state.ty = my - (my - state.ty) * ratio;
+  state.scale = next;
+  if (next === scale) zoomAnim = null;
+  applyTransform();
+  if (zoomAnim) requestAnimationFrame(stepZoom);
+}
+
+function flyTo(x, y, scale) {
+  zoomAnim = null;
+  const vp = $('viewport').getBoundingClientRect();
+  const from = { s: state.scale, x: (vp.width / 2 - state.tx) / state.scale, y: (vp.height / 2 - state.ty) / state.scale };
+  const to = Math.max(minScale(), Math.min(MAX_SCALE, scale));
+  const t0 = performance.now();
+  const step = (now) => {
+    const t = Math.min(1, (now - t0) / 700);
+    const e = t * t * (3 - 2 * t);
+    state.scale = from.s * Math.pow(to / from.s, e);
+    state.tx = vp.width / 2 - (from.x + (x - from.x) * e) * state.scale;
+    state.ty = vp.height / 2 - (from.y + (y - from.y) * e) * state.scale;
+    applyTransform();
+    if (t < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+// ---------- Тайлы крупного плана ----------
+const TILE = { SIZE: 256, MAX_LEVEL: 7, FROM: 1.5 };
+let tileTimer = null;
+
+function scheduleTiles() {
+  if (!tileTimer) tileTimer = setTimeout(() => { tileTimer = null; updateTiles(); }, 80);
+}
+
+function tileLayer(svg) {
+  let layer = svg.getElementById('layer-tiles');
+  if (layer) return layer;
+  layer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  layer.setAttribute('id', 'layer-tiles');
+  // Тайлы закрывают растровый обзор; дороги, границы, значки городов и подписи остаются сверху.
+  svg.insertBefore(layer, svg.getElementById('layer-currents') || svg.getElementById('layer-routes'));
+  const roads = svg.getElementById('layer-roads');
+  if (roads) layer.after(roads);
+  return layer;
+}
+
+function updateTiles() {
+  const svg = $('map-stage').querySelector('svg');
+  const proj = state.world && state.world.proj;
+  if (!svg || !proj) return;
+  const layer = tileLayer(svg);
+  const density = state.scale * Math.min(1.5, window.devicePixelRatio || 1);
+  if (density < TILE.FROM) {
+    layer.replaceChildren();
+    svg.classList.remove('tiled');
+    return;
+  }
+  const level = Math.max(1, Math.min(TILE.MAX_LEVEL, Math.ceil(Math.log2(density * 0.75))));
+  // Порядок вызовов задаёт очередь загрузки: сначала то, что на экране, затем подложки на случай
+  // быстрого отдаления — средний уровень с запасом и грубый уровень всего мира.
+  const top = fillLevel(layer, proj, level, 0);
+  const mid = level > 3 ? fillLevel(layer, proj, level - 3, 1.5) : null;
+  const world = level > 1 && level !== 4 ? fillLevel(layer, proj, 1, Infinity) : null;
+  const groups = [...new Set([world, mid, top].filter(Boolean))];
+  const ready = (g) => [...g.children].every((img) => img.dataset.ready);
+  // Прежние уровни держим, пока новые не загрузятся целиком, — без мигания.
+  if (ready(top) && (!mid || ready(mid))) {
+    svg.classList.add('tiled');
+    for (const other of [...layer.children]) if (!groups.includes(other)) other.remove();
+  }
+  const order = [...layer.children].filter((g) => !groups.includes(g));
+  const base = world ? [world, ...order] : order;
+  const next = base.concat(groups.filter((g) => g !== world));
+  if (next.some((g, i) => layer.children[i] !== g)) next.forEach((g) => layer.appendChild(g));
+}
+
+// Тайлы одного уровня, покрывающие экран плюс `margin` экранов вокруг.
+function fillLevel(layer, proj, level, margin) {
+  let group = layer.querySelector(`g[data-level="${level}"]`);
+  if (!group) {
+    group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    group.dataset.level = level;
+    layer.appendChild(group);
+  }
+  const [fx, fy, fw, fh] = proj.frame;
+  const size = TILE.SIZE / 2 ** level;
+  const vp = $('viewport').getBoundingClientRect();
+  const mx = vp.width * margin, my = vp.height * margin;
+  const x0 = Math.max(0, Math.floor(((-mx - state.tx) / state.scale - fx) / size));
+  const y0 = Math.max(0, Math.floor(((-my - state.ty) / state.scale - fy) / size));
+  const x1 = Math.min(Math.ceil(fw / size) - 1, Math.floor(((vp.width + mx - state.tx) / state.scale - fx) / size));
+  const y1 = Math.min(Math.ceil(fh / size) - 1, Math.floor(((vp.height + my - state.ty) / state.scale - fy) / size));
+
+  const params = worldParams();
+  ['civ_realms', 'civ_cities', 'civ_routes', 'target_realms', 'civ_salt'].forEach((k) => params.delete(k));
+  const wanted = new Set();
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      const key = `${x}_${y}`;
+      wanted.add(key);
+      if (group.querySelector(`image[data-key="${key}"]`)) continue;
+      const img = document.createElementNS('http://www.w3.org/2000/svg', 'image');
+      img.dataset.key = key;
+      img.setAttribute('x', fx + x * size);
+      img.setAttribute('y', fy + y * size);
+      img.setAttribute('width', size * (1 + 1 / TILE.SIZE)); // перекрытие в 1 px против щелей
+      img.setAttribute('height', size * (1 + 1 / TILE.SIZE));
+      img.addEventListener('load', () => { img.dataset.ready = '1'; scheduleTiles(); });
+      img.addEventListener('error', () => img.remove());
+      img.setAttribute('href', `/api/tile.png?${params}&level=${level}&x=${x}&y=${y}`);
+      group.appendChild(img);
+    }
+  }
+  for (const img of [...group.children]) {
+    if (!wanted.has(img.dataset.key)) img.remove();
+  }
+  return group;
+}
+
+// Значки, подписи и линии не раздуваются вместе с картой.
+function keepSymbolSize() {
+  const svg = $('map-stage').querySelector('svg');
+  if (!svg) return;
+  const f = Math.min(1, TILE.FROM / state.scale);
+  const key = f.toFixed(4);
+  if (svg.dataset.symbolScale === key) return;
+  svg.dataset.symbolScale = key;
+  const pointLayers = ['layer-settlements', 'layer-wildsites', 'layer-pois', 'layer-deposits', 'layer-labels',
+    'layer-waypoint-targets', 'layer-inspect-pin', 'layer-custom-roads'];
+  const lineLayers = ['layer-roads', 'layer-routes', 'layer-borders', 'layer-custom-roads'];
+  for (const id of lineLayers) {
+    svg.querySelectorAll(`#${id} path`).forEach((el) => {
+      for (const attr of ['stroke-width', 'stroke-dasharray']) {
+        const k = attr === 'stroke-width' ? 'w0' : 'd0';
+        if (el.dataset[k] === undefined) el.dataset[k] = el.getAttribute(attr) || '';
+        if (el.dataset[k]) el.setAttribute(attr, el.dataset[k].split(/[ ,]+/).map((v) => v * f).join(' '));
+      }
+    });
+  }
+  // Подпись города уменьшается вокруг самого города, иначе она отъезжает от значка.
+  const cities = [...svg.querySelectorAll('#layer-settlements [data-name][data-lat]')].map((el) => ({
+    name: el.dataset.name.toUpperCase(),
+    at: worldGeoToSvg(state.world.proj, Number(el.dataset.lat), Number(el.dataset.lon)),
+  }));
+  for (const id of pointLayers) {
+    const layer = svg.getElementById(id);
+    if (!layer) continue;
+    for (const el of layer.children) {
+      if (el.tagName === 'path' || !el.getBBox) continue; // пользовательские дороги масштабируются как линии
+      if (el.dataset.t0 === undefined) {
+        // Якорь — точка на карте: координаты поселения, иначе значок (первый элемент группы).
+        const icon = el.tagName === 'g' ? [...el.children].find((c) => c.getBBox) : null;
+        const b = (icon || el).getBBox();
+        let anchor = [b.x + b.width / 2, b.y + b.height / 2];
+        if (el.dataset.lat !== undefined && state.world) {
+          anchor = worldGeoToSvg(state.world.proj, Number(el.dataset.lat), Number(el.dataset.lon));
+        } else if (el.tagName === 'text') {
+          const text = el.textContent.trim().toUpperCase();
+          const dist = (c) => Math.hypot(c.at[0] - anchor[0], c.at[1] - anchor[1]);
+          const city = cities.filter((c) => c.name === text).sort((x, y) => dist(x) - dist(y))[0];
+          if (city && dist(city) < b.width + 20) anchor = city.at;
+        }
+        el.dataset.t0 = el.getAttribute('transform') || '';
+        [el.dataset.cx, el.dataset.cy] = anchor;
+      }
+      const { cx, cy, t0 } = el.dataset;
+      el.setAttribute('transform', `${t0} translate(${cx} ${cy}) scale(${f}) translate(${-cx} ${-cy})`);
+    }
+  }
+}
+
+// Прячет поля бумаги и рамку вокруг карты (только на экране).
+function clipToMap() {
+  const svg = $('map-stage').querySelector('svg');
+  const proj = state.world && state.world.proj;
+  if (!svg || !proj) return;
+  const [fx, fy, fw, fh] = proj.frame;
+  const w = svg.viewBox.baseVal.width, h = svg.viewBox.baseVal.height;
+  const pad = 10; // двойная линия рамки
+  $('map-stage').style.clipPath = `inset(${fy + pad}px ${w - fx - fw + pad}px ${h - fy - fh + pad}px ${fx + pad}px)`;
 }
 
 function applyLayerToggles() {
@@ -957,13 +1005,13 @@ function applyLayerToggles() {
 }
 
 function activeWaypoints() {
-  const src = state.mode === 'region' && state.region ? state.region : state.world;
+  const src = state.world;
   const base = (src && src.waypoints) ? src.waypoints : [];
   return [...base, ...state.customMarkers];
 }
 
 function activeData() {
-  return state.mode === 'region' && state.region ? state.region : state.world;
+  return state.world;
 }
 
 function roadPalette() {
@@ -1240,6 +1288,8 @@ function renderCustomOverlays() {
   }
 
   applyLayerToggles();
+  delete svg.dataset.symbolScale;
+  keepSymbolSize();
 }
 
 function updateToolSubbar() {
@@ -1355,6 +1405,13 @@ async function buildSelfContainedSvgXml(active) {
   const liveSvg = $('map-stage').querySelector('svg');
   if (!liveSvg) return null;
   const clone = liveSvg.cloneNode(true);
+  const tiles = clone.querySelector('#layer-tiles');
+  if (tiles) tiles.remove();
+  clone.querySelectorAll('[data-t0]').forEach((el) => el.setAttribute('transform', el.dataset.t0));
+  clone.querySelectorAll('[data-w0], [data-d0]').forEach((el) => {
+    if (el.dataset.w0) el.setAttribute('stroke-width', el.dataset.w0);
+    if (el.dataset.d0) el.setAttribute('stroke-dasharray', el.dataset.d0);
+  });
   const tgt = clone.querySelector('#layer-waypoint-targets');
   if (tgt) tgt.remove();
   const pin = clone.querySelector('#layer-inspect-pin');
@@ -1420,7 +1477,7 @@ function updateDownloads() {
   const active = activeData();
   if (!active) return;
   const seed = ($('inp-seed').value.trim() || 'world').replace(/[^a-zA-Z0-9_-]/g, '_');
-  const prefix = state.mode === 'world' ? 'atlas' : 'region';
+  const prefix = 'atlas';
   $('btn-dl-png').onclick = () => { closePopovers(); exportLivePng(active, `${prefix}_${seed}_${state.style}.png`); };
   $('btn-dl-svg').onclick = () => { closePopovers(); exportLiveSvg(active, `${prefix}_${seed}_${state.style}.svg`); };
 }
@@ -1462,26 +1519,6 @@ function updateCivUi(data) {
       focusOn(parseFloat(el.dataset.lat), parseFloat(el.dataset.lon), 22);
     };
   });
-}
-
-function regionParams(req) {
-  const p = worldParams();
-  p.set('lat', req.lat.toFixed(4));
-  p.set('lon', req.lon.toFixed(4));
-  p.set('span', req.span.toFixed(1));
-  p.set('scale', String(req.scale));
-  p.set('target_w', String(LOD.TARGET_W));
-  return p;
-}
-
-function addRegionWindow(p) {
-  const r = state.regionReq;
-  if (state.mode !== 'region' || !r) return;
-  p.set('reg_lat', r.lat.toFixed(4));
-  p.set('reg_lon', r.lon.toFixed(4));
-  p.set('reg_span', r.span.toFixed(1));
-  p.set('scale', String(r.scale));
-  p.set('target_w', String(LOD.TARGET_W));
 }
 
 let activeBaseObjectUrl = null;
@@ -1540,7 +1577,7 @@ async function renderSvgOverlay(url, opts = {}) {
 
 async function loadWorld(o = {}) {
   if (o.ver === undefined) lodVersion++;
-  setLoading(true, o.ver === undefined ? 'Генерация мира...' : 'Возвращаюсь к карте мира...');
+  setLoading(true, o.ver === undefined ? 'Генерация мира...' : 'Обновляю карту...');
   try {
     const p = worldParams();
     const res = await fetch('/api/world?' + p.toString());
@@ -1554,9 +1591,19 @@ async function loadWorld(o = {}) {
     if (!ok) return false;
     state.world = data;
     state.mode = 'world';
-    state.regionReq = null;
-    maskRegionSheet();
-    $('btn-view-world').style.display = 'none';
+    // Тайлы, запрошенные до обновления state.world, могли взять прежнюю проекцию.
+    const stale = $('map-stage').querySelector('#layer-tiles');
+    if (stale) stale.replaceChildren();
+    clipToMap();
+    const current = $('map-stage').querySelector('svg');
+    if (current) {
+      delete current.dataset.symbolScale;
+      current.querySelectorAll('[data-t0]').forEach((el) => {
+        el.setAttribute('transform', el.dataset.t0);
+        delete el.dataset.t0;
+      });
+    }
+    if (o.view) applyTransform(); else fitToViewport();
     $('badge-seed').textContent = 'seed: ' + data.seed;
     updateCivUi(data);
     renderCustomOverlays();
@@ -1564,143 +1611,24 @@ async function loadWorld(o = {}) {
     return true;
   } catch (err) {
     if (o.ver === undefined) alert('Ошибка генерации мира: ' + err.message);
-    else console.warn('LOD world:', err);
+    else console.warn('world:', err);
     return false;
   } finally {
     setLoading(false);
   }
 }
 
-async function loadRegion(req, o = {}) {
-  if (o.ver === undefined) lodVersion++;
-  setLoading(true, o.ver === undefined ? 'Расчёт региона...' : 'Уточняю детали...');
-  try {
-    const res = await fetch('/api/region?' + regionParams(req).toString());
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
-    if (o.ver !== undefined && o.ver !== lodVersion) return false;
-    await loadBackdrop();
-    if (o.ver !== undefined && o.ver !== lodVersion) return false;
-    const ok = await renderSvgOverlay(data.overlay_svg_url, {
-      ver: o.ver,
-      view: o.view ? () => o.view(data) : null,
-    });
-    if (!ok) return false;
-    state.region = data;
-    state.regionReq = req;
-    state.mode = 'region';
-    $('btn-view-world').style.display = '';
-    maskRegionSheet();
-    updateCivUi(state.world);
-    renderCustomOverlays();
-    updateDownloads();
-    return true;
-  } catch (err) {
-    if (o.ver === undefined) alert('Ошибка расчёта региона: ' + err.message);
-    else console.warn('LOD region:', err);
-    return false;
-  } finally {
-    setLoading(false);
-  }
-}
-
+// Плавно подлетает к точке на той же карте.
 function focusOn(lat, lon, spanLon) {
   if (!state.world) return;
-  const cellDeg = 360 / state.world.grid_w;
-  return loadRegion({
-    lat: lodClamp(lat, -(88 - 0.34 * spanLon), 88 - 0.34 * spanLon),
-    lon: lodWrapLon(lon),
-    span: spanLon,
-    scale: lodRegionScale(spanLon, cellDeg),
-  });
+  const vp = $('viewport').getBoundingClientRect();
+  const [x, y] = worldGeoToSvg(state.world.proj, lat, lon);
+  flyTo(x, y, vp.width / (spanLon * state.world.px_per_deg_lon));
 }
 
 function reloadCurrent() {
   const saved = { scale: state.scale, tx: state.tx, ty: state.ty };
-  if (state.mode === 'region' && state.regionReq) {
-    return loadRegion(state.regionReq, state.region ? { view: () => saved } : {});
-  }
   return loadWorld(state.world ? { view: () => saved } : {});
-}
-
-async function currentGeoView() {
-  const vp = $('viewport').getBoundingClientRect();
-  const sxc = (vp.width / 2 - state.tx) / state.scale;
-  const syc = (vp.height / 2 - state.ty) / state.scale;
-  if (state.mode === 'region' && state.region && state.region.frame) {
-    const reg = state.region;
-    const [lat, lon] = lodSvgToRegion(reg, sxc, syc);
-    const visLon = vp.width / state.scale / (reg.frame[2] / reg.span_lon_deg);
-    const [fx, fy, fw, fh] = reg.frame;
-    const l = (0 - state.tx) / state.scale, r = (vp.width - state.tx) / state.scale;
-    const t = (0 - state.ty) / state.scale, b = (vp.height - state.ty) / state.scale;
-    return { vp, lat, lon, visLon, outside: l < fx || r > fx + fw || t < fy || b > fy + fh };
-  }
-  if (state.mode === 'world' && state.world) {
-    const p = worldParams();
-    p.set('px', sxc.toFixed(2));
-    p.set('py', syc.toFixed(2));
-    const res = await fetch('/api/world/unproject?' + p.toString());
-    if (!res.ok) return null;
-    const j = await res.json();
-    if (!j.in_bounds) return null;
-    return { vp, lat: j.lat, lon: j.lon, visLon: vp.width / state.scale / state.world.px_per_deg_lon, outside: false };
-  }
-  return null;
-}
-
-function noteViewChanged() {
-  lodVersion++;
-  clearTimeout(lodTimer);
-  lodTimer = setTimeout(runLod, 450);
-}
-
-async function runLod() {
-  if (lodBusy || state.loading) {
-    lodTimer = setTimeout(runLod, 300);
-    return;
-  }
-  const ver = lodVersion;
-  lodBusy = true;
-  try {
-    const g = await currentGeoView();
-    if (!g || ver !== lodVersion) return;
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    const d = lodDecide({
-      layer: state.mode,
-      visLon: g.visLon, cLat: g.lat, cLon: g.lon,
-      vpW: g.vp.width, vpH: g.vp.height, dpr, cssScale: state.scale,
-      cellDeg: 360 / state.world.grid_w, outside: g.outside,
-      cur: state.mode === 'region'
-        ? { lat: state.region.center_lat_deg, lon: state.region.center_lon_deg, span: state.region.span_lon_deg }
-        : null,
-    });
-    if (d.kind === 'keep') return;
-    if (d.kind === 'world') {
-      const p = worldParams();
-      p.set('lat', g.lat.toFixed(4));
-      p.set('lon', g.lon.toFixed(4));
-      const res = await fetch('/api/world/project?' + p.toString());
-      if (!res.ok || ver !== lodVersion) return;
-      const pt = await res.json();
-      await loadWorld({
-        ver,
-        view: (w) => lodViewAt(w.px_per_deg_lon, g.vp.width, g.vp.height, pt.x, pt.y, g.visLon),
-      });
-    } else {
-      await loadRegion(d, {
-        ver,
-        view: (reg) => {
-          const [x, y] = lodRegionToSvg(reg, g.lat, g.lon);
-          return lodViewAt(reg.frame[2] / reg.span_lon_deg, g.vp.width, g.vp.height, x, y, g.visLon);
-        },
-      });
-    }
-  } catch (err) {
-    console.warn('LOD:', err);
-  } finally {
-    lodBusy = false;
-  }
 }
 
 function openSettlementMapStub(settlement) {
@@ -1761,7 +1689,7 @@ async function renderInspectCard(info) {
     acts.style.display = 'flex';
     acts.innerHTML = `
       <button id="btn-open-settlement" class="btn-rect primary-soft">Открыть карту поселения</button>
-      <button id="btn-zoom-settlement" class="btn-rect">Окрестности (4×)</button>
+      <button id="btn-zoom-settlement" class="btn-rect">Приблизить</button>
     `;
     $('btn-open-settlement').addEventListener('click', () => openSettlementMapStub(st));
     $('btn-zoom-settlement').addEventListener('click', () => focusOn(st.lat, st.lon, 12));
@@ -1797,7 +1725,6 @@ async function renderInspectCard(info) {
 async function inspectSettlement(idAttr, latAttr, lonAttr) {
   const p = worldParams();
   p.set('mode', state.mode);
-  addRegionWindow(p);
   if (idAttr !== '' && idAttr != null) {
     p.set('settlement_id', String(idAttr));
   } else {
@@ -1815,7 +1742,6 @@ async function inspectPixel(px, py) {
   p.set('mode', state.mode);
   p.set('px', px.toFixed(2));
   p.set('py', py.toFixed(2));
-  addRegionWindow(p);
   const res = await fetch('/api/inspect?' + p.toString());
   if (!res.ok) return;
   const info = await res.json();
@@ -1875,7 +1801,6 @@ async function handleRoadClick(px, py) {
   p.set('to_lon', wp.lon.toFixed(5));
   p.set('target_name', wp.name);
   p.set('allow_sea', '1');
-  addRegionWindow(p);
 
   setLoading(true, 'Прокладка маршрута...');
   try {
@@ -1912,7 +1837,6 @@ async function handleMarkerClick(px, py) {
   p.set('mode', state.mode);
   p.set('px', px.toFixed(2));
   p.set('py', py.toFixed(2));
-  addRegionWindow(p);
   const res = await fetch('/api/inspect?' + p.toString());
   if (!res.ok) return;
   const info = await res.json();
@@ -1981,15 +1905,7 @@ function randomSeedName() {
 
 function zoomStep(factor) {
   const vp = $('viewport').getBoundingClientRect();
-  const mx = vp.width * 0.5;
-  const my = vp.height * 0.5;
-  const next = Math.max(0.15, Math.min(8.0, state.scale * factor));
-  const ratio = next / state.scale;
-  state.tx = mx - (mx - state.tx) * ratio;
-  state.ty = my - (my - state.ty) * ratio;
-  state.scale = next;
-  applyTransform();
-  noteViewChanged();
+  zoomAt(vp.width * 0.5, vp.height * 0.5, factor);
 }
 
 function wireEvents() {
@@ -2029,7 +1945,7 @@ function wireEvents() {
     resetCivForNewWorld();
     loadWorld();
   };
-  $('btn-view-world').onclick = () => loadWorld();
+  $('btn-view-world').onclick = () => { zoomAnim = null; fitToViewport(); };
 
   // Styles
   for (const s of ['sepia', 'ink', 'color']) {
@@ -2114,7 +2030,7 @@ function wireEvents() {
   // Zoom controls
   $('btn-zoom-in').onclick = () => zoomStep(1.25);
   $('btn-zoom-out').onclick = () => zoomStep(1 / 1.25);
-  $('btn-fit').onclick = () => { fitToViewport(); noteViewChanged(); };
+  $('btn-fit').onclick = () => { zoomAnim = null; fitToViewport(); };
 
   // Pan & Click on viewport
   const vp = $('viewport');
@@ -2173,7 +2089,6 @@ function wireEvents() {
     state.dragging = false;
     vp.classList.remove('panning');
     if (wasDragging) {
-      noteViewChanged();
       return;
     }
     if (e.button === 0 && e.target.closest('#map-stage')) {
@@ -2203,19 +2118,17 @@ function wireEvents() {
   vp.addEventListener('wheel', (e) => {
     e.preventDefault();
     const r = vp.getBoundingClientRect();
-    const mx = e.clientX - r.left;
-    const my = e.clientY - r.top;
-    const factor = e.deltaY < 0 ? 1.14 : 1 / 1.14;
-    const next = Math.max(0.15, Math.min(8.0, state.scale * factor));
-    const ratio = next / state.scale;
-    state.tx = mx - (mx - state.tx) * ratio;
-    state.ty = my - (my - state.ty) * ratio;
-    state.scale = next;
-    applyTransform();
-    noteViewChanged();
+    const dy = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY;
+    zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-Math.max(-200, Math.min(200, dy)) * 0.0022));
   }, { passive: false });
 
-  window.addEventListener('resize', fitToViewport);
+  vp.addEventListener('dblclick', (e) => {
+    if (state.tool !== 'inspect' || e.target.closest('.settlement-icon')) return;
+    const r = vp.getBoundingClientRect();
+    zoomAt(e.clientX - r.left, e.clientY - r.top, 2);
+  });
+
+  window.addEventListener('resize', applyTransform);
 }
 
 wireEvents();
